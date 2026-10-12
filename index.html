@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Overrun</title>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="hud" class="hidden">
+      <div id="xp-bar"><div id="xp-fill"></div><span id="level">Lv 1</span></div>
+      <div id="top-info"><span id="timer">00:00</span><span id="kills">0 kills</span></div>
+      <div id="banner"></div>
+      <div id="loadout">
+        <div id="hero" class="slot">
+          <div id="hero-portrait" class="portrait"></div>
+          <div class="hero-info">
+            <div id="hero-name"></div>
+            <div class="meter hp"><div id="hero-hp-fill" class="meter-fill"></div><span id="hero-hp-text"></span></div>
+            <div id="hero-dodge" class="meter dodge"><div id="hero-dodge-fill" class="meter-fill"></div><span>DODGE · SPACE</span></div>
+          </div>
+        </div>
+        <div id="loadout-slots"></div>
+      </div>
+    </div>
+
+    <div id="levelup" class="overlay hidden">
+      <div class="levelup-box">
+        <div class="levelup-title">Level up! <span id="choose-timer"></span></div>
+        <div id="cards"></div>
+        <div id="waiting"></div>
+      </div>
+    </div>
+
+    <div id="countdown" class="hidden"></div>
+
+    <div id="lobby" class="overlay">
+      <div class="panel lobby-panel">
+        <h1>OVERRUN</h1>
+        <div id="join-form">
+          <input id="name" maxlength="16" placeholder="Your name" autocomplete="off" />
+          <button id="join" class="primary">Join</button>
+        </div>
+        <div id="room" class="hidden">
+          <h2>Choose your hero</h2>
+          <div id="characters"></div>
+          <h2>Players</h2>
+          <ul id="player-list"></ul>
+          <button id="start" class="primary">Start game</button>
+          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge · 1 / 2 / 3 to pick upgrades · shoot crates for health · stand next to a downed friend to revive them · red zones on the ground are about to hurt</p>
+        </div>
+        <p id="error"></p>
+      </div>
+    </div>
+
+    <div id="gameover" class="overlay hidden">
+      <div class="panel">
+        <h1>OVERRUN</h1>
+        <p id="survived"></p>
+        <table id="results"></table>
+        <div class="buttons">
+          <button id="change-hero" class="secondary">Change hero</button>
+          <button id="restart" class="primary">Play again</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/client/main.ts"></script>
+  </body>
+</html>
