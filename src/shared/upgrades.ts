@@ -2,8 +2,24 @@ import { PICKUP_BASE_RADIUS } from './constants';
 
 export type Role = 'ranged' | 'melee';
 /** Hero abilities (cast with E). They level up like weapons but only their own hero can get them. */
-export type AbilityId = 'shuriken' | 'meteor' | 'leap' | 'warcry';
-export type WeaponId = 'bolt' | 'knives' | 'storm' | 'hex' | 'cleave' | 'slam' | 'venom' | 'orbit' | 'field' | 'mines' | AbilityId;
+export type AbilityId = 'meteor' | 'leap' | 'warcry' | 'veil' | 'flamenova' | 'tumble' | 'treant' | 'timebomb';
+export type WeaponId =
+  | 'bolt'
+  | 'knives'
+  | 'storm'
+  | 'hex'
+  | 'cleave'
+  | 'slam'
+  | 'venom'
+  | 'orbit'
+  | 'field'
+  | 'mines'
+  | 'shuriken'
+  | 'daggers'
+  | 'fireball'
+  | 'arrows'
+  | 'wolves'
+  | AbilityId;
 export type PassiveId =
   | 'might'
   | 'haste'
@@ -190,27 +206,189 @@ export function magnetRadius(upgrades: Upgrades): number {
 // --- Hero abilities (E) ---
 
 /** Kael: a giant shuriken that flies out toward the cursor, then returns, cutting through everything both ways. */
+/** A giant shuriken thrown toward your cursor that comes back, cutting through everything both ways. */
 export function shurikenStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
-  return { damage: 30 + 12 * n, cooldown: Math.max(3, 6 - 0.6 * n), range: 380 + 20 * n, speed: 560, radius: 18 };
+  const evolved = level >= EVOLVED_LEVEL;
+  return { damage: 30 + 12 * n, cooldown: Math.max(1.6, 3 - 0.3 * n), range: 380 + 20 * n, speed: 560, radius: evolved ? 27 : 18, count: evolved ? 3 : 1 };
+}
+
+/** Quick stabs at the nearest enemies within reach. Reach doesn't grow with area. */
+export function daggersStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 24 + 9 * n,
+    cooldown: Math.max(0.3, 0.5 - 0.04 * n) * (evolved ? 0.7 : 1),
+    range: 90,
+    targets: 1 + Math.floor(n / 2),
+    /** Evolved: every enemy within reach, 30% faster. */
+    all: evolved,
+  };
+}
+
+/** A slow fireball that explodes on impact. */
+export function fireballStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 20 + 8 * n,
+    cooldown: Math.max(0.7, 1.3 - 0.12 * n),
+    count: 1 + Math.floor(n / 3),
+    pierce: 0,
+    speed: 380,
+    range: 620,
+    spread: 0.25,
+    explosion: { radius: (55 + 6 * n) * (evolved ? 1.4 : 1), damageShare: 1 },
+    /** Evolved: leaves burning ground where it explodes. Damage per tick. */
+    burn: evolved ? { damage: 8 + 3 * n, life: 3 } : null,
+  };
+}
+
+/** Fast, long-range arrows toward your cursor that pierce. */
+export function arrowsStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 16 + 6 * n,
+    cooldown: Math.max(0.45, 0.9 - 0.09 * n),
+    // Evolved: a volley of three that pierces everything.
+    count: 1 + Math.floor(n / 3) + (evolved ? 2 : 0),
+    pierce: evolved ? 99 : 1 + Math.floor(n / 2),
+    speed: 820,
+    range: 780,
+    spread: 0.08,
+  };
+}
+
+/** Spirit wolves that hunt enemies near you. */
+export function wolvesStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    count: 1 + Math.floor((n + 1) / 2) + (evolved ? 2 : 0),
+    damage: 14 + 6 * n,
+    biteCooldown: 0.6,
+    speed: 330,
+    /** They only chase enemies within this distance of you. */
+    leash: 450,
+    /** Evolved: each bite also hurts enemies around the target. */
+    splash: evolved ? 50 : 0,
+  };
 }
 
 /** Lyra: a meteor lands at the cursor after a short delay. */
 export function meteorStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
-  return { damage: 60 + 25 * n, radius: 110 + 10 * n, delay: 0.6, cooldown: Math.max(4, 8 - 0.8 * n), maxRange: 650 };
+  const evolved = level >= EVOLVED_LEVEL;
+  // Evolved: a shower of smaller meteors follows the big one.
+  return { damage: 60 + 25 * n, radius: 110 + 10 * n, delay: 0.6, cooldown: Math.max(4, 8 - 0.8 * n), maxRange: 650, shower: evolved ? 5 : 0, showerDamage: 0.6 };
 }
 
 /** Brakka: leaps toward the cursor (over walls) and smashes down on landing. */
 export function leapStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
-  return { damage: 40 + 15 * n, radius: 130 + 10 * n, range: 320 + 20 * n, cooldown: Math.max(3.5, 7 - 0.7 * n), knockback: 50 };
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: (40 + 15 * n) * (evolved ? 1.5 : 1),
+    radius: (130 + 10 * n) * (evolved ? 1.25 : 1),
+    range: 320 + 20 * n,
+    cooldown: Math.max(3.5, 7 - 0.7 * n),
+    knockback: 50,
+    stun: evolved ? 1.2 : 0,
+  };
 }
 
 /** Torvald: taunts nearby enemies to attack him while he takes less damage. */
 export function warcryStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
-  return { damage: 15 + 8 * n, radius: 350 + 30 * n, taunt: 3, reduction: 0.4 + 0.05 * n, duration: 3 + 0.25 * n, cooldown: Math.max(5, 10 - n) };
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 15 + 8 * n,
+    radius: 350 + 30 * n,
+    taunt: 3,
+    reduction: evolved ? 0.7 : 0.4 + 0.05 * n,
+    duration: 3 + 0.25 * n,
+    cooldown: Math.max(5, 10 - n),
+    /** Share of max HP healed on cast. */
+    heal: evolved ? 0.2 : 0,
+  };
+}
+
+/** Kael: vanish, faster and ignored by enemies; when it wears off, erupt from the shadows. */
+export function veilStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    duration: 2 + 0.25 * n,
+    damage: (60 + 25 * n) * (evolved ? 1.5 : 1),
+    radius: 150 + 10 * n,
+    /** Extra movement speed while hidden. */
+    speed: 0.4,
+    cooldown: Math.max(5, 10 - n),
+    /** Evolved: the eruption stuns. */
+    stun: evolved ? 1 : 0,
+  };
+}
+
+/** Ignis: a ring of fire around you that leaves the ground burning. */
+export function flamenovaStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 35 + 15 * n,
+    radius: 150 + 15 * n,
+    burn: { damage: 6 + 3 * n, life: 3 },
+    cooldown: Math.max(4, 8 - 0.8 * n),
+    /** Evolved: two more novas follow. */
+    echoes: evolved ? 2 : 0,
+  };
+}
+
+/** Sylva: tumble toward your cursor and loose a fan of arrows. */
+export function tumbleStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    distance: 230,
+    arrows: (5 + n) * (evolved ? 2 : 1),
+    damage: 18 + 7 * n,
+    pierce: evolved ? 3 : 0,
+    cooldown: Math.max(3, 6 - 0.6 * n),
+  };
+}
+
+/** Oakhart: a treant at your cursor that slams the ground, rooting enemies around it. */
+export function treantStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    duration: 8 + n,
+    damage: 25 + 10 * n,
+    radius: 150 + 10 * n,
+    root: evolved ? 1.2 : 0.6,
+    interval: 1.5,
+    /** Evolved: two treants. */
+    count: evolved ? 2 : 1,
+    cooldown: Math.max(10, 16 - 1.2 * n),
+    maxRange: 450,
+  };
+}
+
+/** Vex: a bomb at your cursor that detonates after a delay, stunning everything it hits. */
+export function timebombStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 60 + 25 * n,
+    radius: 130 + 10 * n,
+    delay: 1.5,
+    stun: 1 + 0.1 * n,
+    cooldown: Math.max(4, 8 - 0.8 * n),
+    maxRange: 600,
+    /** Evolved: it goes off a second time. */
+    repeats: evolved ? 2 : 1,
+  };
 }
 
 /** XP is shared, so more players (more kills) need more XP per level; each level-up still upgrades everyone. */
@@ -227,9 +405,11 @@ interface UpgradeDef {
   role?: Role;
   /** Hero abilities: the only hero who can get it (a CharacterId). Cast with E instead of firing on its own. */
   owner?: string;
+  /** A regular weapon only this hero (a CharacterId) can be offered. */
+  exclusive?: string;
   /** Text shown on the level-up card for reaching `level`. */
   describe: (level: number) => string;
-  /** Weapons only: the level 6 form unlocked at a Forge. */
+  /** Weapons and hero abilities: the level 6 form unlocked at a Forge. */
   evolution?: { name: string; text: string };
   /** Defaults to MAX_LEVEL. */
   maxLevel?: number;
@@ -340,11 +520,102 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   shuriken: {
     name: 'Shuriken',
     kind: 'weapon',
-    owner: 'assassin',
+    role: 'ranged',
     describe: (level) => {
       const s = shurikenStats(level);
-      return `[E] Throws a giant shuriken that returns to you, hitting everything both ways for ${s.damage} damage. ${s.cooldown.toFixed(1)}s cooldown.`;
+      return `Every ${s.cooldown.toFixed(1)}s, throws a giant shuriken toward your cursor that returns to you, hitting everything both ways for ${s.damage} damage.`;
     },
+    evolution: { name: 'Shuriken Storm', text: 'Throws a fan of three shurikens, each 50% bigger.' },
+  },
+  daggers: {
+    name: 'Shadow Daggers',
+    kind: 'weapon',
+    role: 'melee',
+    describe: (level) => {
+      const s = daggersStats(level);
+      return `Stabs the ${s.targets === 1 ? 'nearest enemy' : `${s.targets} nearest enemies`} within reach for ${s.damage} damage every ${s.cooldown.toFixed(2)}s.`;
+    },
+    evolution: { name: 'Eviscerate', text: 'Stabs every enemy within reach, 30% faster.' },
+  },
+  fireball: {
+    name: 'Fireball',
+    kind: 'weapon',
+    role: 'ranged',
+    describe: (level) => {
+      const s = fireballStats(level);
+      return `Hurls ${plural(s.count, 'fireball')} toward your cursor every ${s.cooldown.toFixed(1)}s, exploding for ${s.damage} damage around the impact.`;
+    },
+    evolution: { name: 'Pyroblast', text: '40% bigger explosions that leave the ground burning.' },
+  },
+  arrows: {
+    name: 'Longbow',
+    kind: 'weapon',
+    role: 'ranged',
+    describe: (level) => {
+      const s = arrowsStats(level);
+      return `Looses ${plural(s.count, 'long-range arrow')} toward your cursor for ${s.damage} damage every ${s.cooldown.toFixed(2)}s${pierceText(s.pierce)}.`;
+    },
+    evolution: { name: "Hunter's Volley", text: 'Three arrows per shot that pierce everything.' },
+  },
+  wolves: {
+    name: 'Wolf Pack',
+    kind: 'weapon',
+    exclusive: 'druid',
+    describe: (level) => {
+      const s = wolvesStats(level);
+      return `${plural(s.count, 'spirit wolf', 'spirit wolves')} hunt enemies near you, biting for ${s.damage} damage.`;
+    },
+    evolution: { name: 'Alpha Pack', text: 'Two more wolves, and every bite tears into the enemies around the target.' },
+  },
+  veil: {
+    name: 'Shadow Veil',
+    kind: 'weapon',
+    owner: 'assassin',
+    describe: (level) => {
+      const s = veilStats(level);
+      return `[E] Vanish for ${s.duration.toFixed(2)}s: enemies lose track of you and can't touch you, and you move 40% faster. Then erupt for ${s.damage} damage around you. ${s.cooldown.toFixed(0)}s cooldown.`;
+    },
+    evolution: { name: 'Shadow Dance', text: 'The eruption deals 50% more damage and stuns everything it hits for 1 second.' },
+  },
+  flamenova: {
+    name: 'Flame Nova',
+    kind: 'weapon',
+    owner: 'pyro',
+    describe: (level) => {
+      const s = flamenovaStats(level);
+      return `[E] A ring of fire bursts from you for ${s.damage} damage and leaves the ground burning for ${s.burn.life}s. ${s.cooldown.toFixed(1)}s cooldown.`;
+    },
+    evolution: { name: 'Supernova', text: 'Two more novas follow, a moment apart.' },
+  },
+  tumble: {
+    name: 'Tumble',
+    kind: 'weapon',
+    owner: 'ranger',
+    describe: (level) => {
+      const s = tumbleStats(level);
+      return `[E] Roll toward your cursor, then loose a fan of ${s.arrows} arrows for ${s.damage} damage each. ${s.cooldown.toFixed(1)}s cooldown.`;
+    },
+    evolution: { name: 'Hail of Arrows', text: 'Twice the arrows, and each pierces 3 enemies.' },
+  },
+  treant: {
+    name: 'Treant',
+    kind: 'weapon',
+    owner: 'druid',
+    describe: (level) => {
+      const s = treantStats(level);
+      return `[E] Summon a treant at your cursor for ${s.duration}s. It slams the ground for ${s.damage} damage every ${s.interval}s, rooting enemies around it. ${s.cooldown.toFixed(1)}s cooldown.`;
+    },
+    evolution: { name: 'Ancient Grove', text: 'Two treants, and their roots hold twice as long.' },
+  },
+  timebomb: {
+    name: 'Time Bomb',
+    kind: 'weapon',
+    owner: 'chronobreaker',
+    describe: (level) => {
+      const s = timebombStats(level);
+      return `[E] Plant a bomb at your cursor that goes off after ${s.delay}s for ${s.damage} damage, stunning enemies for ${s.stun.toFixed(1)}s. ${s.cooldown.toFixed(1)}s cooldown.`;
+    },
+    evolution: { name: 'Paradox', text: 'The bomb goes off a second time, a moment later.' },
   },
   meteor: {
     name: 'Meteor',
@@ -354,6 +625,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const s = meteorStats(level);
       return `[E] Calls a meteor down at your cursor for ${s.damage} damage in a wide area. ${s.cooldown.toFixed(1)}s cooldown.`;
     },
+    evolution: { name: 'Starfall', text: 'Five smaller meteors rain down around the first one.' },
   },
   leap: {
     name: 'Leap',
@@ -363,6 +635,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const s = leapStats(level);
       return `[E] Leaps toward your cursor, over walls, and smashes down for ${s.damage} damage. ${s.cooldown.toFixed(1)}s cooldown.`;
     },
+    evolution: { name: 'Cataclysm', text: '50% more damage, a 25% bigger landing, and everything hit is stunned for 1.2 seconds.' },
   },
   warcry: {
     name: 'War Cry',
@@ -372,6 +645,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const s = warcryStats(level);
       return `[E] Taunts nearby enemies to attack you and takes ${Math.round(s.reduction * 100)}% less damage for ${s.duration.toFixed(1)}s. ${s.cooldown.toFixed(0)}s cooldown.`;
     },
+    evolution: { name: 'Unbreakable', text: 'Also heals you for 20% of your max HP, and you take 70% less damage while it lasts.' },
   },
   might: { name: 'Might', kind: 'passive', describe: () => '+10% damage.' },
   haste: { name: 'Haste', kind: 'passive', describe: () => '-8% weapon cooldowns.' },
@@ -381,7 +655,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   regen: { name: 'Regeneration', kind: 'passive', describe: () => '+0.5 HP per second.' },
   armor: { name: 'Plating', kind: 'passive', describe: () => '-6% damage taken.' },
   crit: { name: 'Crit', kind: 'passive', describe: () => `+6% chance to crit for ${CRIT_MULTIPLIER}x damage.` },
-  lifesteal: { name: 'Vampirism', kind: 'passive', describe: () => 'Heal for 0.5% of all damage you deal.' },
+  lifesteal: { name: 'Vampirism', kind: 'passive', describe: (l) => `Heal for 0.5% of all damage you deal, up to ${l}% of your max HP per second.` },
   area: { name: 'Expanse', kind: 'passive', describe: () => '+10% size of areas, auras, blasts and orbits.' },
   duration: { name: 'Persistence', kind: 'passive', describe: () => '+12% duration of stuns, taunts, buffs and puddles.' },
   multishot: { name: 'Multishot', kind: 'passive', describe: () => '+1 projectile, blade or strike for your weapons.', maxLevel: 3 },

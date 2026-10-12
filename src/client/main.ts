@@ -49,6 +49,9 @@ async function main() {
   ui.onStart = () => net.send({ t: 'start' });
   ui.onLobby = () => net.send({ t: 'lobby' });
   ui.onChoose = (index) => net.send({ t: 'choose', index });
+  ui.onPrestige = (id) => net.send({ t: 'prestige', id });
+  ui.onRespec = () => net.send({ t: 'respec' });
+  ui.onUnlock = (character) => net.send({ t: 'unlock', character });
 
   net.onWelcome = (id) => {
     myId = id;

@@ -1,5 +1,5 @@
 import { TICK_RATE } from '../shared/constants';
-import { ENEMY_SHOT_STRIDE, ENEMY_STRIDE, GEM_STRIDE, PROJECTILE_STRIDE, type Snapshot } from '../shared/protocol';
+import { ENEMY_SHOT_STRIDE, ENEMY_STRIDE, GEM_STRIDE, PROJECTILE_STRIDE, SUMMON_STRIDE, type Snapshot } from '../shared/protocol';
 
 /**
  * Everything except your own player is drawn this many ticks in the past, so there is always
@@ -14,6 +14,7 @@ export interface IndexedSnapshot {
   projectiles: Map<number, number>;
   enemyShots: Map<number, number>;
   gems: Map<number, number>;
+  summons: Map<number, number>;
 }
 
 export interface Sample {
@@ -42,6 +43,7 @@ export class SnapshotBuffer {
       projectiles: indexIds(snap.projectiles, PROJECTILE_STRIDE),
       enemyShots: indexIds(snap.enemyShots, ENEMY_SHOT_STRIDE),
       gems: indexIds(snap.gems, GEM_STRIDE),
+      summons: indexIds(snap.summons, SUMMON_STRIDE),
     });
     if (!last) this.renderTick = snap.tick - INTERP_TICKS;
   }

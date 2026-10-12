@@ -16,6 +16,13 @@ const EMBLEMS: Record<CharacterId, string> = {
   tank:
     '<path d="M32 6 L53 13 L51 35 C49 46 41 53 32 58 C23 53 15 46 13 35 L11 13 Z"/>' +
     '<path d="M32 13 V51 M19 27 H45" fill="none" stroke="#0b0c10" stroke-width="3" opacity=".45"/>',
+  pyro: '<path d="M32 6 C40 18 50 26 46 42 C44 52 38 58 32 58 C26 58 20 52 18 42 C16 32 24 28 26 18 C30 24 30 30 34 32 C36 24 34 14 32 6 Z"/>',
+  ranger: '<path d="M16 8 Q46 32 16 56 L21 56 Q51 32 21 8 Z"/><rect x="12" y="30.5" width="38" height="3" rx="1"/><path d="M55 32 L45 26 L45 38 Z"/>',
+  druid:
+    '<path d="M32 6 C50 16 54 40 32 58 C10 40 14 16 32 6 Z"/>' +
+    '<path d="M32 14 V54 M32 30 L22 22 M32 40 L42 32" fill="none" stroke="#0b0c10" stroke-width="2.5" opacity=".45"/>',
+  chronobreaker:
+    '<path d="M16 8 H48 V12 L34 32 L48 52 V56 H16 V52 L30 32 L16 12 Z"/><path d="M24 52 L32 42 L40 52 Z" fill="#fff" opacity=".4" stroke="none"/>',
 };
 
 /** An SVG portrait for a character. Safe for innerHTML: it contains no user input. */

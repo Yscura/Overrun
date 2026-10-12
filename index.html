@@ -18,9 +18,10 @@
       <div id="top-info"><span id="timer">00:00</span><span id="kills">0 kills</span></div>
       <div id="objectives">
         <div id="boss-bar" class="hidden">
-          <div id="boss-name"></div>
-          <div class="meter boss"><div id="boss-fill" class="meter-fill"></div></div>
+          <div id="boss-bars"></div>
+          <div id="boss-status"></div>
         </div>
+        <div id="mission-chip" class="chip mission hidden"></div>
         <div id="boss-chip" class="chip boss hidden"></div>
         <div id="event-chip" class="chip event hidden"></div>
         <div id="quest-chip" class="chip quest hidden"></div>
@@ -82,10 +83,17 @@
           <div id="maps"></div>
           <h2>Choose your hero</h2>
           <div id="characters"></div>
+          <div class="prestige-head">
+            <h2>Prestige</h2>
+            <span id="prestige-points"></span>
+            <button id="respec" class="link">Refund all</button>
+          </div>
+          <p class="prestige-hint">Permanent upgrades, kept between runs. Every team level you reach in a run earns a point (more on harder maps).</p>
+          <div id="prestige"></div>
           <h2>Players</h2>
           <ul id="player-list"></ul>
           <button id="start" class="primary">Start game</button>
-          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge · E ability · R ultimate · hold Tab for the scoreboard · 1 / 2 / 3 to pick upgrades · shoot crates for health · stand next to a downed friend to revive them · red zones on the ground are about to hurt · stand in upgrade points (Forge, Altar, Beacon) together to capture them faster · dodge through fences · survive 14 minutes and beat the boss to unlock the next map</p>
+          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge · E ability · R ultimate · hold Tab for the scoreboard · 1 / 2 / 3 to pick upgrades · shoot crates for health · stand next to a downed friend to revive them · red zones on the ground are about to hurt · stand in upgrade points (Forge, Altar, Beacon) together to capture them faster · dodge through fences · survive 9 minutes and beat the boss to unlock the next map</p>
         </div>
         <p id="error"></p>
       </div>

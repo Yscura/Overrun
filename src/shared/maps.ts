@@ -1,8 +1,8 @@
 import type { Wall } from './collision';
-import { EnemyType } from './enemies';
+import { EnemyType, bossDisplayName } from './enemies';
 
-/** The named boss arrives this many seconds in; with the fight that makes a run about 15 minutes. */
-export const BOSS_TIME = 14 * 60;
+/** The named boss arrives this many seconds in; with the fight that makes a run about 10 minutes. */
+export const BOSS_TIME = 9 * 60;
 /**
  * On arena maps, when the boss is due a burning zone sweeps in from the map's far corners toward the arena,
  * reaching the arena's edge after this many seconds.
@@ -21,8 +21,19 @@ export interface MapDef {
   walls: Wall[];
   /** Enemy type of the named final boss. */
   boss: number;
+  /** A second boss fought at the same time (kill them close together, or the survivor turns vengeful). */
+  twin?: number;
+  /** Display name for the boss fight, when there are two. */
+  bossName?: string;
   /** A boss arena the team is forced into, or null to fight the boss wherever you are. */
   arena: { x: number; y: number; r: number } | null;
+  /**
+   * Multiplier on enemy health and damage (bosses included). Later maps are meant to need a few ranks of
+   * prestige first.
+   */
+  difficulty: number;
+  /** Prestige points per team level gained in a run here. */
+  prestigeReward: number;
   /** Multipliers on enemy spawn weights, to give each map its own mix. */
   enemyWeights: Partial<Record<number, number>>;
   theme: { background: number; grid: number; wall: number; wallEdge: number; fence: number; outside: number };
@@ -83,6 +94,8 @@ export const MAPS: MapDef[] = [
     spawn: { x: 1800, y: 1800 },
     boss: EnemyType.Grimjaw,
     arena: null,
+    difficulty: 1,
+    prestigeReward: 1,
     enemyWeights: { [EnemyType.Wraith]: 0 },
     theme: { background: 0x18201a, grid: 0x223024, wall: 0x5d6b5a, wallEdge: 0x3b4539, fence: 0x8d7b5a, outside: 0x070a07 },
     walls: [
@@ -112,6 +125,8 @@ export const MAPS: MapDef[] = [
     spawn: { x: 600, y: 1500 },
     boss: EnemyType.Rime,
     arena: { x: 3750, y: 1500, r: 420 },
+    difficulty: 1.5,
+    prestigeReward: 1.5,
     enemyWeights: { [EnemyType.Spitter]: 1.6, [EnemyType.Wraith]: 1, [EnemyType.Bombardier]: 0.5 },
     theme: { background: 0x161c24, grid: 0x1f2833, wall: 0x8fa3b8, wallEdge: 0x52606f, fence: 0x6d8ba3, outside: 0x05080c },
     walls: [
@@ -141,7 +156,11 @@ export const MAPS: MapDef[] = [
     height: 4400,
     spawn: { x: 2200, y: 3800 },
     boss: EnemyType.AshlordVael,
+    twin: EnemyType.Embra,
+    bossName: 'Ashlord Vael and Embra, the Twin Flames',
     arena: { x: 2200, y: 750, r: 460 },
+    difficulty: 2.2,
+    prestigeReward: 2,
     enemyWeights: { [EnemyType.Charger]: 1.6, [EnemyType.Bombardier]: 1.6, [EnemyType.Wraith]: 1.2, [EnemyType.Spitter]: 0.8 },
     theme: { background: 0x1e1714, grid: 0x2a201b, wall: 0x5a4038, wallEdge: 0x2e1f1a, fence: 0xb2552c, outside: 0x0a0503 },
     walls: [
@@ -164,3 +183,8 @@ export const MAPS: MapDef[] = [
     ],
   },
 ];
+
+/** Who you fight at the end of this map. */
+export function mapBossName(map: MapDef): string {
+  return map.bossName ?? bossDisplayName(map.boss);
+}

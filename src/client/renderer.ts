@@ -22,6 +22,8 @@ import {
   type Fx,
   type PlayerState,
   type Snapshot,
+  SUMMON_STRIDE,
+  SummonKind,
 } from '../shared/protocol';
 import { fieldRadius, orbitLayout } from '../shared/characters';
 import type { Sample } from './snapshots';
@@ -121,6 +123,8 @@ export class GameRenderer {
     numbers: new Container(),
   };
   private tex!: {
+    wolf: Texture;
+    treant: Texture;
     enemies: Texture[];
     bodies: Record<CharacterId, { fill: Texture; outline: Texture }>;
     aimArrow: Texture;
@@ -155,12 +159,15 @@ export class GameRenderer {
   private enemyViews = new Map<number, TypedView>();
   private pickupViews = new Map<number, TypedView>();
   private projectileViews = new Map<number, PointView>();
+  private summonViews = new Map<number, PointView>();
   private enemyShotViews = new Map<number, PointView>();
   private gemViews = new Map<number, PointView>();
   private playerViews = new Map<number, PlayerView>();
   private hazardViews = new Map<number, { g: Graphics; seen: number }>();
   /** Venom puddles are drawn together in one graphic; mines are sprites. */
   private venom = new Graphics();
+  /** Boss shields and mission-target markers, redrawn every frame. */
+  private marks = new Graphics();
   private mineViews = new Map<number, PointView>();
   private particles: Particle[] = [];
   private effects: Effect[] = [];
@@ -198,6 +205,9 @@ export class GameRenderer {
       mine: this.texture(new Graphics().circle(0, 0, 9).fill(0x37474f).stroke({ width: 2, color: 0xffab40 }).circle(0, 0, 3).fill(0xff1744)),
       enemyShot: this.texture(new Graphics().circle(0, 0, 10).fill({ color: 0xffffff, alpha: 0.3 }).circle(0, 0, 6).fill(0xffffff)),
       blade: this.texture(new Graphics().poly([0, -14, 5, 0, 0, 14, -5, 0]).fill(0xffffff)),
+      // Wolves point where they run; treants are a leafy crown.
+      wolf: this.texture(new Graphics().poly([14, 0, -9, -8, -4, 0, -9, 8]).fill(0xffffff).stroke({ width: 1.5, color: 0x1b5e20 })),
+      treant: this.texture(this.starShape(new Graphics(), 28, 20, 7).fill(0xffffff).circle(0, 0, 9).fill(0x4e342e)),
       gemSmall: this.texture(new Graphics().poly([0, -7, 5, 0, 0, 7, -5, 0]).fill(0xffffff)),
       gemBig: this.texture(new Graphics().poly([0, -11, 8, 0, 0, 11, -8, 0]).fill(0xffffff)),
       // A wooden box with a red cross, and the red cross it drops when broken. These keep their own colors.
@@ -384,11 +394,18 @@ export class GameRenderer {
     this.renderPoints(this.projectileViews, a.snap.projectiles, a.projectiles, b.snap.projectiles, PROJECTILE_STRIDE, 2, t, this.layers.projectiles, (list, i) =>
       list[i + 1] === ProjectileKind.Knife
         ? { texture: this.tex.knife, tint: 0xeceff1, rotate: true }
-        : list[i + 1] === ProjectileKind.Shuriken
-          ? { texture: this.tex.shuriken, tint: 0xce93d8, spin: true }
+        : list[i + 1] === ProjectileKind.Shuriken || list[i + 1] === ProjectileKind.BigShuriken
+          ? { texture: this.tex.shuriken, tint: 0xce93d8, spin: true, scale: list[i + 1] === ProjectileKind.BigShuriken ? 1.5 : 1 }
+          : list[i + 1] === ProjectileKind.Fireball
+          ? { texture: this.tex.bolt, tint: 0xff7043, scale: 1.7 }
+          : list[i + 1] === ProjectileKind.Arrow
+          ? { texture: this.tex.knife, tint: 0xdcedc8, rotate: true, scale: 1.4 }
           : list[i + 1] === ProjectileKind.Hex
             ? { texture: this.tex.hex, tint: 0xea80fc, spin: true }
             : { texture: this.tex.bolt, tint: 0xb3e5fc },
+    );
+    this.renderPoints(this.summonViews, a.snap.summons, a.summons, b.snap.summons, SUMMON_STRIDE, 2, t, this.layers.projectiles, (list, i) =>
+      list[i + 1] === SummonKind.Treant ? { texture: this.tex.treant, tint: 0x6d8f3a } : { texture: this.tex.wolf, tint: 0xa5d6a7, rotate: true },
     );
     this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_STRIDE, 1, t, this.layers.enemyShots, () => ({
       texture: this.tex.enemyShot,
@@ -454,6 +471,9 @@ export class GameRenderer {
         break;
       case ShrineKind.Event: // An hourglass.
         icon.poly([-14, -20, 14, -20, 0, 0]).poly([-14, 20, 14, 20, 0, 0]).fill(color);
+        break;
+      case ShrineKind.Sigil: // A rune: a diamond with a cross.
+        icon.poly([0, -24, 18, 0, 0, 24, -18, 0]).stroke({ width: 4, color }).rect(-2, -14, 4, 28).rect(-10, -2, 20, 4).fill(color);
         break;
       default: // An exclamation mark.
         icon.roundRect(-4, -24, 8, 30, 3).circle(0, 16, 5).fill(color);
@@ -523,6 +543,10 @@ export class GameRenderer {
     const listA = a.snap.enemies;
     const listB = b.snap.enemies;
     const blink = Math.floor(performance.now() / 80) % 2 === 0;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+    const marks = this.marks.clear();
+    if (!marks.parent) this.layers.enemies.addChild(marks);
+    else this.layers.enemies.setChildIndex(marks, this.layers.enemies.children.length - 1);
     for (let i = 0; i < listB.length; i += ENEMY_STRIDE) {
       const id = listB[i];
       const type = listB[i + 1];
@@ -547,6 +571,12 @@ export class GameRenderer {
       const white = (flags & EnemyFlag.Hit) !== 0 || (windingUp && blink);
       const stunned = (flags & EnemyFlag.Stunned) !== 0;
       view.sprite.tint = white ? 0xffffff : stunned ? STUNNED : ENEMY_TYPES[type].color;
+      const r = ENEMY_TYPES[type].radius;
+      // A shimmering bubble on shielded bosses; a gold ring on enemies a side mission needs dead.
+      if (flags & EnemyFlag.Shielded) {
+        marks.circle(x, y, r + 14).fill({ color: 0xe040fb, alpha: 0.12 + 0.08 * pulse }).stroke({ width: 3, color: 0xea80fc, alpha: 0.5 + 0.4 * pulse });
+      }
+      if (flags & EnemyFlag.Marked) marks.circle(x, y, r + 6).stroke({ width: 2.5, color: 0xffd54f, alpha: 0.5 + 0.5 * pulse });
     }
     // Enemies that vanished died (or the run reset).
     for (const [id, view] of this.enemyViews) {
@@ -570,6 +600,11 @@ export class GameRenderer {
       const [id, kind, x, y, r] = list.slice(i, i + ZONE_STRIDE);
       if (kind === ZoneKind.Venom) {
         venom.circle(x, y, r).fill({ color: 0x76ff03, alpha: 0.16 });
+        continue;
+      }
+      if (kind === ZoneKind.Fire) {
+        const flicker = 0.5 + 0.5 * Math.sin(performance.now() / 90 + id);
+        venom.circle(x, y, r).fill({ color: 0xff6d00, alpha: 0.14 + 0.06 * flicker }).circle(x, y, r * 0.55).fill({ color: 0xffab40, alpha: 0.1 });
         continue;
       }
       let view = this.mineViews.get(id);
@@ -668,7 +703,7 @@ export class GameRenderer {
     pos: number,
     t: number,
     layer: Container,
-    look: (list: number[], i: number) => { texture: Texture; tint: number; rotate?: boolean; spin?: boolean },
+    look: (list: number[], i: number) => { texture: Texture; tint: number; rotate?: boolean; spin?: boolean; scale?: number },
   ): void {
     for (let i = 0; i < listB.length; i += stride) {
       const id = listB[i];
@@ -690,6 +725,7 @@ export class GameRenderer {
         const style = look(listB, i);
         const sprite = this.acquire(style.texture, layer);
         sprite.tint = style.tint;
+        sprite.scale.set(style.scale ?? 1);
         view = { sprite, seen: 0, rotate: style.rotate, spin: style.spin };
         views.set(id, view);
       }
@@ -730,7 +766,8 @@ export class GameRenderer {
       view.outline.texture = textures.outline;
       view.body.tint = p.hurt ? 0xffffff : p.color;
       view.body.alpha = p.downed ? 0.35 : 1;
-      view.root.alpha = p.invuln ? 0.5 : 1;
+      // Shadow Veil: barely there (enemies can't see you at all).
+      view.root.alpha = p.veiled ? 0.25 : p.invuln ? 0.5 : 1;
       this.drawBars(view.bars, p);
       this.updateBlades(view, p, time);
     }
@@ -924,6 +961,17 @@ export class GameRenderer {
           for (let i = 0; i < 6; i++) points.push(Math.cos((i * Math.PI) / 3) * (r + 2), Math.sin((i * Math.PI) / 3) * (r + 2));
           return g.poly(points);
         }
+        case 'pyro': // A flame.
+          return g.poly([0, -r - 5, r * 0.75, -r * 0.2, r, r * 0.45, r * 0.5, r, -r * 0.5, r, -r, r * 0.45, -r * 0.75, -r * 0.2]);
+        case 'ranger': // An arrowhead.
+          return g.poly([0, -r - 4, r + 2, r, 0, r * 0.45, -r - 2, r]);
+        case 'druid': {
+          const points: number[] = [];
+          for (let i = 0; i < 8; i++) points.push(Math.cos((i * Math.PI) / 4 + Math.PI / 8) * (r + 3), Math.sin((i * Math.PI) / 4 + Math.PI / 8) * (r + 3));
+          return g.poly(points);
+        }
+        case 'chronobreaker': // An hourglass.
+          return g.poly([-r, -r, r, -r, 4, 0, r, r, -r, r, -4, 0]);
         default:
           return g.circle(0, 0, r);
       }

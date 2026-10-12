@@ -1,3 +1,4 @@
+import { PRESTIGE_BONUS, type PrestigeId, type PrestigeRanks } from './prestige';
 import {
   ALL_UPGRADES,
   MAX_LEVEL,
@@ -15,8 +16,8 @@ import {
   type WeaponId,
 } from './upgrades';
 
-export type CharacterId = 'assassin' | 'mage' | 'bruiser' | 'tank';
-export type UltimateId = 'lotus' | 'chrono' | 'rage' | 'rally';
+export type CharacterId = 'assassin' | 'mage' | 'bruiser' | 'tank' | 'pyro' | 'ranger' | 'druid' | 'chronobreaker';
+export type UltimateId = 'shadowstrike' | 'chrono' | 'rage' | 'rally' | 'inferno' | 'arrowstorm' | 'wildcall' | 'rewind';
 
 export interface UltimateDef {
   id: UltimateId;
@@ -48,23 +49,28 @@ export interface CharacterDef {
   trait: string;
   /** Dodges through thick walls too (everyone's dodge clears thin ones). */
   phaseWalls?: boolean;
+  /** Multiplier on the size of areas, auras, blasts and orbits. Defaults to 1. */
+  areaMult?: number;
+  /** Prestige points to unlock this hero (per player). Missing means available from the start. */
+  unlockCost?: number;
 }
 
 export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   assassin: {
     name: 'Kael',
     title: 'the Assassin',
-    role: 'ranged',
-    maxHp: 85,
-    speed: 245,
+    role: 'melee',
+    maxHp: 70,
+    speed: 250,
     armor: 0,
     regen: 0,
-    damageMult: 1,
-    dodgeCooldown: 1.8,
-    startWeapon: 'knives',
-    ability: 'shuriken',
-    ultimate: { id: 'lotus', name: 'Death Lotus', text: 'Spin for 3s, throwing rings of knives in every direction.', cooldown: 50 },
-    trait: 'Fastest, dodges often, and shadowsteps through any wall',
+    damageMult: 1.4,
+    areaMult: 0.7,
+    dodgeCooldown: 1.6,
+    startWeapon: 'daggers',
+    ability: 'veil',
+    ultimate: { id: 'shadowstrike', name: 'Shadow Strike', text: 'Blink between up to 7 enemies nearby, striking each one hard. Untouchable while it lasts.', cooldown: 45 },
+    trait: '+40% damage but 30% smaller areas. Fastest, and shadowsteps through any wall',
     phaseWalls: true,
   },
   mage: {
@@ -112,6 +118,77 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     ultimate: { id: 'rally', name: 'Rally', text: 'Heal nearby allies for 40%, revive the downed, and halve their damage taken for 6s.', cooldown: 90 },
     trait: 'Takes 25% less damage',
   },
+  // Unlockable heroes: a little stronger than the starting four.
+  pyro: {
+    name: 'Ignis',
+    title: 'the Pyromancer',
+    role: 'ranged',
+    maxHp: 70,
+    speed: 215,
+    armor: 0,
+    regen: 0,
+    damageMult: 1.25,
+    areaMult: 1.3,
+    dodgeCooldown: 3,
+    startWeapon: 'fireball',
+    ability: 'flamenova',
+    ultimate: { id: 'inferno', name: 'Inferno', text: 'For 3s, fireballs rain down all around you.', cooldown: 60 },
+    trait: '+25% damage and 30% bigger areas, but fragile',
+    unlockCost: 40,
+  },
+  ranger: {
+    name: 'Sylva',
+    title: 'the Ranger',
+    role: 'ranged',
+    maxHp: 90,
+    speed: 245,
+    armor: 0,
+    regen: 0,
+    damageMult: 1.15,
+    dodgeCooldown: 1.4,
+    startWeapon: 'arrows',
+    ability: 'tumble',
+    ultimate: { id: 'arrowstorm', name: 'Arrow Storm', text: 'For 4s, fire a torrent of piercing arrows toward your cursor.', cooldown: 50 },
+    trait: '+15% damage, fast, and dodges more often than anyone',
+    unlockCost: 40,
+  },
+  druid: {
+    name: 'Oakhart',
+    title: 'the Druid',
+    role: 'melee',
+    maxHp: 200,
+    speed: 205,
+    armor: 0.1,
+    regen: 1.5,
+    damageMult: 1,
+    dodgeCooldown: 3.5,
+    startWeapon: 'wolves',
+    ability: 'treant',
+    ultimate: { id: 'wildcall', name: 'Call of the Wild', text: 'Six more spirit wolves join the hunt for 15s.', cooldown: 70 },
+    trait: 'Toughest hero: regenerates and fights with a wolf pack',
+    unlockCost: 40,
+  },
+  chronobreaker: {
+    name: 'Vex',
+    title: 'the Chronobreaker',
+    role: 'melee',
+    maxHp: 120,
+    speed: 225,
+    armor: 0.05,
+    regen: 0,
+    damageMult: 1.15,
+    dodgeCooldown: 2.5,
+    startWeapon: 'orbit',
+    ability: 'timebomb',
+    ultimate: {
+      id: 'rewind',
+      name: 'Chronobreak',
+      text: 'Rewind to where you were 4s ago, restore the most HP you had since, and explode on arrival.',
+      cooldown: 60,
+    },
+    trait: '+15% damage. Chronobreak turns back time',
+    unlockCost: 40,
+  },
 };
 
 export const CHARACTER_IDS = Object.keys(CHARACTERS) as CharacterId[];
@@ -126,8 +203,13 @@ export function upgradesFor(character: CharacterId): UpgradeId[] {
   const role = CHARACTERS[character].role;
   return ALL_UPGRADES.filter((id) => {
     const def = UPGRADES[id];
-    return (!def.role || def.role === role) && (!def.owner || def.owner === character);
+    return (!def.role || def.role === role) && (!def.owner || def.owner === character) && (!def.exclusive || def.exclusive === character);
   });
+}
+
+/** Can this player pick the hero? Starting heroes always; the rest once unlocked with prestige. */
+export function heroAvailable(character: CharacterId, unlocked: readonly string[]): boolean {
+  return CHARACTERS[character].unlockCost === undefined || unlocked.includes(character);
 }
 
 /** Ordinary weapons (not the E ability) and passives the player owns, in the order they got them. */
@@ -157,22 +239,25 @@ export function offerableUpgrades(upgrades: Upgrades, character: CharacterId): U
 /** Roughly how many level-up picks it takes to fill every slot and max everything, not counting the starting levels. */
 export const UPGRADE_PICKS = (WEAPON_SLOTS + 1 + PASSIVE_SLOTS) * MAX_LEVEL - 2; // +1 for the E ability; weapon and ability start at 1.
 
-/** A player's stats: their character's base stats with passive upgrades applied. */
-export function playerStats(upgrades: Upgrades, character: CharacterId) {
+/** A player's stats: their character's base stats with passive upgrades and prestige ranks applied. */
+export function playerStats(upgrades: Upgrades, character: CharacterId, prestige: PrestigeRanks = {}) {
   const c = CHARACTERS[character];
   const lv = (id: UpgradeId) => upgrades[id] ?? 0;
+  const rank = (id: PrestigeId) => (prestige[id] ?? 0) * PRESTIGE_BONUS[id];
   return {
-    damageMult: c.damageMult * (1 + 0.1 * lv('might')),
-    cooldownMult: 1 - 0.08 * lv('haste'),
-    speed: c.speed * (1 + 0.08 * lv('swift')),
-    maxHp: c.maxHp + 20 * lv('vitality'),
+    damageMult: c.damageMult * (1 + 0.1 * lv('might')) * (1 + rank('power')),
+    cooldownMult: (1 - 0.08 * lv('haste')) / (1 + rank('fury')),
+    speed: c.speed * (1 + 0.08 * lv('swift')) * (1 + rank('stride')),
+    maxHp: Math.round((c.maxHp + 20 * lv('vitality')) * (1 + rank('fortitude'))),
     magnet: magnetRadius(upgrades),
     regen: c.regen + 0.5 * lv('regen'),
-    armor: Math.min(0.6, c.armor + 0.06 * lv('armor')),
+    armor: Math.min(0.6, c.armor + 0.06 * lv('armor') + rank('resolve')),
     dodgeCooldown: c.dodgeCooldown,
     critChance: 0.06 * lv('crit'),
     lifesteal: 0.005 * lv('lifesteal'),
-    area: 1 + 0.1 * lv('area'),
+    /** Most Vampirism can heal, as a share of max HP per second. */
+    lifestealCap: 0.01 * lv('lifesteal'),
+    area: (1 + 0.1 * lv('area')) * (c.areaMult ?? 1),
     duration: 1 + 0.12 * lv('duration'),
     projectiles: lv('multishot'),
     evasion: 0.03 * lv('evasion'),

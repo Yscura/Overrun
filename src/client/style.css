@@ -251,15 +251,138 @@ button.primary:hover {
   color: #ff8a80;
 }
 
+.map-card-difficulty {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* --- Prestige shop --- */
+
+.prestige-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.prestige-head h2 {
+  margin: 0;
+}
+
+#prestige-points {
+  font-weight: 800;
+  color: #ffd54f;
+}
+
+button.link {
+  margin-left: auto;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+button.link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.prestige-hint {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  text-align: left;
+  color: var(--muted);
+}
+
+#prestige {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.prestige-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  text-align: left;
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.prestige-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.prestige-name {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.prestige-desc {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.prestige-row .pips {
+  width: 80px;
+  flex-shrink: 0;
+}
+
+.prestige-row .pip {
+  background: #2a2f3a;
+}
+
+.prestige-row .pip.on {
+  background: #ffd54f;
+}
+
+.prestige-buy {
+  min-width: 64px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1a1407;
+  background: #ffd54f;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.prestige-buy:disabled {
+  color: var(--muted);
+  background: #1b1f27;
+  cursor: default;
+}
+
 /* --- Boss --- */
 
 #boss-bar {
-  width: min(460px, calc(100vw - 32px));
+  width: min(620px, calc(100vw - 32px));
   text-align: center;
 }
 
-#boss-name {
+#boss-bars {
+  display: flex;
+  gap: 12px;
+}
+
+.boss-one {
+  flex: 1;
+  min-width: 0;
+}
+
+.boss-name {
   margin-bottom: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 15px;
   font-weight: 800;
   color: #ff8a80;
@@ -273,6 +396,34 @@ button.primary:hover {
 
 .meter.boss .meter-fill {
   background: #e53935;
+}
+
+/* Immune during a side mission. */
+.meter.boss.shielded {
+  border-color: #e040fb;
+  box-shadow: 0 0 10px rgba(224, 64, 251, 0.5);
+}
+
+.meter.boss.shielded .meter-fill {
+  background: #8e24aa;
+}
+
+#boss-status {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  text-shadow: 0 1px 3px #000;
+}
+
+#boss-status.urgent {
+  color: #ff5252;
+}
+
+.chip.mission {
+  border-color: #e040fb;
+  color: #ea80fc;
 }
 
 .chip.boss {
@@ -643,6 +794,21 @@ button.secondary:hover {
   color: #b388ff;
 }
 
+.hero-card.locked {
+  opacity: 0.6;
+}
+
+.hero-card.locked:hover {
+  opacity: 0.85;
+}
+
+.hero-card-unlock {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffd54f;
+}
+
 .card.hero-ability {
   border-top-color: #b388ff;
 }
@@ -728,6 +894,7 @@ button.secondary:hover {
 .score-chips {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
 }
 
@@ -741,15 +908,15 @@ button.secondary:hover {
   border-radius: 999px;
 }
 
-.score-chip.weapon {
+.score-chip.chip-weapon {
   border-color: #ffb74d;
 }
 
-.score-chip.ability {
+.score-chip.chip-ability {
   border-color: #b388ff;
 }
 
-.score-chip.passive {
+.score-chip.chip-passive {
   border-color: var(--accent);
 }
 

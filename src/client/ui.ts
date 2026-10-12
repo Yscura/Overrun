@@ -2,15 +2,17 @@ import {
   CHARACTERS,
   CHARACTER_IDS,
   DEFAULT_CHARACTER,
+  heroAvailable,
   isCharacterId,
   ownedPassives,
   ownedWeapons,
   playerStats,
   type CharacterId,
 } from '../shared/characters';
-import { bossDisplayName } from '../shared/enemies';
-import { MAPS } from '../shared/maps';
+import { MISSIONS } from '../shared/enemies';
+import { MAPS, mapBossName } from '../shared/maps';
 import { EVENTS, QUESTS } from '../shared/objectives';
+import { PRESTIGE, PRESTIGE_IDS, prestigeCost, type PrestigeId, type PrestigeRanks } from '../shared/prestige';
 import type { GameResult, PlayerState, Snapshot } from '../shared/protocol';
 import {
   EVOLVED_LEVEL,
@@ -98,6 +100,9 @@ export class UI {
   onStart: () => void = () => {};
   onLobby: () => void = () => {};
   onChoose: (index: number) => void = () => {};
+  onPrestige: (id: PrestigeId) => void = () => {};
+  onRespec: () => void = () => {};
+  onUnlock: (character: CharacterId) => void = () => {};
 
   private lobby = $('lobby');
   private joinForm = $('join-form');
@@ -105,6 +110,8 @@ export class UI {
   private room = $('room');
   private maps = $('maps');
   private characters = $('characters');
+  private prestige = $('prestige');
+  private prestigePoints = $('prestige-points');
   private playerList = $('player-list');
   private error = $('error');
   private hud = $('hud');
@@ -114,8 +121,11 @@ export class UI {
   private kills = $('kills');
   private banner = $('banner');
   private bossBar = $('boss-bar');
-  private bossName = $('boss-name');
-  private bossFill = $('boss-fill');
+  private bossBars = $('boss-bars');
+  private bossStatus = $('boss-status');
+  private missionChip = $('mission-chip');
+  /** One health bar per final boss. */
+  private bossViews: { name: HTMLElement; fill: HTMLElement; hp: HTMLElement }[] = [];
   private bossChip = $('boss-chip');
   private gameoverTitle = $('gameover-title');
   private eventChip = $('event-chip');
@@ -147,7 +157,7 @@ export class UI {
   private latest: { snap: Snapshot; myId: number | null } | null = null;
 
   // Only rebuild DOM when the content actually changed (snapshots arrive 30 times a second).
-  private shown = { players: '', maps: '', characters: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
+  private shown = { players: '', maps: '', prestige: '', characters: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
   private bannerTimer = 0;
 
   constructor() {
@@ -166,6 +176,7 @@ export class UI {
     $('start').addEventListener('click', () => this.onStart());
     $('restart').addEventListener('click', () => this.onStart());
     $('change-hero').addEventListener('click', () => this.onLobby());
+    $('respec').addEventListener('click', () => this.onRespec());
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement || this.cards.childElementCount === 0) return;
       const index = CHOICE_KEYS.indexOf(e.code.replace('Numpad', 'Digit'));
@@ -256,7 +267,8 @@ export class UI {
     if (snap.phase === 'lobby') {
       this.renderMaps(snap);
       this.renderPlayerList(snap);
-      if (me) this.renderCharacters(me);
+      if (me && snap.me) this.renderCharacters(me, snap.me.heroes, snap.me.prestigePoints);
+      if (me && snap.me) this.renderPrestige(me.prestige, snap.me.prestigePoints);
     }
     this.renderBoss(snap, me);
     this.xpFill.style.width = `${Math.min(100, (snap.xp / snap.xpNext) * 100)}%`;
@@ -307,7 +319,8 @@ export class UI {
         card.append(
           title,
           el('div', 'map-card-sub', locked ? `Beat ${MAPS[i - 1].name} to unlock` : map.subtitle),
-          el('div', 'map-card-boss', locked ? 'Final boss: ???' : `Final boss: ${bossDisplayName(map.boss)}`),
+          el('div', 'map-card-boss', locked ? 'Final boss: ???' : `Final ${map.twin !== undefined ? 'bosses' : 'boss'}: ${mapBossName(map)}`),
+          el('div', 'map-card-difficulty', `Enemies ×${map.difficulty} · Prestige ×${map.prestigeReward}`),
         );
         card.addEventListener('click', () => this.onPickMap(i));
         return card;
@@ -315,14 +328,15 @@ export class UI {
     );
   }
 
-  private renderCharacters(me: PlayerState): void {
-    const key = `${me.character}|${me.color}`;
+  private renderCharacters(me: PlayerState, unlocked: CharacterId[], points: number): void {
+    const key = `${me.character}|${me.color}|${unlocked.join(',')}|${points}`;
     if (key === this.shown.characters) return;
     this.shown.characters = key;
     this.characters.replaceChildren(
       ...CHARACTER_IDS.map((id) => {
         const c = CHARACTERS[id];
-        const card = el('button', id === me.character ? 'hero-card selected' : 'hero-card');
+        const locked = !heroAvailable(id, unlocked);
+        const card = el('button', `hero-card${id === me.character ? ' selected' : ''}${locked ? ' locked' : ''}`);
         const info = el('div', 'hero-card-info');
         const title = el('div', 'hero-card-title');
         title.append(el('span', 'hero-card-name', c.name), el('span', `role ${c.role}`, c.role === 'ranged' ? 'Ranged' : 'Melee'));
@@ -334,12 +348,42 @@ export class UI {
           el('div', 'hero-card-weapon', `Starts with ${UPGRADES[c.startWeapon].name}`),
           el('div', 'hero-card-abilities', `E: ${UPGRADES[c.ability].name} · R: ${c.ultimate.name}`),
         );
+        if (locked) info.append(el('div', 'hero-card-unlock', `Locked · unlock for ${c.unlockCost} prestige${points < c.unlockCost! ? ` (you have ${points})` : ''}`));
         card.append(portrait(id, me.color), info);
         card.addEventListener('click', () => {
+          if (locked) {
+            if (points >= c.unlockCost! && window.confirm(`Unlock ${c.name}, ${c.title} for ${c.unlockCost} prestige?`)) this.onUnlock(id);
+            return;
+          }
           save(CHARACTER_KEY, id);
           this.onPick(id);
         });
         return card;
+      }),
+    );
+  }
+
+  /** The prestige shop: your unspent points and a row per upgrade with its rank and a buy button. */
+  private renderPrestige(ranks: PrestigeRanks, points: number): void {
+    const key = `${points}|${JSON.stringify(ranks)}`;
+    if (key === this.shown.prestige) return;
+    this.shown.prestige = key;
+    this.prestigePoints.textContent = `${points} point${points === 1 ? '' : 's'}`;
+    this.prestige.replaceChildren(
+      ...PRESTIGE_IDS.map((id) => {
+        const def = PRESTIGE[id];
+        const rank = ranks[id] ?? 0;
+        const maxed = rank >= def.maxRank;
+        const cost = prestigeCost(rank);
+        const row = el('div', 'prestige-row');
+        const info = el('div', 'prestige-info');
+        info.append(el('div', 'prestige-name', def.name), el('div', 'prestige-desc', rank > 0 ? def.describe(rank) : `${def.describe(1)} per rank`));
+        const buy = el('button', 'prestige-buy', maxed ? 'Max' : `+1 · ${cost}`) as HTMLButtonElement;
+        buy.disabled = maxed || points < cost;
+        buy.title = maxed ? '' : `Rank ${rank + 1}: ${def.describe(rank + 1)}`;
+        buy.addEventListener('click', () => this.onPrestige(id));
+        row.append(info, pips(rank, def.maxRank), buy);
+        return row;
       }),
     );
   }
@@ -361,10 +405,40 @@ export class UI {
 
   /** The boss health bar during the fight, otherwise a countdown to the boss or a warning to get to the arena. */
   private renderBoss(snap: Snapshot, me: PlayerState | undefined): void {
-    this.bossBar.classList.toggle('hidden', !snap.boss);
-    if (snap.boss) {
-      this.bossName.textContent = snap.boss.enraged ? `${snap.boss.name} (enraged)` : snap.boss.name;
-      this.bossFill.style.width = `${(snap.boss.hp / snap.boss.maxHp) * 100}%`;
+    const fight = snap.bossFight;
+    this.bossBar.classList.toggle('hidden', !fight);
+    this.missionChip.classList.toggle('hidden', !fight?.mission);
+    if (fight) {
+      if (this.bossViews.length !== fight.bosses.length) {
+        this.bossViews = fight.bosses.map(() => {
+          const name = el('div', 'boss-name');
+          const meter = el('div', 'meter boss');
+          const fill = el('div', 'meter-fill');
+          const hp = el('span');
+          meter.append(fill, hp);
+          return { name, fill, hp };
+        });
+        this.bossBars.replaceChildren(
+          ...this.bossViews.map((v) => {
+            const wrap = el('div', 'boss-one');
+            wrap.append(v.name, v.fill.parentElement!);
+            return wrap;
+          }),
+        );
+      }
+      fight.bosses.forEach((b, i) => {
+        const v = this.bossViews[i];
+        const tags = [b.vengeful ? 'vengeful' : '', b.enraged ? 'enraged' : '', fight.mission && b.hp > 0 ? 'shielded' : ''].filter(Boolean);
+        v.name.textContent = b.hp <= 0 ? `${b.name} (slain)` : tags.length ? `${b.name} (${tags.join(', ')})` : b.name;
+        v.fill.style.width = `${(b.hp / b.maxHp) * 100}%`;
+        v.fill.parentElement!.classList.toggle('shielded', !!fight.mission && b.hp > 0);
+        v.hp.textContent = `${b.hp.toLocaleString('en-US')} / ${b.maxHp.toLocaleString('en-US')}`;
+      });
+      // The berserk clock.
+      const berserk = fight.berserk > 0;
+      this.bossStatus.classList.toggle('urgent', berserk || fight.berserkIn <= 30);
+      this.bossStatus.textContent = berserk ? `BERSERK x${fight.berserk} · stronger every 30s` : `Berserk in ${formatTime(fight.berserkIn)}`;
+      if (fight.mission) this.missionChip.textContent = `Shielded! ${MISSIONS[fight.mission.kind].goal} (${fight.mission.done}/${fight.mission.total})`;
     }
     let text = '';
     let urgent = false;
@@ -374,9 +448,9 @@ export class UI {
       // The fire is sweeping in: are you in it yet?
       urgent = true;
       const burning = Math.hypot(me.x - arena.x, me.y - arena.y) > arena.safeR;
-      text = burning ? "You're burning! Get to the arena!" : snap.boss ? 'Join the fight! The fire is closing in.' : 'Get to the arena! The fire is closing in.';
-    } else if (snap.phase === 'playing' && !snap.boss && (!arena || arena.state === 'idle') && snap.time < snap.bossTime) {
-      text = `${bossDisplayName(MAPS[snap.map].boss)} in ${formatTime(snap.bossTime - snap.time)}`;
+      text = burning ? "You're burning! Get to the arena!" : fight ? 'Join the fight! The fire is closing in.' : 'Get to the arena! The fire is closing in.';
+    } else if (snap.phase === 'playing' && !fight && (!arena || arena.state === 'idle') && snap.time < snap.bossTime) {
+      text = `${mapBossName(MAPS[snap.map])} in ${formatTime(snap.bossTime - snap.time)}`;
     }
     this.bossChip.classList.toggle('hidden', !text);
     this.bossChip.classList.toggle('urgent', urgent);
@@ -404,9 +478,10 @@ export class UI {
     const key = `${me.character}|${level}`;
     if (key !== this.shown.abilities) {
       this.shown.abilities = key;
-      this.abilityE.querySelector('.ability-name')!.textContent = UPGRADES[hero.ability].name;
+      this.abilityE.querySelector('.ability-name')!.textContent = upgradeName(hero.ability, level);
       this.abilityE.querySelector('.ability-level')!.replaceChildren(pips(level));
-      this.abilityE.title = UPGRADES[hero.ability].describe(Math.max(1, level));
+      const evolution = level >= EVOLVED_LEVEL ? UPGRADES[hero.ability].evolution : undefined;
+      this.abilityE.title = evolution ? evolution.text : UPGRADES[hero.ability].describe(Math.max(1, level));
       this.abilityR.querySelector('.ability-name')!.textContent = hero.ultimate.name;
       this.abilityR.title = `${hero.ultimate.text} ${hero.ultimate.cooldown}s cooldown.`;
     }
@@ -512,7 +587,7 @@ export class UI {
     const build = el('div', 'score-build');
     const chip = (id: UpgradeId, kind: string) => {
       const level = p.upgrades[id] ?? 0;
-      const c = el('span', `score-chip ${kind}${level >= EVOLVED_LEVEL ? ' evolved' : ''}`);
+      const c = el('span', `score-chip chip-${kind}${level >= EVOLVED_LEVEL ? ' evolved' : ''}`);
       c.append(el('span', '', upgradeName(id, level)), el('span', 'score-chip-level', level >= EVOLVED_LEVEL ? 'EVO' : String(level)));
       c.title = UPGRADES[id].describe(level);
       return c;
@@ -531,11 +606,12 @@ export class UI {
 
   /** Their stats from upgrades, listing only what differs from a fresh hero (plus speed and armor). */
   private statLine(p: PlayerState): string {
-    const s = playerStats(p.upgrades, p.character);
+    const s = playerStats(p.upgrades, p.character, p.prestige);
     const base = playerStats({}, p.character);
     const parts: string[] = [];
     if (s.damageMult !== base.damageMult) parts.push(`Damage +${percent(s.damageMult / base.damageMult - 1)}`);
     if (s.cooldownMult !== 1) parts.push(`Cooldowns -${percent(1 - s.cooldownMult)}`);
+    if (s.maxHp !== base.maxHp) parts.push(`Max HP ${s.maxHp}`);
     if (s.critChance) parts.push(`Crit ${percent(s.critChance)}`);
     if (s.lifesteal) parts.push(`Lifesteal ${percent(s.lifesteal)}`);
     if (s.area !== 1) parts.push(`Area +${percent(s.area - 1)}`);
@@ -601,7 +677,8 @@ export class UI {
     this.gameoverTitle.classList.toggle('victory', result.victory);
     this.survived.textContent = result.victory
       ? `You defeated ${result.boss} in ${formatTime(result.time)}!` + (result.unlockedMap ? ` ${result.unlockedMap} is now unlocked.` : '')
-      : `Your team survived ${formatTime(result.time)} and reached level ${result.level}`;
+      : `Your team survived ${formatTime(result.time)} and reached level ${result.level}.`;
+    if (result.prestige > 0) this.survived.textContent += ` Everyone earned ${result.prestige} prestige.`;
     const header = el('tr');
     header.append(el('th', '', 'Player'), el('th', '', 'Hero'), el('th', '', 'Kills'));
     const rows = [...result.players]

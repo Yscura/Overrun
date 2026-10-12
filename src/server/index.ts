@@ -7,7 +7,7 @@ import { TICK_RATE } from '../shared/constants';
 import type { ClientMessage } from '../shared/protocol';
 import { MAPS } from '../shared/maps';
 import { Game } from './game';
-import { loadUnlocked, saveUnlocked } from './progress';
+import { loadProgress, saveProgress } from './progress';
 
 const PORT = Number(process.env.PORT) || 3000;
 const STEP_MS = 1000 / TICK_RATE;
@@ -42,13 +42,18 @@ const server = http.createServer((req, res) => {
 
 // Testing switches: OVERRUN_BOSS_TIME=60 brings the final boss after a minute; OVERRUN_UNLOCK_ALL=1 opens every map.
 const bossTime = Number(process.env.OVERRUN_BOSS_TIME) || undefined;
+const progress = loadProgress();
 const game = new Game({
-  unlocked: process.env.OVERRUN_UNLOCK_ALL ? MAPS.length : loadUnlocked(),
+  unlocked: process.env.OVERRUN_UNLOCK_ALL ? MAPS.length : progress.unlocked,
   onUnlock: (unlocked) => {
-    saveUnlocked(unlocked);
+    progress.unlocked = Math.max(progress.unlocked, unlocked);
+    saveProgress(progress);
     console.log(`Unlocked ${MAPS[unlocked - 1].name}`);
   },
   bossTime,
+  profiles: progress.profiles,
+  onProfiles: () => saveProgress(progress),
+  allHeroes: Boolean(process.env.OVERRUN_UNLOCK_ALL),
 });
 const wss = new WebSocketServer({ server, path: '/ws', perMessageDeflate: { threshold: 1024 } });
 

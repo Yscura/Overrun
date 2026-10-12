@@ -112,6 +112,54 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
       v.noise({ filter: 'lowpass', from: 200, to: 1200, duration: 0.9, volume: 0.07 });
     },
   },
+  dagger: { play: (v) => v.noise({ filter: 'bandpass', from: 3000, to: 1400, duration: 0.05, volume: 0.1, q: 2 }), max: 3, gap: 0.04 },
+  fireball: {
+    play: (v) => {
+      v.noise({ filter: 'lowpass', from: 300, to: 1200, duration: 0.2, volume: 0.11 });
+      v.tone({ type: 'sawtooth', from: 110, to: 70, duration: 0.2, volume: 0.06, lowpass: 600 });
+    },
+  },
+  arrow: {
+    play: (v) => {
+      v.noise({ filter: 'bandpass', from: 1800, to: 900, duration: 0.06, volume: 0.08, q: 1.5 });
+      v.tone({ type: 'triangle', from: 300, to: 190, duration: 0.05, volume: 0.04 });
+    },
+    max: 3,
+    gap: 0.03,
+  },
+  bite: {
+    play: (v) => {
+      v.noise({ filter: 'lowpass', from: 900, to: 200, duration: 0.07, volume: 0.09 });
+      v.tone({ type: 'square', from: 140, to: 90, duration: 0.05, volume: 0.04, lowpass: 500 });
+    },
+    max: 2,
+    gap: 0.08,
+  },
+  veil: {
+    play: (v) => {
+      v.tone({ type: 'sine', from: 220, to: 110, duration: 0.5, volume: 0.08, attack: 0.1 });
+      v.noise({ filter: 'bandpass', from: 600, to: 200, duration: 0.4, volume: 0.06 });
+    },
+  },
+  nova: {
+    play: (v) => {
+      v.noise({ filter: 'lowpass', from: 200, to: 1500, duration: 0.4, volume: 0.2 });
+      v.tone({ type: 'sine', from: 80, to: 40, duration: 0.4, volume: 0.2 });
+    },
+  },
+  summon: {
+    play: (v) => {
+      v.tone({ type: 'triangle', from: 98, to: 147, duration: 0.5, volume: 0.09, attack: 0.08, lowpass: 800 });
+      v.noise({ filter: 'lowpass', from: 150, to: 500, duration: 0.4, volume: 0.08 });
+    },
+  },
+  rewind: {
+    // A tape spun backwards: falling sweeps.
+    play: (v) => {
+      v.tone({ type: 'sawtooth', from: 440, to: 110, duration: 0.6, volume: 0.07, lowpass: 1500 });
+      v.tone({ type: 'sine', from: 880, to: 220, duration: 0.5, volume: 0.04 });
+    },
+  },
   gem: { play: (v) => v.tone({ type: 'sine', from: 520, to: 560, duration: 0.05, volume: 0.03 }), max: 3, gap: 0.035 },
   heal: {
     play: (v) => {

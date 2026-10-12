@@ -4,12 +4,14 @@
  * Stand inside a shrine to capture it. It fills faster the bigger share of the team is inside:
  * the whole team takes SHRINE_CAPTURE_TIME seconds, a lone player in a team of four about twice that.
  */
-export const ShrineKind = { Forge: 0, Event: 1, Quest: 2 } as const;
+export const ShrineKind = { Forge: 0, Event: 1, Quest: 2, Sigil: 3 } as const;
 
 export const SHRINES = [
-  { name: 'Forge', hint: 'Upgrade a weapon (evolves max-level weapons)', color: 0xffa726 },
+  { name: 'Forge', hint: 'Upgrade a weapon (evolves max-level weapons and abilities)', color: 0xffa726 },
   { name: 'Altar', hint: 'A powerful effect for the whole team', color: 0x26c6da },
   { name: 'Beacon', hint: 'Starts a quest with a gem reward', color: 0xffee58 },
+  // Only during a boss side mission.
+  { name: 'Sigil', hint: 'Stand in it to break the boss shield', color: 0xe040fb },
 ];
 
 export const SHRINE_RADIUS = 100;
@@ -19,8 +21,14 @@ export const SHRINE_SOLO_SHARE = 0.4;
 /** The first shrine appears this many seconds in, then one every SHRINE_INTERVAL while there's room. */
 export const SHRINE_FIRST = 30;
 export const SHRINE_INTERVAL = 40;
-/** Shrines stay until captured, but there are never more than this many at once. */
+/** Altars and Beacons stay until captured, but there are never more than this many at once. */
 export const MAX_SHRINES = 2;
+/**
+ * Forges don't come at random: one appears at each of these points of the way to the final boss, and they
+ * don't count toward MAX_SHRINES. Evolving all four weapons and the E ability takes 5 Forges, so a team
+ * that captures every one can max everything, with one Forge to spare.
+ */
+export const FORGE_SCHEDULE = [0.25, 0.4, 0.55, 0.68, 0.8, 0.9];
 /** New shrines keep at least this distance from existing ones. */
 export const SHRINE_SPACING = 700;
 
