@@ -3,9 +3,12 @@ import { EnemyType } from './enemies';
 
 /** The named boss arrives this many seconds in; with the fight that makes a run about 15 minutes. */
 export const BOSS_TIME = 14 * 60;
-/** On arena maps: seconds to get into the arena before the zone outside starts burning. */
-export const ARENA_GATHER_TIME = 25;
-/** Zone damage outside the arena, as a share of max HP per second. */
+/**
+ * On arena maps, when the boss is due a burning zone sweeps in from the map's far corners toward the arena,
+ * reaching the arena's edge after this many seconds.
+ */
+export const ZONE_SWEEP_TIME = 45;
+/** Damage for standing in the burning zone, as a share of max HP per second. */
 export const ZONE_DAMAGE = 0.08;
 
 export interface MapDef {

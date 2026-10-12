@@ -22,7 +22,13 @@ import {
   type UpgradeId,
   type Upgrades,
 } from '../shared/upgrades';
+import type { Sound } from './audio';
 import { portraitSvg } from './portraits';
+
+const SPEAKER =
+  '<path d="M3 9h4l5-4v14l-5-4H3z" fill="currentColor"/>';
+const SPEAKER_ON = `<svg viewBox="0 0 24 24" aria-hidden="true">${SPEAKER}<path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+const SPEAKER_OFF = `<svg viewBox="0 0 24 24" aria-hidden="true">${SPEAKER}<path d="M16 9l6 6M22 9l-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 
 const NAME_KEY = 'overrun.name';
 const CHARACTER_KEY = 'overrun.character';
@@ -184,6 +190,33 @@ export class UI {
     this.nameInput.focus();
   }
 
+  /** The volume slider and mute button (also M). */
+  bindSound(sound: Sound): void {
+    const mute = $<HTMLButtonElement>('mute');
+    const volume = $<HTMLInputElement>('volume');
+    const refresh = () => {
+      const silent = sound.isMuted() || sound.getVolume() === 0;
+      mute.innerHTML = silent ? SPEAKER_OFF : SPEAKER_ON; // Static SVG.
+      mute.classList.toggle('off', silent);
+      volume.value = String(Math.round(sound.getVolume() * 100));
+    };
+    mute.addEventListener('click', () => {
+      sound.setMuted(!sound.isMuted());
+      refresh();
+    });
+    volume.addEventListener('input', () => {
+      sound.setVolume(Number(volume.value) / 100);
+      if (sound.isMuted()) sound.setMuted(false);
+      refresh();
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'KeyM' || e.repeat || e.target instanceof HTMLInputElement) return;
+      sound.setMuted(!sound.isMuted());
+      refresh();
+    });
+    refresh();
+  }
+
   showJoined(): void {
     this.joinForm.classList.add('hidden');
     this.room.classList.remove('hidden');
@@ -336,16 +369,14 @@ export class UI {
     let text = '';
     let urgent = false;
     const arena = snap.arena;
-    if (snap.phase === 'playing' && !snap.boss) {
-      if (arena && arena.state !== 'idle' && !me?.inArena) {
-        urgent = true;
-        text = arena.zoneIn > 0 ? `Get into the arena! The zone burns in ${Math.ceil(arena.zoneIn)}s` : 'The zone is burning! Get into the arena!';
-      } else if (snap.time < snap.bossTime) {
-        text = `${bossDisplayName(MAPS[snap.map].boss)} in ${formatTime(snap.bossTime - snap.time)}`;
-      }
-    } else if (snap.boss && arena && arena.state === 'fight' && !me?.inArena && !me?.downed) {
+    const outsideArena = arena && arena.state !== 'idle' && me && !me.inArena && !me.downed;
+    if (outsideArena) {
+      // The fire is sweeping in: are you in it yet?
       urgent = true;
-      text = arena.zoneIn > 0 ? `Join the fight! Zone in ${Math.ceil(arena.zoneIn)}s` : 'The zone is burning! Get into the arena!';
+      const burning = Math.hypot(me.x - arena.x, me.y - arena.y) > arena.safeR;
+      text = burning ? "You're burning! Get to the arena!" : snap.boss ? 'Join the fight! The fire is closing in.' : 'Get to the arena! The fire is closing in.';
+    } else if (snap.phase === 'playing' && !snap.boss && (!arena || arena.state === 'idle') && snap.time < snap.bossTime) {
+      text = `${bossDisplayName(MAPS[snap.map].boss)} in ${formatTime(snap.bossTime - snap.time)}`;
     }
     this.bossChip.classList.toggle('hidden', !text);
     this.bossChip.classList.toggle('urgent', urgent);

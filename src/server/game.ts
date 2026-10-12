@@ -42,6 +42,7 @@ import {
   BOSS_ENRAGE_AT,
   BOSS_ENRAGE_SPEEDUP,
   BOSS_NOVA,
+  BOSS_STUN,
   BOSS_SUMMON,
   CHARGER,
   ENEMY_TYPES,
@@ -52,7 +53,7 @@ import {
   bossDisplayName,
   type ChargeConfig,
 } from '../shared/enemies';
-import { ARENA_GATHER_TIME, BOSS_TIME, MAPS, ZONE_DAMAGE, type MapDef } from '../shared/maps';
+import { BOSS_TIME, MAPS, ZONE_DAMAGE, ZONE_SWEEP_TIME, type MapDef } from '../shared/maps';
 import {
   EVENTS,
   EVENT_DURATION,
@@ -85,6 +86,7 @@ import {
   type ChoiceReason,
   type ClientMessage,
   type Fx,
+  type SoundId,
   type GameResult,
   type MeState,
   type Pause,
@@ -202,6 +204,8 @@ interface Player {
   /** Small continuous damage (contact, zone) is added up and shown every DAMAGE_NUMBER_INTERVAL. */
   takenAcc: number;
   takenTimer: number;
+  /** Sounds for this player's own actions, collected until the next snapshot. */
+  sounds: SoundId[];
 }
 
 /** Venom puddles and mines on the ground. */
@@ -242,6 +246,8 @@ interface Enemy {
   flashUntil: number;
   orbitHitUntil: number;
   stunUntil: number;
+  /** Bosses can't be stunned again until this time. */
+  stunImmuneUntil: number;
   dead: boolean;
   attackTimer: number;
   /** Named bosses: which attack in their rotation comes next. */
@@ -428,7 +434,8 @@ export class Game {
   /** waiting -> (gather, on arena maps) -> fight. */
   private bossPhase: 'waiting' | 'gather' | 'fight' = 'waiting';
   /** Seconds until the zone outside the arena starts burning. */
-  private zoneTimer = 0;
+  /** Radius around the arena that isn't burning yet; shrinks to the arena once the boss is due. */
+  private safeRadius = Infinity;
   private finalBoss: Enemy | null = null;
   private enraged = false;
 
@@ -482,6 +489,7 @@ export class Game {
       taken: [],
       takenAcc: 0,
       takenTimer: 0,
+      sounds: [],
     };
     this.resetPlayer(player, this.players.size);
     // Joining mid-run drops you next to a teammate (and into the current pick, if there is one).
@@ -599,7 +607,7 @@ export class Game {
     this.nextLobAt = 0;
     this.slowmo = 0;
     this.bossPhase = 'waiting';
-    this.zoneTimer = 0;
+    this.safeRadius = Infinity;
     this.finalBoss = null;
     this.enraged = false;
     this.enemies = [];
@@ -806,8 +814,26 @@ export class Game {
     else if (this.phase === 'playing' && this.choices.length > 0) this.startChoosing();
   }
 
+  /** Bosses shrug off Deep Freeze entirely. */
   private isStunned(e: Enemy): boolean {
-    return this.event?.kind === 'freeze' || e.stunUntil > this.time;
+    return (this.event?.kind === 'freeze' && !this.isBoss(e)) || e.stunUntil > this.time;
+  }
+
+  private isBoss(e: Enemy): boolean {
+    return ENEMY_TYPES[e.type].radius >= 50;
+  }
+
+  /**
+   * Stuns an enemy. Bosses only take a fraction of the stun and then can't be stunned again for a while,
+   * so stun builds (Earthshatter, Chrono Freeze) can't lock them down for a whole fight.
+   */
+  private stun(e: Enemy, seconds: number): void {
+    if (this.isBoss(e)) {
+      if (this.time < e.stunImmuneUntil) return;
+      seconds *= BOSS_STUN.share;
+      e.stunImmuneUntil = this.time + seconds + BOSS_STUN.immunity;
+    }
+    e.stunUntil = Math.max(e.stunUntil, this.time + seconds);
   }
 
   private rebuildGrid(): void {
@@ -890,6 +916,7 @@ export class Game {
       flashUntil: 0,
       orbitHitUntil: 0,
       stunUntil: 0,
+      stunImmuneUntil: 0,
       dead: false,
       // Stagger first attacks so enemies spawned together don't fire together.
       attackTimer: 1 + Math.random() * (ENEMY_TYPES[type].behavior === 'lobber' ? BOMBARDIER.cooldown : 2),
@@ -915,24 +942,33 @@ export class Game {
     if (this.bossPhase === 'waiting' && this.time >= this.bossTime) {
       if (arena) {
         this.bossPhase = 'gather';
-        this.zoneTimer = ARENA_GATHER_TIME;
-        this.banner(`${bossDisplayName(this.map.boss)} awaits in the arena. Get inside!`, 'danger');
+        this.safeRadius = this.farthestCorner(arena);
+        this.banner(`${bossDisplayName(this.map.boss)} awaits in the arena. The fire is closing in!`, 'danger');
       } else {
         this.startBossFight(alive);
       }
     }
     if (!arena || this.bossPhase === 'waiting') return;
 
-    this.zoneTimer -= dt;
+    // The burning zone sweeps in from the edges of the map until only the arena is safe.
+    const shrink = (this.farthestCorner(arena) - arena.r) / ZONE_SWEEP_TIME;
+    this.safeRadius = Math.max(arena.r, this.safeRadius - shrink * dt);
     for (const p of alive) {
       // Fully inside the arena? Then you're locked in.
       if (!p.inArena && dist2(p.x, p.y, arena.x, arena.y) < (arena.r - PLAYER_RADIUS) ** 2) {
         p.inArena = true;
         if (this.bossPhase === 'gather') this.startBossFight(alive);
       }
-      // The zone burns anyone still outside.
-      if (!p.inArena && this.zoneTimer <= 0) this.hurtPlayer(p, this.stats(p).maxHp * ZONE_DAMAGE * dt, true);
+      // Anyone the fire has caught up with burns.
+      if (!p.inArena && dist2(p.x, p.y, arena.x, arena.y) > this.safeRadius ** 2) {
+        this.hurtPlayer(p, this.stats(p).maxHp * ZONE_DAMAGE * dt, true);
+      }
     }
+  }
+
+  /** Distance from the arena to the farthest corner of the map: where the burning zone starts. */
+  private farthestCorner(arena: { x: number; y: number }): number {
+    return Math.hypot(Math.max(arena.x, this.map.width - arena.x), Math.max(arena.y, this.map.height - arena.y));
   }
 
   private startBossFight(alive: Player[]): void {
@@ -1450,14 +1486,13 @@ export class Game {
 
   /**
    * Applies evasion and armor, and downs the player at 0 HP. Returns false if the hit didn't land (dodging,
-   * evaded, or already down). Discrete hits are evaded outright; `continuous` damage (contact, the zone) is
-   * reduced by the evasion chance instead.
+   * evaded, or already down). Discrete hits (bullets, bombs, charges) can be evaded; `continuous` damage
+   * (contact with the horde, the burning zone) can't.
    */
   private hurtPlayer(p: Player, amount: number, continuous = false): boolean {
     if (p.downed || p.invuln > 0) return false;
     const stats = this.stats(p);
-    if (continuous) amount *= 1 - stats.evasion;
-    else if (Math.random() < stats.evasion) {
+    if (!continuous && Math.random() < stats.evasion) {
       p.taken.push(0); // Shown as "EVADE".
       return false;
     }
@@ -1542,12 +1577,14 @@ export class Game {
         const s = boltStats(level);
         const explosion = s.explosion && { ...s.explosion, radius: s.explosion.radius * stats.area };
         this.shootFan(p, ProjectileKind.Bolt, { ...s, count: s.count + stats.projectiles, explosion }, stats);
+        p.sounds.push('bolt');
         return s.cooldown;
       }
       case 'knives': {
         const s = knivesStats(level);
         this.shootFan(p, ProjectileKind.Knife, { ...s, count: s.count + stats.projectiles }, stats);
         for (let i = 0; i < s.ring; i++) this.shoot(p, ProjectileKind.Knife, p.aim + (i * Math.PI * 2) / s.ring, s, stats);
+        p.sounds.push('knives');
         return s.cooldown;
       }
       case 'hex': {
@@ -1555,6 +1592,7 @@ export class Game {
         const s = hexStats(level);
         const count = s.count + stats.projectiles;
         for (let i = 0; i < count; i++) this.shoot(p, ProjectileKind.Hex, p.aim + (i - (count - 1) / 2) * s.spread, s, stats, true);
+        p.sounds.push('hex');
         return s.cooldown;
       }
       case 'storm':
@@ -1588,6 +1626,7 @@ export class Game {
         const mine = this.zones.filter((z) => z.kind === ZoneKind.Mine && z.owner === p.id && !z.dead);
         if (mine.length >= s.max) mine[0].dead = true; // Replace the oldest.
         this.addZone(p, ZoneKind.Mine, s.trigger, s.radius * stats.area, s.damage * stats.damageMult, 60, s.armTime);
+        p.sounds.push('mine');
         return s.cooldown;
       }
       default:
@@ -1626,7 +1665,7 @@ export class Game {
         z.dead = true;
         this.splash(z.x, z.y, z.blast, z.damage, owner);
         this.hitCratesAround(z.x, z.y, z.blast, z.damage);
-        this.fx.push({ k: 'ring', x: Math.round(z.x), y: Math.round(z.y), r: z.blast, c: 0xffab40 });
+        this.fx.push({ k: 'ring', x: Math.round(z.x), y: Math.round(z.y), r: z.blast, c: 0xffab40, snd: 'explode' });
       }
     }
     this.zones = this.zones.filter((z) => !z.dead);
@@ -1722,12 +1761,12 @@ export class Game {
       if (e.dead || dist2(e.x, e.y, p.x, p.y) >= (s.radius + ENEMY_TYPES[e.type].radius) ** 2) continue;
       this.damageEnemy(e, damage, p);
       this.knockback(e, p.x, p.y, s.knockback);
-      if (s.stun) e.stunUntil = Math.max(e.stunUntil, this.time + s.stun);
+      if (s.stun) this.stun(e, s.stun);
     }
     for (const c of this.pickups) {
       if (c.kind === PickupKind.Crate && dist2(c.x, c.y, p.x, p.y) < (s.radius + CRATE_RADIUS) ** 2) this.damageCrate(c, damage);
     }
-    this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: s.radius, c: p.color });
+    this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: s.radius, c: p.color, snd: 'slam' });
     return s.cooldown;
   }
 
@@ -1808,7 +1847,7 @@ export class Game {
         this.damageEnemy(e, pr.damage, owner);
         if (pr.explosion) {
           this.splash(e.x, e.y, pr.explosion.radius, pr.explosion.damage, owner, e);
-          this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: pr.explosion.radius, c: 0xb3e5fc });
+          this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: pr.explosion.radius, c: 0xb3e5fc, snd: 'pop' });
         }
         if (pr.pierce-- <= 0) {
           pr.dead = true;
@@ -1930,6 +1969,7 @@ export class Game {
             dead: false,
           });
         }
+        p.sounds.push('shuriken');
         return s.cooldown;
       }
       case 'meteor': {
@@ -1940,6 +1980,7 @@ export class Game {
         const r = s.radius * stats.area;
         this.blasts.push({ x, y, r, damage: s.damage * stats.damageMult, owner: p.id, t: s.delay });
         this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0xff9100, t: s.delay });
+        p.sounds.push('meteor');
         return s.cooldown;
       }
       case 'leap': {
@@ -1961,7 +2002,8 @@ export class Game {
           this.knockback(e, p.x, p.y, s.knockback);
         }
         this.hitCratesAround(p.x, p.y, s.radius, damage);
-        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: s.radius, c: 0xff5252 });
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: s.radius, c: 0xff5252, snd: 'slam' });
+        p.sounds.push('leap');
         return s.cooldown;
       }
       case 'warcry': {
@@ -1978,6 +2020,7 @@ export class Game {
         p.guardReduction = Math.max(p.guard > 0 ? p.guardReduction : 0, s.reduction);
         p.guard = Math.max(p.guard, s.duration);
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: s.radius, c: AURA.guard });
+        p.sounds.push('warcry');
         return s.cooldown;
       }
     }
@@ -1987,6 +2030,7 @@ export class Game {
     const ult = CHARACTERS[p.character].ultimate;
     const stats = this.stats(p);
     this.banner(`${p.name}: ${ult.name}!`, 'good');
+    p.sounds.push('ult');
     switch (ult.id) {
       case 'lotus':
         p.lotus = LOTUS.duration * stats.duration;
@@ -1995,7 +2039,7 @@ export class Game {
       case 'chrono': {
         const r = CHRONO.radius * stats.area;
         for (const e of this.enemies) {
-          if (dist2(e.x, e.y, p.x, p.y) < r ** 2) e.stunUntil = Math.max(e.stunUntil, this.time + CHRONO.stun * stats.duration);
+          if (dist2(e.x, e.y, p.x, p.y) < r ** 2) this.stun(e, CHRONO.stun * stats.duration);
         }
         this.enemyShots = this.enemyShots.filter((s) => dist2(s.x, s.y, p.x, p.y) >= r ** 2);
         for (const h of this.hazards) if (dist2(h.x, h.y, p.x, p.y) < r ** 2) h.dead = true;
@@ -2035,6 +2079,7 @@ export class Game {
     const count = LOTUS.knives + 2 * stats.projectiles;
     const offset = p.lotus * 3; // Rotates the ring each throw.
     for (let i = 0; i < count; i++) this.shoot(p, ProjectileKind.Knife, offset + (i / count) * Math.PI * 2, knives, stats);
+    p.sounds.push('knives');
   }
 
   private updateBlasts(dt: number): void {
@@ -2043,7 +2088,7 @@ export class Game {
       if (b.t > 0) continue;
       this.splash(b.x, b.y, b.r, b.damage, this.players.get(b.owner));
       this.hitCratesAround(b.x, b.y, b.r, b.damage);
-      this.fx.push({ k: 'ring', x: Math.round(b.x), y: Math.round(b.y), r: b.r, c: 0xff9100 });
+      this.fx.push({ k: 'ring', x: Math.round(b.x), y: Math.round(b.y), r: b.r, c: 0xff9100, snd: 'explode' });
     }
     this.blasts = this.blasts.filter((b) => b.t > 0);
   }
@@ -2084,6 +2129,7 @@ export class Game {
         // Players at full health walk over hearts, leaving them for teammates.
         if (p.hp >= maxHp || dist2(p.x, p.y, h.x, h.y) >= (PLAYER_RADIUS + HEART_RADIUS) ** 2) continue;
         p.hp = Math.min(maxHp, p.hp + maxHp * HEART_HEAL);
+        p.sounds.push('heal');
         h.dead = true;
         break;
       }
@@ -2120,6 +2166,7 @@ export class Game {
       if (d < PLAYER_RADIUS) {
         g.collected = true;
         this.giveXp(g.value * this.stats(p).xpMult); // Wisdom boosts what the collector brings in.
+        p.sounds.push('gem');
         continue;
       }
       g.speed = Math.min(GEM_MAX_SPEED, g.speed + GEM_ACCEL * dt);
@@ -2215,7 +2262,7 @@ export class Game {
       arena: arena && {
         ...arena,
         state: this.bossPhase === 'waiting' ? 'idle' : this.bossPhase,
-        zoneIn: round1(this.zoneTimer),
+        safeR: this.bossPhase === 'waiting' ? 0 : Math.round(this.safeRadius),
       },
       boss: boss && {
         name: bossDisplayName(boss.type),
@@ -2267,6 +2314,7 @@ export class Game {
       ultimate: { cd: round1(p.ultCd), cooldown: hero.ultimate.cooldown, active: round1(Math.max(p.lotus, p.rage)) },
       hits: this.takeHits(p),
       taken: p.taken.splice(0),
+      sounds: [...new Set(p.sounds.splice(0))], // One of each per snapshot is plenty.
       epoch: p.epoch,
     };
   }

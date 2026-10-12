@@ -74,6 +74,8 @@ export interface MeState {
   /** Damage numbers since the last snapshot: your hits as [x, y, amount, crit, ...], and damage you took (0 = evaded). */
   hits: number[];
   taken: number[];
+  /** Your own actions since the last snapshot that make a sound (weapons firing, casts, pickups). */
+  sounds: SoundId[];
   /** Bumped whenever the server moves the player (respawn, downed); the client then snaps to the server position. */
   epoch: number;
 }
@@ -99,9 +101,12 @@ export interface ActiveQuest {
   y: number;
 }
 
+/** Sounds the server asks your client to play for your own actions. */
+export type SoundId = 'bolt' | 'knives' | 'hex' | 'shuriken' | 'mine' | 'meteor' | 'leap' | 'warcry' | 'ult' | 'gem' | 'heal';
+
 export type Fx =
-  /** An expanding ring: slams, exploding bolts. */
-  | { k: 'ring'; x: number; y: number; r: number; c: number }
+  /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
+  | { k: 'ring'; x: number; y: number; r: number; c: number; snd?: 'slam' | 'explode' | 'pop' }
   | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number }
   | { k: 'zap'; x: number; y: number }
   | { k: 'boom'; x: number; y: number; r: number }
@@ -123,14 +128,16 @@ export interface GameResult {
 
 /**
  * The boss arena on maps that have one. 'gather': the boss is waiting and everyone must get inside
- * (the zone outside burns once `zoneIn` hits 0). 'fight': players inside are locked in.
+ * while a burning zone closes in on it: everything farther than `safeR` from the arena burns.
+ * 'fight': players inside are locked in.
  */
 export interface ArenaState {
   x: number;
   y: number;
   r: number;
   state: 'idle' | 'gather' | 'fight';
-  zoneIn: number;
+  /** Radius of the not-yet-burning area around the arena (0 while idle). */
+  safeR: number;
 }
 
 /** Health bar for the named boss. */

@@ -381,11 +381,11 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   regen: { name: 'Regeneration', kind: 'passive', describe: () => '+0.5 HP per second.' },
   armor: { name: 'Plating', kind: 'passive', describe: () => '-6% damage taken.' },
   crit: { name: 'Crit', kind: 'passive', describe: () => `+6% chance to crit for ${CRIT_MULTIPLIER}x damage.` },
-  lifesteal: { name: 'Vampirism', kind: 'passive', describe: () => 'Heal for 1% of all damage you deal.' },
+  lifesteal: { name: 'Vampirism', kind: 'passive', describe: () => 'Heal for 0.5% of all damage you deal.' },
   area: { name: 'Expanse', kind: 'passive', describe: () => '+10% size of areas, auras, blasts and orbits.' },
   duration: { name: 'Persistence', kind: 'passive', describe: () => '+12% duration of stuns, taunts, buffs and puddles.' },
   multishot: { name: 'Multishot', kind: 'passive', describe: () => '+1 projectile, blade or strike for your weapons.', maxLevel: 3 },
-  evasion: { name: 'Evasion', kind: 'passive', describe: () => '+5% chance to dodge hits entirely.' },
+  evasion: { name: 'Evasion', kind: 'passive', describe: () => '+3% chance to dodge bullets, bombs and charges entirely.' },
   wisdom: { name: 'Wisdom', kind: 'passive', describe: () => '+10% XP from gems you pick up.' },
 };
 

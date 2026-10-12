@@ -171,11 +171,11 @@ export function playerStats(upgrades: Upgrades, character: CharacterId) {
     armor: Math.min(0.6, c.armor + 0.06 * lv('armor')),
     dodgeCooldown: c.dodgeCooldown,
     critChance: 0.06 * lv('crit'),
-    lifesteal: 0.01 * lv('lifesteal'),
+    lifesteal: 0.005 * lv('lifesteal'),
     area: 1 + 0.1 * lv('area'),
     duration: 1 + 0.12 * lv('duration'),
     projectiles: lv('multishot'),
-    evasion: 0.05 * lv('evasion'),
+    evasion: 0.03 * lv('evasion'),
     xpMult: 1 + 0.1 * lv('wisdom'),
   };
 }

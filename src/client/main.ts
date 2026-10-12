@@ -3,10 +3,12 @@ import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/c
 import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, TICK_RATE } from '../shared/constants';
 import { MAPS } from '../shared/maps';
 import type { Snapshot } from '../shared/protocol';
+import { Sound } from './audio';
 import { Input } from './input';
 import { Connection } from './net';
 import { GameRenderer } from './renderer';
 import { SnapshotBuffer } from './snapshots';
+import { SoundCues } from './soundCues';
 import { UI } from './ui';
 import './style.css';
 
@@ -21,6 +23,10 @@ async function main() {
   const input = new Input();
   const net = new Connection();
   const buffer = new SnapshotBuffer();
+  const sound = new Sound();
+  const cues = new SoundCues(sound);
+  ui.bindSound(sound);
+  renderer.onEnemyDeath = (x, y, big) => sound.play(big ? 'explode' : 'death', { x, y }, local);
 
   let myId: number | null = null;
   let latest: Snapshot | null = null;
@@ -59,6 +65,7 @@ async function main() {
 
   net.onSnapshot = (snap) => {
     buffer.push(snap);
+    cues.onSnapshot(latest, snap, local);
     latest = snap;
     if (snap.map !== wallsFor) {
       const map = MAPS[snap.map];
@@ -108,6 +115,7 @@ async function main() {
         dodgeDir = { x: Math.cos(aim), y: Math.sin(aim) };
         dodgeCooldown = meState!.dodgeCooldown;
         net.send({ t: 'dodge' }); // Before the moves it causes, so the server allows the longer steps.
+        sound.play('dodge');
       }
       let vx: number;
       let vy: number;

@@ -32,6 +32,55 @@ body {
   display: none !important;
 }
 
+/* --- Volume control (always visible, top left) --- */
+
+#sound-control {
+  position: fixed;
+  top: 24px;
+  left: 8px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+#sound-control:hover {
+  opacity: 1;
+}
+
+#mute {
+  display: flex;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+#mute.off {
+  color: var(--danger);
+}
+
+#mute svg {
+  width: 100%;
+  height: 100%;
+}
+
+#volume {
+  width: 80px;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 /* --- Lobby / game over --- */
 
 .overlay {

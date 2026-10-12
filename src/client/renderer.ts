@@ -29,6 +29,7 @@ import type { Sample } from './snapshots';
 const MAX_PARTICLES = 800;
 const DANGER = 0xff1744;
 const STUNNED = 0x90caf9;
+const FIRE = 0xff3d00;
 const HEALTH_GREEN = 0x00e676;
 const QUEST_COLOR = 0xffee58;
 const DAMAGE_FONT = 'DamageNumbers';
@@ -102,6 +103,8 @@ interface Effect {
 
 export class GameRenderer {
   readonly app = new Application();
+  /** Called when an enemy disappears mid-run (died), e.g. to play a sound. */
+  onEnemyDeath: (x: number, y: number, big: boolean) => void = () => {};
 
   private world = new Container();
   private background!: TilingSprite;
@@ -279,13 +282,20 @@ export class GameRenderer {
     if (arena.state === 'idle') ring.stroke({ width: 4, color: DANGER, alpha: 0.25 });
     else if (arena.state === 'gather') ring.fill({ color: DANGER, alpha: 0.05 }).stroke({ width: 6, color: DANGER, alpha: 0.5 + 0.5 * pulse });
     else ring.stroke({ width: 8, color: 0xff8a80, alpha: 0.9 });
-    if (arena.state !== 'idle' && arena.zoneIn <= 0) {
+    if (arena.state !== 'idle') {
+      // The burning zone: everything beyond the safe circle glows with fire, with a flickering front line.
       const map = MAPS[snap.map];
+      const flicker = 0.5 + 0.5 * Math.sin(performance.now() / 70);
       zone
         .rect(-200, -200, map.width + 400, map.height + 400)
-        .fill({ color: DANGER, alpha: 0.1 + 0.05 * pulse })
-        .circle(arena.x, arena.y, arena.r)
+        .fill({ color: FIRE, alpha: 0.16 + 0.04 * pulse })
+        .circle(arena.x, arena.y, arena.safeR)
         .cut();
+      zone
+        .circle(arena.x, arena.y, arena.safeR)
+        .stroke({ width: 14, color: FIRE, alpha: 0.35 + 0.25 * flicker })
+        .circle(arena.x, arena.y, arena.safeR)
+        .stroke({ width: 3, color: 0xffd180, alpha: 0.9 });
     }
   }
 
@@ -542,7 +552,9 @@ export class GameRenderer {
     for (const [id, view] of this.enemyViews) {
       if (view.seen === this.frame) continue;
       if (showDeaths) {
-        this.burst(view.sprite.x, view.sprite.y, ENEMY_TYPES[view.type].color, ENEMY_TYPES[view.type].radius >= 50 ? 40 : 6);
+        const big = ENEMY_TYPES[view.type].radius >= 50;
+        this.burst(view.sprite.x, view.sprite.y, ENEMY_TYPES[view.type].color, big ? 40 : 6);
+        this.onEnemyDeath(view.sprite.x, view.sprite.y, big);
       }
       this.release(view.sprite);
       this.enemyViews.delete(id);

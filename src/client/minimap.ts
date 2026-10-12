@@ -104,6 +104,11 @@ export class Minimap {
       g.poly([x, y - 7, x + 7, y, x, y + 7, x - 7, y]).fill(0xffee58).stroke({ width: 1.5, color: 0xffffff });
     }
 
+    // The burning zone closing in on the arena.
+    if (snap.arena && snap.arena.state !== 'idle') {
+      g.circle(snap.arena.x * s, snap.arena.y * s, snap.arena.safeR * s).stroke({ width: 2, color: 0xff3d00, alpha: 0.9 });
+    }
+
     // What you can see right now.
     g.rect(view.x * s, view.y * s, view.w * s, view.h * s).stroke({ width: 1, color: 0xffffff, alpha: 0.35 });
 

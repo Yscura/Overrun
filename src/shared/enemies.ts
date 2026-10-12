@@ -132,6 +132,8 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
 export const BOSS_NOVA = { shots: 18, speed: 210, damage: 12, life: 4 };
 export const BOSS_CHARGE: ChargeConfig = { windup: 1.0, speed: 640, duration: 0.8, recover: 0.8, damage: 40, width: 120 };
 export const BOSS_SUMMON = { count: 6 };
+/** Bosses (Warlords and named bosses) take only `share` of any stun, then can't be stunned for `immunity` seconds. */
+export const BOSS_STUN = { share: 0.3, immunity: 4 };
 /** Below this share of HP the boss attacks faster. */
 export const BOSS_ENRAGE_AT = 0.5;
 export const BOSS_ENRAGE_SPEEDUP = 0.65;

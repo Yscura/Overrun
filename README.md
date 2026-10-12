@@ -35,8 +35,9 @@ Then give your friends a URL to that port:
 | Frozen Fortress | Rime, Queen of the Frozen Fortress | Arena to the east |
 | Ashen Caldera | Ashlord Vael, Lord of the Caldera | Arena to the north |
 
-The named boss arrives at 14:00. On arena maps a red zone starts burning everyone outside the arena after 25 seconds,
-and anyone who enters is locked in until the fight ends. Beating the boss shows **Victory** and unlocks the next map.
+The named boss arrives at 14:00. On arena maps a burning zone then sweeps in from the map's far corners, closing in on
+the arena over 45 seconds and burning anyone it catches, and anyone who enters the arena is locked in until the fight ends.
+Bosses only take a short stun and are briefly immune afterwards, and they ignore Deep Freeze. Beating the boss shows **Victory** and unlocks the next map.
 Unlocks are saved in `data/progress.json` on the server, so the whole group shares them.
 
 **Walls:** thick walls (stone) block movement and all projectiles. Thin walls (fences) block movement but you can shoot
@@ -58,7 +59,8 @@ Pick a hero in the lobby. Ranged and melee heroes are offered different weapons:
 
 WASD / arrows to move. Aimed weapons (bolts, knives, cleave) go toward your mouse cursor; the rest work on their own.
 Space dodges toward the cursor: a quick dash during which nothing can hurt you. E casts your hero's ability, R their ultimate.
-Hold Tab for the scoreboard: everyone's HP, kills, damage dealt and taken, build and stats.
+Hold Tab for the scoreboard: everyone's HP, kills, damage dealt and taken, build and stats. M mutes sound (volume slider in
+the top-left corner). All sound effects are synthesized in the browser (`src/client/audio.ts`), so there are no audio files.
 
 You carry up to **4 weapons** (plus your E ability) and **5 passives**. Once a slot type is full, level-ups only offer
 upgrades for what you already have. Weapons: Arcane Bolt, Throwing Knives, Lightning Storm and Seeker Hex (ranged),
