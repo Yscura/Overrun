@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { TICK_RATE } from '../shared/constants';
 import type { ClientMessage } from '../shared/protocol';
+import { MAPS } from '../shared/maps';
 import { Game } from './game';
+import { loadUnlocked, saveUnlocked } from './progress';
 
 const PORT = Number(process.env.PORT) || 3000;
 const STEP_MS = 1000 / TICK_RATE;
@@ -38,7 +40,16 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(file).pipe(res);
 });
 
-const game = new Game();
+// Testing switches: OVERRUN_BOSS_TIME=60 brings the final boss after a minute; OVERRUN_UNLOCK_ALL=1 opens every map.
+const bossTime = Number(process.env.OVERRUN_BOSS_TIME) || undefined;
+const game = new Game({
+  unlocked: process.env.OVERRUN_UNLOCK_ALL ? MAPS.length : loadUnlocked(),
+  onUnlock: (unlocked) => {
+    saveUnlocked(unlocked);
+    console.log(`Unlocked ${MAPS[unlocked - 1].name}`);
+  },
+  bossTime,
+});
 const wss = new WebSocketServer({ server, path: '/ws', perMessageDeflate: { threshold: 1024 } });
 
 wss.on('connection', (ws) => {

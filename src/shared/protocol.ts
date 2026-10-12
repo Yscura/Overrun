@@ -1,6 +1,7 @@
 // Messages sent over the WebSocket, as JSON.
 
 import type { CharacterId } from './characters';
+import type { EventKind, QuestKind } from './objectives';
 import type { UpgradeId, Upgrades } from './upgrades';
 
 export type Phase = 'lobby' | 'playing' | 'gameover';
@@ -8,6 +9,8 @@ export type Phase = 'lobby' | 'playing' | 'gameover';
 export type ClientMessage =
   | { t: 'join'; name: string; character: CharacterId }
   | { t: 'pick'; character: CharacterId }
+  /** Choose the map (in the lobby). Must be unlocked. */
+  | { t: 'map'; index: number }
   | { t: 'start' }
   /** Back to the lobby from the game-over screen, to change characters. */
   | { t: 'lobby' }
@@ -18,6 +21,8 @@ export type ClientMessage =
   | { t: 'move'; x: number; y: number; aim: number; epoch: number }
   /** The client has started a dodge dash; the server grants the invulnerability and cooldown. */
   | { t: 'dodge' }
+  /** Cast your ability (E) or ultimate (R). `dist` is how far away the cursor is, for targeted abilities. */
+  | { t: 'cast'; slot: 'e' | 'r'; aim: number; dist: number }
   | { t: 'choose'; index: number };
 
 export type ServerMessage = { t: 'welcome'; id: number } | { t: 'full' } | Snapshot;
@@ -34,8 +39,6 @@ export interface PlayerState {
   downed: boolean;
   /** Revive progress from 0 to 1 while downed. */
   revive: number;
-  /** Spirit Blades level, so clients can draw the blades without extra data. */
-  orbit: number;
   kills: number;
   /** Still picking an upgrade during a level-up pause. */
   choosing: boolean;
@@ -43,6 +46,20 @@ export interface PlayerState {
   invuln: boolean;
   /** Just took damage. */
   hurt: boolean;
+  /** Locked inside the boss arena. */
+  inArena: boolean;
+  /** Color of an active buff's glow (Bloodrage, guard, Death Lotus), or 0. */
+  aura: number;
+  /** Everything they've picked, for the scoreboard and for drawing their blades and aura. */
+  upgrades: Upgrades;
+  damageDealt: number;
+  damageTaken: number;
+}
+
+/** Cooldowns in seconds: `cd` is what's left, `cooldown` the full length. */
+export interface AbilityState {
+  cd: number;
+  cooldown: number;
 }
 
 /** Private state only sent to the player it belongs to. */
@@ -51,32 +68,87 @@ export interface MeState {
   upgrades: Upgrades;
   speed: number;
   dodgeCooldown: number;
+  ability: AbilityState;
+  /** `active` is how long the ultimate's effect still lasts. */
+  ultimate: AbilityState & { active: number };
+  /** Damage numbers since the last snapshot: your hits as [x, y, amount, crit, ...], and damage you took (0 = evaded). */
+  hits: number[];
+  taken: number[];
   /** Bumped whenever the server moves the player (respawn, downed); the client then snaps to the server position. */
   epoch: number;
 }
 
-/** The game is frozen while everyone picks an upgrade, then counts down before resuming. */
-export type Pause = { kind: 'choose'; timeLeft: number } | { kind: 'countdown'; timeLeft: number };
+/**
+ * The game is frozen while everyone picks an upgrade, then eases back in from slow motion.
+ * `reason` is what earned the pick: a team level-up or a captured Forge.
+ */
+export type Pause = { kind: 'choose'; timeLeft: number; reason: ChoiceReason };
+export type ChoiceReason = 'level' | 'forge';
+
+/** A timed effect from an Altar. */
+export interface ActiveEvent {
+  kind: EventKind;
+  timeLeft: number;
+}
+
+/** A quest from a Beacon. (x, y) is the rally point, or where the thief is. */
+export interface ActiveQuest {
+  kind: QuestKind;
+  timeLeft: number;
+  x: number;
+  y: number;
+}
 
 export type Fx =
-  | { k: 'slam'; x: number; y: number; r: number; c: number }
+  /** An expanding ring: slams, exploding bolts. */
+  | { k: 'ring'; x: number; y: number; r: number; c: number }
   | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number }
   | { k: 'zap'; x: number; y: number }
   | { k: 'boom'; x: number; y: number; r: number }
-  | { k: 'boss' };
+  /** A friendly area that fills up over `t` seconds before it hits (Meteor). */
+  | { k: 'cast'; x: number; y: number; r: number; c: number; t: number }
+  /** Big announcement text. */
+  | { k: 'banner'; text: string; tone: 'danger' | 'good' };
 
 export interface GameResult {
+  victory: boolean;
+  /** The named boss that was beaten (victories only). */
+  boss: string | null;
+  /** Name of a map this victory unlocked, if any. */
+  unlockedMap: string | null;
   time: number;
   level: number;
   players: { name: string; color: number; character: CharacterId; kills: number }[];
 }
 
+/**
+ * The boss arena on maps that have one. 'gather': the boss is waiting and everyone must get inside
+ * (the zone outside burns once `zoneIn` hits 0). 'fight': players inside are locked in.
+ */
+export interface ArenaState {
+  x: number;
+  y: number;
+  r: number;
+  state: 'idle' | 'gather' | 'fight';
+  zoneIn: number;
+}
+
+/** Health bar for the named boss. */
+export interface BossBar {
+  name: string;
+  hp: number;
+  maxHp: number;
+  enraged: boolean;
+}
+
 export const PickupKind = { Crate: 0, Heart: 1 } as const;
-export const ProjectileKind = { Bolt: 0, Knife: 1 } as const;
+export const ProjectileKind = { Bolt: 0, Knife: 1, Shuriken: 2, Hex: 3 } as const;
+/** Things players leave on the ground. */
+export const ZoneKind = { Venom: 0, Mine: 1 } as const;
 /** Telegraphed danger zones: a bomb circle or a charger's path. */
 export const HazardKind = { Circle: 0, Line: 1 } as const;
 /** Bit flags in the enemy list. */
-export const EnemyFlag = { Hit: 1, WindingUp: 2 } as const;
+export const EnemyFlag = { Hit: 1, WindingUp: 2, Stunned: 4 } as const;
 
 // Entity lists are flat number arrays to keep snapshots small:
 // enemies:     [id, type, x, y, flags, ...]
@@ -84,19 +156,33 @@ export const EnemyFlag = { Hit: 1, WindingUp: 2 } as const;
 // enemyShots:  [id, x, y, ...]
 // gems:        [id, x, y, big, ...]
 // pickups:     [id, kind, x, y, flash, ...]
-// hazards:     [id, kind, x, y, a, b, progress, ...]  circle: a = radius; line: a = angle, b = length. progress 0..1
+// hazards:     [id, kind, x, y, a, b, c, progress, ...]  circle: a = radius; line: a = angle, b = length, c = width. progress 0..1
+// shrines:     [id, kind, x, y, progress, ...]
+// zones:       [id, kind, x, y, r, ...]  venom puddles and mines
 export const ENEMY_STRIDE = 5;
 export const PROJECTILE_STRIDE = 4;
 export const ENEMY_SHOT_STRIDE = 3;
 export const GEM_STRIDE = 4;
 export const PICKUP_STRIDE = 5;
-export const HAZARD_STRIDE = 7;
+export const HAZARD_STRIDE = 8;
+export const SHRINE_STRIDE = 5;
+export const ZONE_STRIDE = 5;
 
 export interface Snapshot {
   t: 'snap';
   tick: number;
   phase: Phase;
+  /** Index into MAPS. */
+  map: number;
+  /** How many maps are unlocked (the first `unlocked` entries of MAPS). */
+  unlocked: number;
+  /** Seconds into the run when the named boss arrives. */
+  bossTime: number;
+  arena: ArenaState | null;
+  boss: BossBar | null;
   pause: Pause | null;
+  /** Game speed: below 1 while easing back in from a pause. */
+  timeScale: number;
   time: number;
   /** XP and level are shared by the whole team. */
   level: number;
@@ -109,6 +195,10 @@ export interface Snapshot {
   gems: number[];
   pickups: number[];
   hazards: number[];
+  shrines: number[];
+  zones: number[];
+  event: ActiveEvent | null;
+  quest: ActiveQuest | null;
   fx: Fx[];
   result: GameResult | null;
   me: MeState | null;

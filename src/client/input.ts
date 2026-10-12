@@ -8,6 +8,7 @@ export class Input {
   private keys = new Set<string>();
   private mouse = { x: 1, y: 0 };
   private dodgePressed = false;
+  private castPressed: 'e' | 'r' | null = null;
 
   constructor() {
     window.addEventListener('keydown', (e) => {
@@ -17,6 +18,8 @@ export class Input {
         e.preventDefault(); // Don't scroll or press a focused button.
         if (!e.repeat) this.dodgePressed = true;
       }
+      if (!e.repeat && e.code === 'KeyE') this.castPressed = 'e';
+      if (!e.repeat && e.code === 'KeyR') this.castPressed = 'r';
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
@@ -38,6 +41,18 @@ export class Input {
   /** Angle from your player to the cursor. The camera keeps your player at the center of the screen. */
   aim(): number {
     return Math.atan2(this.mouse.y - window.innerHeight / 2, this.mouse.x - window.innerWidth / 2);
+  }
+
+  /** How far the cursor is from your player, in world units. */
+  aimDistance(): number {
+    return Math.hypot(this.mouse.x - window.innerWidth / 2, this.mouse.y - window.innerHeight / 2);
+  }
+
+  /** 'e' or 'r' once per key press, otherwise null. */
+  consumeCast(): 'e' | 'r' | null {
+    const slot = this.castPressed;
+    this.castPressed = null;
+    return slot;
   }
 
   /** True once per Space press. */

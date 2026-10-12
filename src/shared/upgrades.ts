@@ -1,87 +1,216 @@
 import { PICKUP_BASE_RADIUS } from './constants';
 
 export type Role = 'ranged' | 'melee';
-export type WeaponId = 'bolt' | 'knives' | 'storm' | 'cleave' | 'slam' | 'orbit';
-export type PassiveId = 'might' | 'haste' | 'swift' | 'vitality' | 'magnet' | 'regen' | 'armor';
+/** Hero abilities (cast with E). They level up like weapons but only their own hero can get them. */
+export type AbilityId = 'shuriken' | 'meteor' | 'leap' | 'warcry';
+export type WeaponId = 'bolt' | 'knives' | 'storm' | 'hex' | 'cleave' | 'slam' | 'venom' | 'orbit' | 'field' | 'mines' | AbilityId;
+export type PassiveId =
+  | 'might'
+  | 'haste'
+  | 'swift'
+  | 'vitality'
+  | 'magnet'
+  | 'regen'
+  | 'armor'
+  | 'crit'
+  | 'lifesteal'
+  | 'area'
+  | 'duration'
+  | 'multishot'
+  | 'evasion'
+  | 'wisdom';
 export type UpgradeId = WeaponId | PassiveId;
 /** Upgrade id -> level. Missing means not owned. */
 export type Upgrades = Partial<Record<UpgradeId, number>>;
 
+/** Highest level from normal level-ups (some upgrades stop earlier, see `maxLevel`). */
 export const MAX_LEVEL = 5;
+/** Weapons at MAX_LEVEL can be evolved one step further, only at a Forge. */
+export const EVOLVED_LEVEL = MAX_LEVEL + 1;
+
+/** Each hero carries at most this many weapons (not counting their E ability) and passives. */
+export const WEAPON_SLOTS = 4;
+export const PASSIVE_SLOTS = 5;
+
+/** Crits deal this many times normal damage. */
+export const CRIT_MULTIPLIER = 2;
 
 // Weapon stats per level. Tweak these to balance the game.
+// Level 6 (evolved) keeps the level 5 numbers and adds the weapon's special effect.
 
 export function boltStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
   return {
-    damage: 12 + 4 * (level - 1),
-    cooldown: Math.max(0.35, 0.7 - 0.06 * (level - 1)),
-    count: 1 + Math.floor((level - 1) / 2),
-    pierce: Math.floor((level - 1) / 3),
+    damage: 12 + 4 * n,
+    cooldown: Math.max(0.35, 0.7 - 0.06 * n),
+    count: 1 + Math.floor(n / 2),
+    pierce: Math.floor(n / 3),
     speed: 450,
     range: 650,
     spread: 0.18,
+    /** Evolved: each hit explodes, damaging enemies around it for a share of the bolt's damage. */
+    explosion: level >= EVOLVED_LEVEL ? { radius: 60, damageShare: 0.6 } : null,
   };
 }
 
 export function knivesStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
   return {
-    damage: 7 + 2 * (level - 1),
-    cooldown: Math.max(0.35, 0.6 - 0.05 * (level - 1)),
-    count: 3 + Math.floor((level - 1) / 2),
-    pierce: level >= 4 ? 1 : 0,
+    damage: 7 + 2 * n,
+    cooldown: Math.max(0.35, 0.6 - 0.05 * n),
+    count: 3 + Math.floor(n / 2),
+    pierce: n >= 3 ? 1 : 0,
     speed: 650,
     range: 320,
     spread: 0.12,
+    /** Evolved: also throws this many knives in a full circle around you. */
+    ring: level >= EVOLVED_LEVEL ? 10 : 0,
   };
 }
 
 export function stormStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
   return {
-    damage: 22 + 9 * (level - 1),
-    cooldown: Math.max(0.9, 1.8 - 0.2 * (level - 1)),
-    strikes: 1 + Math.floor(level / 2),
-    range: 420,
+    damage: 22 + 9 * n,
+    cooldown: Math.max(0.9, 1.8 - 0.2 * n),
+    // Evolved: twice the strikes, with a much bigger blast.
+    strikes: (1 + Math.floor((n + 1) / 2)) * (evolved ? 2 : 1),
+    range: evolved ? 520 : 420,
     /** Enemies this close to a strike take its damage too. */
-    splash: 45,
+    splash: evolved ? 90 : 45,
   };
 }
 
 export function cleaveStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
   return {
-    damage: 22 + 8 * (level - 1),
-    cooldown: Math.max(0.55, 1.0 - 0.1 * (level - 1)),
-    range: 95 + 10 * (level - 1),
+    damage: 22 + 8 * n,
+    cooldown: Math.max(0.55, 1.0 - 0.1 * n),
+    // Evolved: a full spin with longer reach.
+    range: (95 + 10 * n) * (evolved ? 1.3 : 1),
     /** Width of the swing in radians. */
-    arc: 1.9 + 0.15 * (level - 1),
+    arc: evolved ? Math.PI * 2 : 1.9 + 0.15 * n,
     knockback: 30,
   };
 }
 
 export function slamStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
   return {
-    damage: 20 + 10 * (level - 1),
-    cooldown: Math.max(1.2, 2.5 - 0.25 * (level - 1)),
-    radius: 110 + 15 * (level - 1),
+    damage: 20 + 10 * n,
+    cooldown: Math.max(1.2, 2.5 - 0.25 * n),
+    radius: 110 + 15 * n,
     knockback: 40,
+    /** Evolved: enemies hit are stunned this many seconds. */
+    stun: level >= EVOLVED_LEVEL ? 1.5 : 0,
   };
 }
 
 export function orbitStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
   return {
-    count: level + 1,
-    damage: 8 + 3 * (level - 1),
-    radius: 70 + 8 * (level - 1),
+    // Evolved: more blades, wider and faster.
+    count: n + 2 + (evolved ? 3 : 0),
+    damage: 8 + 3 * n,
+    radius: 70 + 8 * n + (evolved ? 25 : 0),
     /** Radians per second. */
-    spin: 3,
+    spin: evolved ? 4 : 3,
     /** How often the same enemy can be hit by blades. */
     hitCooldown: 0.5,
     bladeRadius: 12,
   };
 }
 
+/** Homing missiles that seek out enemies on their own. */
+export function hexStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 14 + 5 * n,
+    cooldown: Math.max(0.6, 1.2 - 0.1 * n),
+    // Evolved: three more hexes, and each pierces once.
+    count: 1 + Math.floor(n / 2) + (evolved ? 3 : 0),
+    pierce: evolved ? 1 : 0,
+    speed: 380,
+    range: 900,
+    spread: 0.5,
+  };
+}
+
+/** A damaging aura that pulses around you. */
+export function fieldStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 6 + 3 * n,
+    // Evolved: pulses twice as fast in a much bigger area.
+    interval: evolved ? 0.25 : 0.5,
+    radius: (90 + 12 * n) * (evolved ? 1.4 : 1),
+  };
+}
+
+/** Poison puddles left behind as you move. */
+export function venomStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    /** Per tick (every 0.5s) to every enemy standing in a puddle. */
+    damage: 8 + 4 * n,
+    radius: (40 + 5 * n) * (evolved ? 1.5 : 1),
+    /** Seconds a puddle lasts. Evolved: twice as long. */
+    life: 2.5 * (evolved ? 2 : 1),
+    /** You have to move at least this far between puddles. */
+    spacing: 30,
+  };
+}
+
+/** Mines dropped where you stand, exploding when an enemy comes close. */
+export function minesStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 40 + 18 * n,
+    // Evolved: dropped twice as often, with bigger blasts.
+    cooldown: Math.max(1, 2.2 - 0.2 * n) * (evolved ? 0.5 : 1),
+    radius: (90 + 10 * n) * (evolved ? 1.3 : 1),
+    trigger: 35,
+    armTime: 0.5,
+    max: 8,
+  };
+}
+
 /** Pickup radius, which every character shares. */
 export function magnetRadius(upgrades: Upgrades): number {
   return PICKUP_BASE_RADIUS * (1 + 0.3 * (upgrades.magnet ?? 0));
+}
+
+// --- Hero abilities (E) ---
+
+/** Kael: a giant shuriken that flies out toward the cursor, then returns, cutting through everything both ways. */
+export function shurikenStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  return { damage: 30 + 12 * n, cooldown: Math.max(3, 6 - 0.6 * n), range: 380 + 20 * n, speed: 560, radius: 18 };
+}
+
+/** Lyra: a meteor lands at the cursor after a short delay. */
+export function meteorStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  return { damage: 60 + 25 * n, radius: 110 + 10 * n, delay: 0.6, cooldown: Math.max(4, 8 - 0.8 * n), maxRange: 650 };
+}
+
+/** Brakka: leaps toward the cursor (over walls) and smashes down on landing. */
+export function leapStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  return { damage: 40 + 15 * n, radius: 130 + 10 * n, range: 320 + 20 * n, cooldown: Math.max(3.5, 7 - 0.7 * n), knockback: 50 };
+}
+
+/** Torvald: taunts nearby enemies to attack him while he takes less damage. */
+export function warcryStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  return { damage: 15 + 8 * n, radius: 350 + 30 * n, taunt: 3, reduction: 0.4 + 0.05 * n, duration: 3 + 0.25 * n, cooldown: Math.max(5, 10 - n) };
 }
 
 /** XP is shared, so more players (more kills) need more XP per level; each level-up still upgrades everyone. */
@@ -96,11 +225,17 @@ interface UpgradeDef {
   kind: 'weapon' | 'passive';
   /** Weapons limited to one role. Missing means anyone can get it. */
   role?: Role;
+  /** Hero abilities: the only hero who can get it (a CharacterId). Cast with E instead of firing on its own. */
+  owner?: string;
   /** Text shown on the level-up card for reaching `level`. */
   describe: (level: number) => string;
+  /** Weapons only: the level 6 form unlocked at a Forge. */
+  evolution?: { name: string; text: string };
+  /** Defaults to MAX_LEVEL. */
+  maxLevel?: number;
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 const pierceText = (pierce: number) => (pierce ? `, pierces ${pierce}` : '');
 
 export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
@@ -112,6 +247,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const s = boltStats(level);
       return `Fires ${plural(s.count, 'bolt')} toward your cursor for ${s.damage} damage every ${s.cooldown.toFixed(2)}s${pierceText(s.pierce)}.`;
     },
+    evolution: { name: 'Arcane Barrage', text: 'Every bolt hit explodes, damaging all enemies around it.' },
   },
   knives: {
     name: 'Throwing Knives',
@@ -121,6 +257,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const s = knivesStats(level);
       return `Throws a short-range fan of ${s.count} knives toward your cursor, ${s.damage} damage each${pierceText(s.pierce)}.`;
     },
+    evolution: { name: 'Blade Fan', text: 'Every throw also sends a full ring of knives in all directions.' },
   },
   storm: {
     name: 'Lightning Storm',
@@ -131,6 +268,17 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const targets = s.strikes === 1 ? 'a nearby enemy' : `${s.strikes} nearby enemies`;
       return `Lightning strikes ${targets} for ${s.damage} damage every ${s.cooldown.toFixed(1)}s.`;
     },
+    evolution: { name: 'Tempest', text: 'Twice as many strikes, longer reach and a much bigger blast.' },
+  },
+  hex: {
+    name: 'Seeker Hex',
+    kind: 'weapon',
+    role: 'ranged',
+    describe: (level) => {
+      const s = hexStats(level);
+      return `Launches ${plural(s.count, 'homing hex', 'homing hexes')} that hunt down enemies for ${s.damage} damage every ${s.cooldown.toFixed(1)}s.`;
+    },
+    evolution: { name: 'Hex Swarm', text: 'Three more hexes per volley, and every hex pierces an extra enemy.' },
   },
   cleave: {
     name: 'Cleave',
@@ -140,6 +288,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const s = cleaveStats(level);
       return `Swings a wide arc toward your cursor for ${s.damage} damage every ${s.cooldown.toFixed(2)}s.`;
     },
+    evolution: { name: 'Whirlwind', text: 'Every swing is a full spin around you with 30% more reach.' },
   },
   slam: {
     name: 'Ground Slam',
@@ -149,6 +298,35 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const s = slamStats(level);
       return `Slams the ground for ${s.damage} damage around you and knocks enemies back every ${s.cooldown.toFixed(1)}s.`;
     },
+    evolution: { name: 'Earthshatter', text: 'Enemies hit by the slam are stunned for 1.5 seconds.' },
+  },
+  venom: {
+    name: 'Venom Trail',
+    kind: 'weapon',
+    role: 'melee',
+    describe: (level) => {
+      const s = venomStats(level);
+      return `Leaves poison puddles as you move, dealing ${s.damage} damage every 0.5s to enemies in them.`;
+    },
+    evolution: { name: 'Plague', text: 'Puddles are 50% larger and last twice as long.' },
+  },
+  field: {
+    name: 'Radiant Field',
+    kind: 'weapon',
+    describe: (level) => {
+      const s = fieldStats(level);
+      return `A searing aura around you deals ${s.damage} damage to every nearby enemy every ${s.interval}s.`;
+    },
+    evolution: { name: 'Solar Flare', text: 'The aura grows 40% larger and pulses twice as fast.' },
+  },
+  mines: {
+    name: 'Mine Layer',
+    kind: 'weapon',
+    describe: (level) => {
+      const s = minesStats(level);
+      return `Drops a mine every ${s.cooldown.toFixed(1)}s that explodes for ${s.damage} damage when an enemy comes near.`;
+    },
+    evolution: { name: 'Minefield', text: 'Mines are dropped twice as often and explode 30% wider.' },
   },
   orbit: {
     name: 'Spirit Blades',
@@ -156,6 +334,43 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     describe: (level) => {
       const s = orbitStats(level);
       return `${s.count} blades circle you, dealing ${s.damage} damage on contact.`;
+    },
+    evolution: { name: 'Spirit Vortex', text: '3 extra blades that spin faster in a wider circle.' },
+  },
+  shuriken: {
+    name: 'Shuriken',
+    kind: 'weapon',
+    owner: 'assassin',
+    describe: (level) => {
+      const s = shurikenStats(level);
+      return `[E] Throws a giant shuriken that returns to you, hitting everything both ways for ${s.damage} damage. ${s.cooldown.toFixed(1)}s cooldown.`;
+    },
+  },
+  meteor: {
+    name: 'Meteor',
+    kind: 'weapon',
+    owner: 'mage',
+    describe: (level) => {
+      const s = meteorStats(level);
+      return `[E] Calls a meteor down at your cursor for ${s.damage} damage in a wide area. ${s.cooldown.toFixed(1)}s cooldown.`;
+    },
+  },
+  leap: {
+    name: 'Leap',
+    kind: 'weapon',
+    owner: 'bruiser',
+    describe: (level) => {
+      const s = leapStats(level);
+      return `[E] Leaps toward your cursor, over walls, and smashes down for ${s.damage} damage. ${s.cooldown.toFixed(1)}s cooldown.`;
+    },
+  },
+  warcry: {
+    name: 'War Cry',
+    kind: 'weapon',
+    owner: 'tank',
+    describe: (level) => {
+      const s = warcryStats(level);
+      return `[E] Taunts nearby enemies to attack you and takes ${Math.round(s.reduction * 100)}% less damage for ${s.duration.toFixed(1)}s. ${s.cooldown.toFixed(0)}s cooldown.`;
     },
   },
   might: { name: 'Might', kind: 'passive', describe: () => '+10% damage.' },
@@ -165,6 +380,17 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   magnet: { name: 'Magnet', kind: 'passive', describe: () => '+30% pickup radius.' },
   regen: { name: 'Regeneration', kind: 'passive', describe: () => '+0.5 HP per second.' },
   armor: { name: 'Plating', kind: 'passive', describe: () => '-6% damage taken.' },
+  crit: { name: 'Crit', kind: 'passive', describe: () => `+6% chance to crit for ${CRIT_MULTIPLIER}x damage.` },
+  lifesteal: { name: 'Vampirism', kind: 'passive', describe: () => 'Heal for 1% of all damage you deal.' },
+  area: { name: 'Expanse', kind: 'passive', describe: () => '+10% size of areas, auras, blasts and orbits.' },
+  duration: { name: 'Persistence', kind: 'passive', describe: () => '+12% duration of stuns, taunts, buffs and puddles.' },
+  multishot: { name: 'Multishot', kind: 'passive', describe: () => '+1 projectile, blade or strike for your weapons.', maxLevel: 3 },
+  evasion: { name: 'Evasion', kind: 'passive', describe: () => '+5% chance to dodge hits entirely.' },
+  wisdom: { name: 'Wisdom', kind: 'passive', describe: () => '+10% XP from gems you pick up.' },
 };
 
 export const ALL_UPGRADES = Object.keys(UPGRADES) as UpgradeId[];
+
+export function upgradeMax(id: UpgradeId): number {
+  return UPGRADES[id].maxLevel ?? MAX_LEVEL;
+}

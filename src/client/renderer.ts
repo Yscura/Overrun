@@ -1,7 +1,10 @@
-import { Application, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
+import { Application, BitmapFont, BitmapText, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { CHARACTER_IDS, type CharacterId } from '../shared/characters';
-import { CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS, WORLD_SIZE } from '../shared/constants';
-import { CHARGER, ENEMY_TYPES, EnemyType } from '../shared/enemies';
+import { CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS } from '../shared/constants';
+import { ENEMY_TYPES } from '../shared/enemies';
+import { MAPS } from '../shared/maps';
+import { Minimap } from './minimap';
+import { RALLY_RADIUS, SHRINES, SHRINE_RADIUS, ShrineKind } from '../shared/objectives';
 import {
   ENEMY_SHOT_STRIDE,
   ENEMY_STRIDE,
@@ -13,14 +16,35 @@ import {
   PROJECTILE_STRIDE,
   PickupKind,
   ProjectileKind,
+  SHRINE_STRIDE,
+  ZONE_STRIDE,
+  ZoneKind,
   type Fx,
   type PlayerState,
+  type Snapshot,
 } from '../shared/protocol';
-import { orbitStats } from '../shared/upgrades';
+import { fieldRadius, orbitLayout } from '../shared/characters';
 import type { Sample } from './snapshots';
 
 const MAX_PARTICLES = 800;
 const DANGER = 0xff1744;
+const STUNNED = 0x90caf9;
+const HEALTH_GREEN = 0x00e676;
+const QUEST_COLOR = 0xffee58;
+const DAMAGE_FONT = 'DamageNumbers';
+const MAX_DAMAGE_NUMBERS = 80;
+/** Seconds a damage number stays on screen. */
+const NUMBER_LIFE = 0.75;
+
+interface DamageNumber {
+  label: BitmapText;
+  /** Base scale (crits are bigger). */
+  size: number;
+  life: number;
+  vx: number;
+}
+/** Off-screen objective arrows stay this far inside the screen edge. */
+const POINTER_MARGIN = 28;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -34,6 +58,8 @@ interface PointView {
   seen: number;
   /** Face the direction of travel. */
   rotate?: boolean;
+  /** Keep spinning (the shuriken). */
+  spin?: boolean;
 }
 
 /** Enemies and pickups: the type/kind is kept for the death effect. */
@@ -59,6 +85,13 @@ interface Particle {
   maxLife: number;
 }
 
+interface ShrineView {
+  root: Container;
+  /** Redrawn every frame: base circle and capture progress. */
+  dial: Graphics;
+  seen: number;
+}
+
 /** A short-lived drawing (slam ring, slash, lightning...). `draw` gets progress from 0 to 1. */
 interface Effect {
   g: Graphics;
@@ -73,6 +106,7 @@ export class GameRenderer {
   private world = new Container();
   private background!: TilingSprite;
   private layers = {
+    shrines: new Container(),
     hazards: new Container(),
     pickups: new Container(),
     gems: new Container(),
@@ -81,6 +115,7 @@ export class GameRenderer {
     projectiles: new Container(),
     enemyShots: new Container(),
     fx: new Container(),
+    numbers: new Container(),
   };
   private tex!: {
     enemies: Texture[];
@@ -88,6 +123,9 @@ export class GameRenderer {
     aimArrow: Texture;
     bolt: Texture;
     knife: Texture;
+    shuriken: Texture;
+    hex: Texture;
+    mine: Texture;
     enemyShot: Texture;
     blade: Texture;
     gemSmall: Texture;
@@ -97,8 +135,19 @@ export class GameRenderer {
     particle: Texture;
   };
   private aimArrow!: Sprite;
+  /** Floor outside the map edge plus the walls; rebuilt when the map changes. */
+  private mapLayer = new Container();
+  private mapIndex = -1;
+  private arenaRing = new Graphics();
+  /** Red tint over everything outside the boss arena while the zone burns. */
+  private zone = new Graphics();
+  private minimap = new Minimap();
+  private questMarker = new Graphics();
+  /** Screen-space arrows pointing at off-screen shrines and quest targets. */
+  private pointers = new Container();
 
   private frame = 0;
+  private shrineViews = new Map<number, ShrineView>();
   private spritePool: Sprite[] = [];
   private enemyViews = new Map<number, TypedView>();
   private pickupViews = new Map<number, TypedView>();
@@ -107,8 +156,13 @@ export class GameRenderer {
   private gemViews = new Map<number, PointView>();
   private playerViews = new Map<number, PlayerView>();
   private hazardViews = new Map<number, { g: Graphics; seen: number }>();
+  /** Venom puddles are drawn together in one graphic; mines are sprites. */
+  private venom = new Graphics();
+  private mineViews = new Map<number, PointView>();
   private particles: Particle[] = [];
   private effects: Effect[] = [];
+  private numbers: DamageNumber[] = [];
+  private numberPool: BitmapText[] = [];
 
   async init(parent: HTMLElement): Promise<void> {
     await this.app.init({
@@ -135,6 +189,10 @@ export class GameRenderer {
       aimArrow: this.texture(new Graphics().poly([0, -6, 10, 0, 0, 6]).fill({ color: 0xffffff, alpha: 0.85 })),
       bolt: this.texture(new Graphics().circle(0, 0, 9).fill({ color: 0xffffff, alpha: 0.3 }).circle(0, 0, 5).fill(0xffffff)),
       knife: this.texture(new Graphics().poly([-9, -2, 7, -2, 12, 0, 7, 2, -9, 2]).fill(0xffffff)),
+      shuriken: this.texture(this.starShape(new Graphics(), 20, 7, 4).fill(0xffffff).circle(0, 0, 4).fill(0x263238)),
+      hex: this.texture(new Graphics().circle(0, 0, 10).fill({ color: 0xffffff, alpha: 0.25 }).poly(this.hexagon(6)).fill(0xffffff)),
+      // Mines keep their own colors: dark casing with a red light.
+      mine: this.texture(new Graphics().circle(0, 0, 9).fill(0x37474f).stroke({ width: 2, color: 0xffab40 }).circle(0, 0, 3).fill(0xff1744)),
       enemyShot: this.texture(new Graphics().circle(0, 0, 10).fill({ color: 0xffffff, alpha: 0.3 }).circle(0, 0, 6).fill(0xffffff)),
       blade: this.texture(new Graphics().poly([0, -14, 5, 0, 0, 14, -5, 0]).fill(0xffffff)),
       gemSmall: this.texture(new Graphics().poly([0, -7, 5, 0, 0, 7, -5, 0]).fill(0xffffff)),
@@ -142,39 +200,98 @@ export class GameRenderer {
       // A wooden box with a red cross, and the red cross it drops when broken. These keep their own colors.
       crate: this.texture(
         this.crossShape(
-          new Graphics().rect(-CRATE_RADIUS, -CRATE_RADIUS, CRATE_RADIUS * 2, CRATE_RADIUS * 2).fill(0x8d6e63).stroke({ width: 3, color: 0x4e342e }),
+          new Graphics().roundRect(-CRATE_RADIUS, -CRATE_RADIUS, CRATE_RADIUS * 2, CRATE_RADIUS * 2, 4).fill(HEALTH_GREEN).stroke({ width: 3, color: 0x1b5e20 }),
           10,
           3.5,
-          0xe53935,
+          0xffffff,
         ),
       ),
-      heart: this.texture(this.crossShape(new Graphics(), HEART_RADIUS, 4.5, 0xff5252, 0xffffff)),
+      heart: this.texture(this.crossShape(new Graphics(), HEART_RADIUS, 4.5, HEALTH_GREEN, 0xffffff)),
       particle: this.texture(new Graphics().rect(0, 0, 4, 4).fill(0xffffff)),
     };
+    // A bitmap font for damage numbers: hundreds of them a second would be slow as regular text.
+    BitmapFont.install({
+      name: DAMAGE_FONT,
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 32, fontWeight: '900', fill: 0xffffff, stroke: { color: 0x000000, width: 5 } },
+      chars: [['0', '9'], '-!EVAD'],
+      resolution: 2,
+    });
     this.aimArrow = new Sprite(this.tex.aimArrow);
     this.aimArrow.anchor.set(0.5);
 
-    const tile = new Graphics().rect(0, 0, 64, 64).fill(0x1a1d24).rect(0, 0, 64, 1).fill(0x242833).rect(0, 0, 1, 64).fill(0x242833);
-    this.background = new TilingSprite({ texture: this.texture(tile), width: 1, height: 1 });
+    this.background = new TilingSprite({ texture: Texture.EMPTY, width: 1, height: 1 });
+    this.world.addChild(this.mapLayer, this.arenaRing, this.questMarker, ...Object.values(this.layers), this.zone, this.aimArrow);
+    this.app.stage.addChild(this.background, this.world, this.pointers, this.minimap.container);
+  }
 
-    // Darken everything outside the arena and outline its edge.
+  /** Floor, map edge and walls in the map's colors. */
+  private setMap(index: number): void {
+    this.mapIndex = index;
+    const map = MAPS[index];
+    const { theme } = map;
+
+    const tile = new Graphics().rect(0, 0, 64, 64).fill(theme.background).rect(0, 0, 64, 1).fill(theme.grid).rect(0, 0, 1, 64).fill(theme.grid);
+    const old = this.background.texture;
+    this.background.texture = this.texture(tile);
+    if (old !== Texture.EMPTY) old.destroy(true);
+
+    for (const child of this.mapLayer.removeChildren()) child.destroy();
+    // Darken everything outside the map and outline its edge.
     const pad = 4000;
     const outside = new Graphics()
-      .rect(-pad, -pad, WORLD_SIZE + pad * 2, pad)
-      .rect(-pad, WORLD_SIZE, WORLD_SIZE + pad * 2, pad)
-      .rect(-pad, 0, pad, WORLD_SIZE)
-      .rect(WORLD_SIZE, 0, pad, WORLD_SIZE)
-      .fill({ color: 0x08090c, alpha: 0.75 })
-      .rect(0, 0, WORLD_SIZE, WORLD_SIZE)
-      .stroke({ width: 6, color: 0x3a4250 });
+      .rect(-pad, -pad, map.width + pad * 2, pad)
+      .rect(-pad, map.height, map.width + pad * 2, pad)
+      .rect(-pad, 0, pad, map.height)
+      .rect(map.width, 0, pad, map.height)
+      .fill({ color: theme.outside, alpha: 0.85 })
+      .rect(0, 0, map.width, map.height)
+      .stroke({ width: 6, color: theme.wallEdge });
 
-    this.world.addChild(outside, ...Object.values(this.layers), this.aimArrow);
-    this.app.stage.addChild(this.background, this.world);
+    const walls = new Graphics();
+    for (const w of map.walls) {
+      if (w.thin) {
+        // A fence: a light rail with posts along it.
+        walls.rect(w.x, w.y, w.w, w.h).fill({ color: theme.fence, alpha: 0.75 });
+        const along = w.w > w.h;
+        const length = along ? w.w : w.h;
+        for (let d = 0; d <= length; d += 36) {
+          const px = along ? w.x + Math.min(d, w.w - 6) : w.x - 2;
+          const py = along ? w.y - 2 : w.y + Math.min(d, w.h - 6);
+          walls.rect(px, py, along ? 6 : w.w + 4, along ? w.h + 4 : 6).fill(theme.wallEdge);
+        }
+      } else {
+        // A solid block with a lighter top edge.
+        walls.rect(w.x, w.y, w.w, w.h).fill(theme.wall).stroke({ width: 3, color: theme.wallEdge, alignment: 1 });
+        walls.rect(w.x + 3, w.y + 3, w.w - 6, Math.min(6, w.h - 6)).fill({ color: 0xffffff, alpha: 0.12 });
+      }
+    }
+    this.mapLayer.addChild(outside, walls);
+  }
+
+  /** The boss arena: a faint ring until the boss shows up, then a glowing barrier, plus the burning zone outside. */
+  private renderArena(snap: Snapshot): void {
+    const arena = snap.arena;
+    const ring = this.arenaRing.clear();
+    const zone = this.zone.clear();
+    if (!arena) return;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
+    ring.circle(arena.x, arena.y, arena.r);
+    if (arena.state === 'idle') ring.stroke({ width: 4, color: DANGER, alpha: 0.25 });
+    else if (arena.state === 'gather') ring.fill({ color: DANGER, alpha: 0.05 }).stroke({ width: 6, color: DANGER, alpha: 0.5 + 0.5 * pulse });
+    else ring.stroke({ width: 8, color: 0xff8a80, alpha: 0.9 });
+    if (arena.state !== 'idle' && arena.zoneIn <= 0) {
+      const map = MAPS[snap.map];
+      zone
+        .rect(-200, -200, map.width + 400, map.height + 400)
+        .fill({ color: DANGER, alpha: 0.1 + 0.05 * pulse })
+        .circle(arena.x, arena.y, arena.r)
+        .cut();
+    }
   }
 
   addFx(fx: Fx): void {
     switch (fx.k) {
-      case 'slam':
+      case 'ring':
         this.addEffect(fx.x, fx.y, 0.35, (g, p) =>
           g
             .circle(0, 0, fx.r * (0.3 + 0.7 * p))
@@ -206,6 +323,17 @@ export class GameRenderer {
         );
         break;
       }
+      case 'cast':
+        // A friendly target circle that fills up until the hit lands.
+        this.addEffect(fx.x, fx.y, fx.t, (g, p) =>
+          g
+            .circle(0, 0, fx.r)
+            .fill({ color: fx.c, alpha: 0.08 })
+            .stroke({ width: 3, color: fx.c, alpha: 0.8 })
+            .circle(0, 0, fx.r * p)
+            .fill({ color: fx.c, alpha: 0.25 }),
+        );
+        break;
       case 'zap': {
         // A jagged bolt from the sky down to the target.
         const points: number[] = [];
@@ -223,22 +351,34 @@ export class GameRenderer {
   }
 
   /** `aim` is your cursor angle, or null to hide the aim arrow. */
-  render(sample: Sample, myId: number | null, local: Point, aim: number | null, dt: number): void {
+  /** `dt` follows the game's speed (slow motion); `realDt` is wall-clock time, for the damage numbers. */
+  render(sample: Sample, myId: number | null, local: Point, aim: number | null, dt: number, realDt: number): void {
     this.frame++;
+    const { a, b, t } = sample;
+    if (b.snap.map !== this.mapIndex) this.setMap(b.snap.map);
     const { width, height } = this.app.screen;
-    const hasMe = sample.b.snap.players.some((p) => p.id === myId);
-    const cam = hasMe ? local : { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
+    const hasMe = b.snap.players.some((p) => p.id === myId);
+    const cam = hasMe ? local : MAPS[b.snap.map].spawn;
     this.world.position.set(Math.round(width / 2 - cam.x), Math.round(height / 2 - cam.y));
     this.background.width = width;
     this.background.height = height;
     this.background.tilePosition.set(this.world.x, this.world.y);
 
-    const { a, b, t } = sample;
     const playing = b.snap.phase === 'playing';
+    this.renderArena(b.snap);
+    this.renderShrines(b.snap);
+    this.renderQuestMarker(b.snap);
     this.renderHazards(sample);
+    this.renderZones(b.snap.zones);
     this.renderEnemies(sample, playing);
     this.renderPoints(this.projectileViews, a.snap.projectiles, a.projectiles, b.snap.projectiles, PROJECTILE_STRIDE, 2, t, this.layers.projectiles, (list, i) =>
-      list[i + 1] === ProjectileKind.Knife ? { texture: this.tex.knife, tint: 0xeceff1, rotate: true } : { texture: this.tex.bolt, tint: 0xb3e5fc },
+      list[i + 1] === ProjectileKind.Knife
+        ? { texture: this.tex.knife, tint: 0xeceff1, rotate: true }
+        : list[i + 1] === ProjectileKind.Shuriken
+          ? { texture: this.tex.shuriken, tint: 0xce93d8, spin: true }
+          : list[i + 1] === ProjectileKind.Hex
+            ? { texture: this.tex.hex, tint: 0xea80fc, spin: true }
+            : { texture: this.tex.bolt, tint: 0xb3e5fc },
     );
     this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_STRIDE, 1, t, this.layers.enemyShots, () => ({
       texture: this.tex.enemyShot,
@@ -256,7 +396,115 @@ export class GameRenderer {
       this.aimArrow.position.set(local.x + Math.cos(aim) * r, local.y + Math.sin(aim) * r);
       this.aimArrow.rotation = aim;
     }
+    this.renderPointers(b.snap, myId);
+    this.minimap.update(b.snap, myId, cam, { x: cam.x - width / 2, y: cam.y - height / 2, w: width, h: height }, width);
     this.updateEffects(dt);
+    this.updateDamageNumbers(realDt);
+  }
+
+  // --- Objectives ---
+
+  private renderShrines(snap: Snapshot): void {
+    const list = snap.shrines;
+    for (let i = 0; i < list.length; i += SHRINE_STRIDE) {
+      const [id, kind, x, y, progress] = list.slice(i, i + SHRINE_STRIDE);
+      const view = this.shrineViews.get(id) ?? this.createShrineView(id, kind, x, y);
+      view.seen = this.frame;
+      const color = SHRINES[kind].color;
+      const r = SHRINE_RADIUS;
+      // Fills clockwise from the top as the team stands in it.
+      const start = -Math.PI / 2;
+      const end = start + Math.PI * 2 * progress;
+      const g = view.dial.clear();
+      g.circle(0, 0, r)
+        .fill({ color, alpha: 0.07 })
+        .stroke({ width: 3, color, alpha: 0.6 });
+      if (progress > 0) {
+        g.moveTo(0, 0).arc(0, 0, r, start, end).lineTo(0, 0).fill({ color, alpha: 0.28 });
+        g.moveTo(Math.cos(start) * r, Math.sin(start) * r).arc(0, 0, r, start, end).stroke({ width: 6, color });
+      }
+    }
+    for (const [id, view] of this.shrineViews) {
+      if (view.seen === this.frame) continue;
+      view.root.destroy({ children: true });
+      this.shrineViews.delete(id);
+    }
+  }
+
+  private createShrineView(id: number, kind: number, x: number, y: number): ShrineView {
+    const root = new Container();
+    root.position.set(x, y);
+    const dial = new Graphics();
+    const icon = new Graphics();
+    const color = SHRINES[kind].color;
+    switch (kind) {
+      case ShrineKind.Forge: // A sword.
+        icon.rect(-3, -26, 6, 36).rect(-12, 8, 24, 5).rect(-2.5, 13, 5, 12).fill(color);
+        icon.rotation = Math.PI / 4;
+        break;
+      case ShrineKind.Event: // An hourglass.
+        icon.poly([-14, -20, 14, -20, 0, 0]).poly([-14, 20, 14, 20, 0, 0]).fill(color);
+        break;
+      default: // An exclamation mark.
+        icon.roundRect(-4, -24, 8, 30, 3).circle(0, 16, 5).fill(color);
+    }
+    const label = new Text({
+      text: SHRINES[kind].name,
+      style: { fontFamily: 'system-ui, sans-serif', fontSize: 14, fontWeight: '700', fill: color, stroke: { color: 0x000000, width: 3 } },
+    });
+    label.anchor.set(0.5, 0);
+    label.y = SHRINE_RADIUS + 6;
+    root.addChild(dial, icon, label);
+    this.layers.shrines.addChild(root);
+    const view = { root, dial, seen: 0 };
+    this.shrineViews.set(id, view);
+    return view;
+  }
+
+  /** The rally point: a pulsing gold circle to gather in. */
+  private renderQuestMarker(snap: Snapshot): void {
+    const g = this.questMarker.clear();
+    const quest = snap.quest;
+    if (quest?.kind !== 'rally') return;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 250);
+    g.position.set(quest.x, quest.y);
+    g.circle(0, 0, RALLY_RADIUS)
+      .fill({ color: QUEST_COLOR, alpha: 0.1 + 0.08 * pulse })
+      .stroke({ width: 4, color: QUEST_COLOR, alpha: 0.5 + 0.5 * pulse })
+      .circle(0, 0, 10)
+      .fill(QUEST_COLOR);
+  }
+
+  /** Arrows on the screen edge toward objectives you can't see. */
+  private renderPointers(snap: Snapshot, myId: number | null): void {
+    for (const child of [...this.pointers.children]) this.release(child as Sprite);
+    if (snap.phase !== 'playing') return;
+    const targets: { x: number; y: number; color: number }[] = [];
+    for (let i = 0; i < snap.shrines.length; i += SHRINE_STRIDE) {
+      targets.push({ x: snap.shrines[i + 2], y: snap.shrines[i + 3], color: SHRINES[snap.shrines[i + 1]].color });
+    }
+    if (snap.quest) targets.push({ x: snap.quest.x, y: snap.quest.y, color: QUEST_COLOR });
+    const inArena = snap.players.find((p) => p.id === myId)?.inArena;
+    if (snap.arena && snap.arena.state !== 'idle' && !inArena) targets.push({ x: snap.arena.x, y: snap.arena.y, color: DANGER });
+
+    const { width, height } = this.app.screen;
+    const cx = width / 2;
+    const cy = height / 2;
+    for (const target of targets) {
+      const sx = target.x + this.world.x;
+      const sy = target.y + this.world.y;
+      if (sx > 0 && sx < width && sy > 0 && sy < height) continue;
+      const angle = Math.atan2(sy - cy, sx - cx);
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      // Walk from the center toward the target until we hit the (inset) screen edge.
+      const reach = Math.min((cx - POINTER_MARGIN) / Math.abs(cos || 1e-6), (cy - POINTER_MARGIN) / Math.abs(sin || 1e-6));
+      const arrow = this.acquire(this.tex.aimArrow, this.pointers);
+      arrow.position.set(cx + cos * reach, cy + sin * reach);
+      arrow.rotation = angle;
+      arrow.scale.set(2);
+      arrow.tint = target.color;
+    }
   }
 
   // --- Entities ---
@@ -287,16 +535,44 @@ export class GameRenderer {
       const windingUp = (flags & EnemyFlag.WindingUp) !== 0;
       view.sprite.scale.set(windingUp ? 1.15 : 1);
       const white = (flags & EnemyFlag.Hit) !== 0 || (windingUp && blink);
-      view.sprite.tint = white ? 0xffffff : ENEMY_TYPES[type].color;
+      const stunned = (flags & EnemyFlag.Stunned) !== 0;
+      view.sprite.tint = white ? 0xffffff : stunned ? STUNNED : ENEMY_TYPES[type].color;
     }
     // Enemies that vanished died (or the run reset).
     for (const [id, view] of this.enemyViews) {
       if (view.seen === this.frame) continue;
       if (showDeaths) {
-        this.burst(view.sprite.x, view.sprite.y, ENEMY_TYPES[view.type].color, view.type === EnemyType.Boss ? 40 : 6);
+        this.burst(view.sprite.x, view.sprite.y, ENEMY_TYPES[view.type].color, ENEMY_TYPES[view.type].radius >= 50 ? 40 : 6);
       }
       this.release(view.sprite);
       this.enemyViews.delete(id);
+    }
+  }
+
+  /** Players' venom puddles (green pools) and mines (blinking once armed). */
+  private renderZones(list: number[]): void {
+    const venom = this.venom.clear();
+    if (!venom.parent) this.layers.hazards.addChildAt(venom, 0);
+    const blink = Math.floor(performance.now() / 300) % 2 === 0;
+    for (let i = 0; i < list.length; i += ZONE_STRIDE) {
+      const [id, kind, x, y, r] = list.slice(i, i + ZONE_STRIDE);
+      if (kind === ZoneKind.Venom) {
+        venom.circle(x, y, r).fill({ color: 0x76ff03, alpha: 0.16 });
+        continue;
+      }
+      let view = this.mineViews.get(id);
+      if (!view) {
+        view = { sprite: this.acquire(this.tex.mine, this.layers.pickups), seen: 0 };
+        view.sprite.position.set(x, y);
+        this.mineViews.set(id, view);
+      }
+      view.seen = this.frame;
+      view.sprite.alpha = blink ? 1 : 0.7;
+    }
+    for (const [id, view] of this.mineViews) {
+      if (view.seen === this.frame) continue;
+      this.release(view.sprite);
+      this.mineViews.delete(id);
     }
   }
 
@@ -312,7 +588,7 @@ export class GameRenderer {
         this.hazardViews.set(id, view);
       }
       view.seen = this.frame;
-      const [kind, x, y, ha, hb, progress] = list.slice(i + 1, i + HAZARD_STRIDE);
+      const [kind, x, y, ha, hb, w, progress] = list.slice(i + 1, i + HAZARD_STRIDE);
       const g = view.g.clear();
       g.position.set(x, y);
       if (kind === HazardKind.Circle) {
@@ -323,7 +599,6 @@ export class GameRenderer {
           .circle(0, 0, ha * progress)
           .fill({ color: DANGER, alpha: 0.25 });
       } else {
-        const w = CHARGER.width;
         g.rotation = ha;
         g.rect(0, -w / 2, hb, w)
           .fill({ color: DANGER, alpha: 0.08 + 0.12 * progress })
@@ -361,7 +636,7 @@ export class GameRenderer {
       if (view.seen === this.frame) continue;
       if (showBreaks) {
         const crate = view.type === PickupKind.Crate;
-        this.burst(view.sprite.x, view.sprite.y, crate ? 0x8d6e63 : 0xff5252, crate ? 12 : 10);
+        this.burst(view.sprite.x, view.sprite.y, crate ? 0x1b5e20 : HEALTH_GREEN, crate ? 12 : 10);
       }
       this.release(view.sprite);
       this.pickupViews.delete(id);
@@ -381,7 +656,7 @@ export class GameRenderer {
     pos: number,
     t: number,
     layer: Container,
-    look: (list: number[], i: number) => { texture: Texture; tint: number; rotate?: boolean },
+    look: (list: number[], i: number) => { texture: Texture; tint: number; rotate?: boolean; spin?: boolean },
   ): void {
     for (let i = 0; i < listB.length; i += stride) {
       const id = listB[i];
@@ -403,12 +678,13 @@ export class GameRenderer {
         const style = look(listB, i);
         const sprite = this.acquire(style.texture, layer);
         sprite.tint = style.tint;
-        view = { sprite, seen: 0, rotate: style.rotate };
+        view = { sprite, seen: 0, rotate: style.rotate, spin: style.spin };
         views.set(id, view);
       }
       view.seen = this.frame;
       view.sprite.position.set(x, y);
       if (view.rotate && heading !== null) view.sprite.rotation = heading;
+      if (view.spin) view.sprite.rotation += 0.35;
     }
     for (const [id, view] of views) {
       if (view.seen === this.frame) continue;
@@ -476,6 +752,17 @@ export class GameRenderer {
 
   private drawBars(g: Graphics, p: PlayerState): void {
     g.clear();
+    // Radiant Field: a faint, flickering aura at its damage radius.
+    const field = p.downed ? 0 : fieldRadius(p.upgrades, p.character);
+    if (field) {
+      const flicker = 0.5 + 0.5 * Math.sin(performance.now() / 90);
+      g.circle(0, 0, field).fill({ color: 0xffca28, alpha: 0.06 + 0.03 * flicker }).stroke({ width: 2, color: 0xffca28, alpha: 0.25 });
+    }
+    // A glowing ring while a buff (Bloodrage, guard, Death Lotus) is active.
+    if (p.aura) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 120);
+      g.circle(0, 0, PLAYER_RADIUS + 7).stroke({ width: 3, color: p.aura, alpha: 0.5 + 0.4 * pulse });
+    }
     const width = 36;
     const y = PLAYER_RADIUS + 8;
     const ratio = Math.max(0, Math.min(1, p.hp / p.maxHp));
@@ -494,7 +781,7 @@ export class GameRenderer {
   }
 
   private updateBlades(view: PlayerView, p: PlayerState, time: number): void {
-    const stats = p.orbit && !p.downed ? orbitStats(p.orbit) : null;
+    const stats = p.downed ? null : orbitLayout(p.upgrades, p.character);
     const count = stats?.count ?? 0;
     while (view.blades.length < count) {
       const blade = new Sprite(this.tex.blade);
@@ -511,6 +798,56 @@ export class GameRenderer {
       blade.position.set(Math.cos(angle) * stats.radius, Math.sin(angle) * stats.radius);
       blade.rotation = angle;
     });
+  }
+
+  // --- Damage numbers ---
+
+  /** Your hits ([x, y, amount, crit, ...]) float up off enemies; damage you take (0 = evaded) floats up off you. */
+  addDamageNumbers(hits: number[], taken: number[], me: Point): void {
+    for (let i = 0; i < hits.length; i += 4) {
+      const crit = hits[i + 3] === 1;
+      this.addNumber(hits[i], hits[i + 1] - 18, crit ? `${hits[i + 2]}!` : String(hits[i + 2]), crit ? 0xffd54f : 0xffffff, crit ? 0.8 : 0.55);
+    }
+    for (const amount of taken) {
+      if (amount === 0) this.addNumber(me.x, me.y - PLAYER_RADIUS - 24, 'EVADE', 0x80d8ff, 0.5);
+      else this.addNumber(me.x, me.y - PLAYER_RADIUS - 24, `-${amount}`, 0xff5252, 0.65);
+    }
+  }
+
+  private addNumber(x: number, y: number, text: string, color: number, size: number): void {
+    if (this.numbers.length >= MAX_DAMAGE_NUMBERS) this.removeNumber(0); // Oldest makes room.
+    const label = this.numberPool.pop() ?? new BitmapText({ text: '', style: { fontFamily: DAMAGE_FONT, fontSize: 32 } });
+    label.text = text;
+    label.anchor.set(0.5);
+    label.tint = color;
+    label.alpha = 1;
+    label.position.set(x + (Math.random() - 0.5) * 16, y);
+    this.layers.numbers.addChild(label);
+    this.numbers.push({ label, size, life: NUMBER_LIFE, vx: (Math.random() - 0.5) * 30 });
+  }
+
+  /** Numbers pop in, drift up and fade out. */
+  private updateDamageNumbers(dt: number): void {
+    for (let i = this.numbers.length - 1; i >= 0; i--) {
+      const n = this.numbers[i];
+      n.life -= dt;
+      if (n.life <= 0) {
+        this.removeNumber(i);
+        continue;
+      }
+      const age = NUMBER_LIFE - n.life;
+      const pop = age < 0.08 ? 1.5 - (age / 0.08) * 0.5 : 1;
+      n.label.scale.set(n.size * pop);
+      n.label.x += n.vx * dt;
+      n.label.y -= 45 * dt;
+      n.label.alpha = Math.min(1, n.life / (NUMBER_LIFE * 0.4));
+    }
+  }
+
+  private removeNumber(index: number): void {
+    const [n] = this.numbers.splice(index, 1);
+    n.label.removeFromParent();
+    this.numberPool.push(n.label);
   }
 
   // --- Effects ---
@@ -586,6 +923,23 @@ export class GameRenderer {
   }
 
   /** Draws a plus sign onto `g`, optionally with an outline. */
+  private hexagon(r: number): number[] {
+    const points: number[] = [];
+    for (let i = 0; i < 6; i++) points.push(Math.cos((i * Math.PI) / 3) * r, Math.sin((i * Math.PI) / 3) * r);
+    return points;
+  }
+
+  /** A star with `points` tips, outer radius `outer` and inner radius `inner`. */
+  private starShape(g: Graphics, outer: number, inner: number, points: number): Graphics {
+    const coords: number[] = [];
+    for (let i = 0; i < points * 2; i++) {
+      const r = i % 2 === 0 ? outer : inner;
+      const a = (i / (points * 2)) * Math.PI * 2;
+      coords.push(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    return g.poly(coords);
+  }
+
   private crossShape(g: Graphics, arm: number, half: number, color: number, outline?: number): Graphics {
     const shape = (gr: Graphics) => gr.rect(-half, -arm, half * 2, arm * 2).rect(-arm, -half, arm * 2, half * 2);
     if (outline !== undefined) shape(g).stroke({ width: 4, color: outline, join: 'round' });

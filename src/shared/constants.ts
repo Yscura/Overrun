@@ -3,9 +3,6 @@
 export const TICK_RATE = 30;
 export const TICK_DT = 1 / TICK_RATE;
 
-/** The arena is a square from (0, 0) to (WORLD_SIZE, WORLD_SIZE). */
-export const WORLD_SIZE = 4000;
-
 export const MAX_PLAYERS = 4;
 export const PLAYER_RADIUS = 16;
 export const PICKUP_BASE_RADIUS = 90;
@@ -33,8 +30,8 @@ export const BOSS_INTERVAL = 180;
 
 /** Seconds everyone gets to pick an upgrade before one is picked for them. */
 export const CHOOSE_TIME = 15;
-/** Countdown after everyone has picked, before the action resumes. */
-export const RESUME_COUNTDOWN = 3;
+/** Once everyone has picked, the game resumes at `start` speed and eases up to full speed over `duration` seconds. */
+export const SLOWMO = { start: 0.15, duration: 1.2 };
 
 // Health crates: shoot one to break it, then walk over the heart it drops.
 export const CRATE_RADIUS = 16;

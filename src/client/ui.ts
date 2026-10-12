@@ -1,12 +1,32 @@
-import { CHARACTERS, CHARACTER_IDS, DEFAULT_CHARACTER, isCharacterId, upgradesFor, type CharacterId } from '../shared/characters';
+import {
+  CHARACTERS,
+  CHARACTER_IDS,
+  DEFAULT_CHARACTER,
+  isCharacterId,
+  ownedPassives,
+  ownedWeapons,
+  playerStats,
+  type CharacterId,
+} from '../shared/characters';
+import { bossDisplayName } from '../shared/enemies';
+import { MAPS } from '../shared/maps';
+import { EVENTS, QUESTS } from '../shared/objectives';
 import type { GameResult, PlayerState, Snapshot } from '../shared/protocol';
-import { MAX_LEVEL, UPGRADES, type UpgradeId, type Upgrades } from '../shared/upgrades';
+import {
+  EVOLVED_LEVEL,
+  MAX_LEVEL,
+  PASSIVE_SLOTS,
+  UPGRADES,
+  WEAPON_SLOTS,
+  upgradeMax,
+  type UpgradeId,
+  type Upgrades,
+} from '../shared/upgrades';
 import { portraitSvg } from './portraits';
 
 const NAME_KEY = 'overrun.name';
 const CHARACTER_KEY = 'overrun.character';
 const CHOICE_KEYS = ['Digit1', 'Digit2', 'Digit3'];
-const PASSIVES = (Object.keys(UPGRADES) as UpgradeId[]).filter((id) => UPGRADES[id].kind === 'passive');
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -29,12 +49,21 @@ function portrait(character: CharacterId, color: number, className = 'portrait')
   return box;
 }
 
-/** A row of MAX_LEVEL pips, `level` of them filled. */
-function pips(level: number): HTMLElement {
-  const row = el('div', 'pips');
-  for (let i = 0; i < MAX_LEVEL; i++) row.append(el('span', i < level ? 'pip on' : 'pip'));
+/** A row of `max` pips, `level` of them filled. Evolved weapons get a gold row. */
+function pips(level: number, max = MAX_LEVEL): HTMLElement {
+  const row = el('div', level >= EVOLVED_LEVEL ? 'pips evolved' : 'pips');
+  for (let i = 0; i < max; i++) row.append(el('span', i < level ? 'pip on' : 'pip'));
   return row;
 }
+
+/** The display name for an upgrade at a level (evolved weapons go by their evolution's name). */
+function upgradeName(id: UpgradeId, level: number): string {
+  const def = UPGRADES[id];
+  return level >= EVOLVED_LEVEL && def.evolution ? def.evolution.name : def.name;
+}
+
+const compact = (n: number) => (n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)));
+const percent = (v: number) => `${Math.round(v * 100)}%`;
 
 function load(key: string): string | null {
   try {
@@ -59,6 +88,7 @@ export const formatTime = (seconds: number) =>
 export class UI {
   onJoin: (name: string, character: CharacterId) => void = () => {};
   onPick: (character: CharacterId) => void = () => {};
+  onPickMap: (index: number) => void = () => {};
   onStart: () => void = () => {};
   onLobby: () => void = () => {};
   onChoose: (index: number) => void = () => {};
@@ -67,6 +97,7 @@ export class UI {
   private joinForm = $('join-form');
   private nameInput = $<HTMLInputElement>('name');
   private room = $('room');
+  private maps = $('maps');
   private characters = $('characters');
   private playerList = $('player-list');
   private error = $('error');
@@ -76,6 +107,14 @@ export class UI {
   private timer = $('timer');
   private kills = $('kills');
   private banner = $('banner');
+  private bossBar = $('boss-bar');
+  private bossName = $('boss-name');
+  private bossFill = $('boss-fill');
+  private bossChip = $('boss-chip');
+  private gameoverTitle = $('gameover-title');
+  private eventChip = $('event-chip');
+  private questChip = $('quest-chip');
+  private chooseTitle = $('choose-title');
   private hero = $('hero');
   private heroPortrait = $('hero-portrait');
   private heroName = $('hero-name');
@@ -84,17 +123,25 @@ export class UI {
   private heroDodge = $('hero-dodge');
   private heroDodgeFill = $('hero-dodge-fill');
   private slots = $('loadout-slots');
+  private abilityE = $('ability-e');
+  private abilityR = $('ability-r');
   private levelup = $('levelup');
   private chooseTimer = $('choose-timer');
   private cards = $('cards');
   private waiting = $('waiting');
-  private countdown = $('countdown');
   private gameover = $('gameover');
   private survived = $('survived');
   private results = $('results');
+  private scoreboard = $('scoreboard');
+  private scoreboardRows = $('scoreboard-rows');
+
+  /** Held Tab: the scoreboard. Rebuilt a few times a second while open (damage numbers change constantly). */
+  private scoreboardOpen = false;
+  private scoreboardDrawnAt = 0;
+  private latest: { snap: Snapshot; myId: number | null } | null = null;
 
   // Only rebuild DOM when the content actually changed (snapshots arrive 30 times a second).
-  private shown = { players: '', characters: '', hero: '', options: '', waiting: '', loadout: '', result: '' };
+  private shown = { players: '', maps: '', characters: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
   private bannerTimer = 0;
 
   constructor() {
@@ -118,6 +165,18 @@ export class UI {
       const index = CHOICE_KEYS.indexOf(e.code.replace('Numpad', 'Digit'));
       if (index >= 0) this.onChoose(index);
     });
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'Tab' || e.target instanceof HTMLInputElement) return;
+      e.preventDefault(); // Don't move focus around the page.
+      if (!this.scoreboardOpen) {
+        this.scoreboardOpen = true;
+        this.renderScoreboard(true);
+      }
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Tab') this.closeScoreboard();
+    });
+    window.addEventListener('blur', () => this.closeScoreboard());
     // Clicked buttons keep focus, and Space would press them again instead of dodging.
     document.addEventListener('click', (e) => {
       if (e.target instanceof HTMLElement) e.target.closest('button')?.blur();
@@ -133,14 +192,15 @@ export class UI {
   showDisconnected(reason: string): void {
     this.lobby.classList.remove('hidden');
     this.joinForm.classList.remove('hidden');
-    for (const panel of [this.room, this.hud, this.levelup, this.countdown, this.gameover]) panel.classList.add('hidden');
+    for (const panel of [this.room, this.hud, this.levelup, this.gameover]) panel.classList.add('hidden');
     this.cards.replaceChildren();
     this.error.textContent = reason;
     for (const key of Object.keys(this.shown) as (keyof typeof this.shown)[]) this.shown[key] = '';
   }
 
-  showBanner(text: string): void {
+  showBanner(text: string, tone: 'danger' | 'good'): void {
     this.banner.textContent = text;
+    this.banner.classList.toggle('good', tone === 'good');
     this.banner.classList.add('show');
     clearTimeout(this.bannerTimer);
     this.bannerTimer = window.setTimeout(() => this.banner.classList.remove('show'), 3000);
@@ -153,41 +213,74 @@ export class UI {
   }
 
   update(snap: Snapshot, myId: number | null): void {
+    this.latest = { snap, myId };
+    if (this.scoreboardOpen) this.renderScoreboard(false);
     const me = snap.players.find((p) => p.id === myId);
     this.lobby.classList.toggle('hidden', snap.phase !== 'lobby');
     this.gameover.classList.toggle('hidden', snap.phase !== 'gameover');
     this.hud.classList.toggle('hidden', snap.phase === 'lobby');
 
     if (snap.phase === 'lobby') {
+      this.renderMaps(snap);
       this.renderPlayerList(snap);
       if (me) this.renderCharacters(me);
     }
+    this.renderBoss(snap, me);
     this.xpFill.style.width = `${Math.min(100, (snap.xp / snap.xpNext) * 100)}%`;
     this.level.textContent = `Lv ${snap.level}`;
     this.timer.textContent = formatTime(snap.time);
     this.kills.textContent = `${me?.kills ?? 0} kills`;
+    this.eventChip.classList.toggle('hidden', !snap.event);
+    if (snap.event) this.eventChip.textContent = `${EVENTS[snap.event.kind].name} · ${Math.ceil(snap.event.timeLeft)}s`;
+    this.questChip.classList.toggle('hidden', !snap.quest);
+    if (snap.quest) {
+      const quest = QUESTS[snap.quest.kind];
+      this.questChip.textContent = `${quest.name}: ${quest.goal} · ${Math.ceil(snap.quest.timeLeft)}s`;
+    }
     if (me && snap.me) {
       this.renderHero(me);
-      this.renderLoadout(me.character, snap.me.upgrades);
+      this.renderAbilities(me, snap);
+      this.renderLoadout(snap.me.upgrades);
     }
 
     const pause = snap.phase === 'playing' ? snap.pause : null;
-    this.levelup.classList.toggle('hidden', pause?.kind !== 'choose');
-    this.countdown.classList.toggle('hidden', pause?.kind !== 'countdown');
-    if (pause?.kind === 'choose') {
+    this.levelup.classList.toggle('hidden', !pause);
+    if (pause) {
+      this.chooseTitle.textContent = pause.reason === 'forge' ? 'The Forge: upgrade a weapon' : 'Level up!';
       this.chooseTimer.textContent = `${Math.ceil(pause.timeLeft)}s`;
       this.chooseTimer.classList.toggle('urgent', pause.timeLeft <= 5);
       this.renderOptions(snap.me?.options ?? null, snap.me?.upgrades ?? {});
       this.renderWaiting(snap, myId);
     } else {
       this.renderOptions(null, {});
-      if (pause) this.countdown.textContent = String(Math.max(1, Math.ceil(pause.timeLeft)));
     }
 
     if (snap.result) this.renderResult(snap.result);
   }
 
   // --- Lobby ---
+
+  private renderMaps(snap: Snapshot): void {
+    const key = `${snap.map}|${snap.unlocked}`;
+    if (key === this.shown.maps) return;
+    this.shown.maps = key;
+    this.maps.replaceChildren(
+      ...MAPS.map((map, i) => {
+        const locked = i >= snap.unlocked;
+        const card = el('button', `map-card${i === snap.map ? ' selected' : ''}${locked ? ' locked' : ''}`) as HTMLButtonElement;
+        card.disabled = locked;
+        const title = el('div', 'map-card-title');
+        title.append(el('span', 'map-card-name', map.name), el('span', 'map-card-tag', map.arena ? 'Boss arena' : 'Open field'));
+        card.append(
+          title,
+          el('div', 'map-card-sub', locked ? `Beat ${MAPS[i - 1].name} to unlock` : map.subtitle),
+          el('div', 'map-card-boss', locked ? 'Final boss: ???' : `Final boss: ${bossDisplayName(map.boss)}`),
+        );
+        card.addEventListener('click', () => this.onPickMap(i));
+        return card;
+      }),
+    );
+  }
 
   private renderCharacters(me: PlayerState): void {
     const key = `${me.character}|${me.color}`;
@@ -206,6 +299,7 @@ export class UI {
           el('div', 'hero-card-stats', `${c.maxHp} HP · ${c.speed} speed`),
           el('div', 'hero-card-trait', c.trait),
           el('div', 'hero-card-weapon', `Starts with ${UPGRADES[c.startWeapon].name}`),
+          el('div', 'hero-card-abilities', `E: ${UPGRADES[c.ability].name} · R: ${c.ultimate.name}`),
         );
         card.append(portrait(id, me.color), info);
         card.addEventListener('click', () => {
@@ -232,6 +326,32 @@ export class UI {
 
   // --- HUD ---
 
+  /** The boss health bar during the fight, otherwise a countdown to the boss or a warning to get to the arena. */
+  private renderBoss(snap: Snapshot, me: PlayerState | undefined): void {
+    this.bossBar.classList.toggle('hidden', !snap.boss);
+    if (snap.boss) {
+      this.bossName.textContent = snap.boss.enraged ? `${snap.boss.name} (enraged)` : snap.boss.name;
+      this.bossFill.style.width = `${(snap.boss.hp / snap.boss.maxHp) * 100}%`;
+    }
+    let text = '';
+    let urgent = false;
+    const arena = snap.arena;
+    if (snap.phase === 'playing' && !snap.boss) {
+      if (arena && arena.state !== 'idle' && !me?.inArena) {
+        urgent = true;
+        text = arena.zoneIn > 0 ? `Get into the arena! The zone burns in ${Math.ceil(arena.zoneIn)}s` : 'The zone is burning! Get into the arena!';
+      } else if (snap.time < snap.bossTime) {
+        text = `${bossDisplayName(MAPS[snap.map].boss)} in ${formatTime(snap.bossTime - snap.time)}`;
+      }
+    } else if (snap.boss && arena && arena.state === 'fight' && !me?.inArena && !me?.downed) {
+      urgent = true;
+      text = arena.zoneIn > 0 ? `Join the fight! Zone in ${Math.ceil(arena.zoneIn)}s` : 'The zone is burning! Get into the arena!';
+    }
+    this.bossChip.classList.toggle('hidden', !text);
+    this.bossChip.classList.toggle('urgent', urgent);
+    this.bossChip.textContent = text;
+  }
+
   private renderHero(me: PlayerState): void {
     const key = `${me.character}|${me.color}`;
     if (key !== this.shown.hero) {
@@ -246,29 +366,155 @@ export class UI {
     this.hero.classList.toggle('down', me.downed);
   }
 
-  /** Weapon cards for your role (empty slots for ones you don't have yet), then smaller passive chips. */
-  private renderLoadout(character: CharacterId, upgrades: Upgrades): void {
-    const key = character + JSON.stringify(upgrades);
+  /** The E and R slots: name, ability level, and a shade that drains as the cooldown runs out. */
+  private renderAbilities(me: PlayerState, snap: Snapshot): void {
+    const hero = CHARACTERS[me.character];
+    const level = snap.me!.upgrades[hero.ability] ?? 0;
+    const key = `${me.character}|${level}`;
+    if (key !== this.shown.abilities) {
+      this.shown.abilities = key;
+      this.abilityE.querySelector('.ability-name')!.textContent = UPGRADES[hero.ability].name;
+      this.abilityE.querySelector('.ability-level')!.replaceChildren(pips(level));
+      this.abilityE.title = UPGRADES[hero.ability].describe(Math.max(1, level));
+      this.abilityR.querySelector('.ability-name')!.textContent = hero.ultimate.name;
+      this.abilityR.title = `${hero.ultimate.text} ${hero.ultimate.cooldown}s cooldown.`;
+    }
+    const show = (slot: HTMLElement, cd: number, cooldown: number, active = 0) => {
+      const shade = slot.querySelector<HTMLElement>('.ability-shade')!;
+      shade.style.height = `${cooldown > 0 ? Math.min(100, (cd / cooldown) * 100) : 0}%`;
+      slot.querySelector('.ability-time')!.textContent = active > 0 ? `${Math.ceil(active)}s` : cd > 0 ? `${Math.ceil(cd)}` : '';
+      slot.classList.toggle('ready', cd <= 0 && !me.downed);
+      slot.classList.toggle('active', active > 0);
+    };
+    const { ability, ultimate } = snap.me!;
+    show(this.abilityE, ability.cd, ability.cooldown);
+    show(this.abilityR, ultimate.cd, ultimate.cooldown, ultimate.active);
+  }
+
+  /** A compact row of passive slots above the weapon slots (the E ability has its own slot). Empty slots show as "?". */
+  private renderLoadout(upgrades: Upgrades): void {
+    const key = JSON.stringify(upgrades);
     if (key === this.shown.loadout) return;
     this.shown.loadout = key;
 
-    const weapons = el('div', 'loadout-weapons');
-    for (const id of upgradesFor(character).filter((u) => UPGRADES[u].kind === 'weapon')) {
-      const level = upgrades[id] ?? 0;
-      const card = el('div', level ? 'slot weapon' : 'slot weapon empty');
-      card.append(el('div', 'slot-name', level ? UPGRADES[id].name : '?'), pips(level));
-      card.title = level ? UPGRADES[id].describe(level) : 'Not unlocked yet';
-      weapons.append(card);
-    }
     const passives = el('div', 'loadout-passives');
-    for (const id of PASSIVES) {
-      const level = upgrades[id] ?? 0;
-      if (!level) continue;
-      const chip = el('div', 'slot passive');
-      chip.append(el('div', 'slot-name', UPGRADES[id].name), pips(level));
+    const ownedP = ownedPassives(upgrades);
+    for (let i = 0; i < PASSIVE_SLOTS; i++) {
+      const id = ownedP[i];
+      const chip = el('div', id ? 'slot passive' : 'slot passive empty');
+      if (id) {
+        const level = upgrades[id]!;
+        chip.append(el('div', 'slot-name', UPGRADES[id].name), pips(level, upgradeMax(id)));
+        chip.title = UPGRADES[id].describe(level);
+      } else {
+        chip.append(el('div', 'slot-name', '?'));
+        chip.title = 'Empty passive slot';
+      }
       passives.append(chip);
     }
-    this.slots.replaceChildren(weapons, passives);
+
+    const weapons = el('div', 'loadout-weapons');
+    const ownedW = ownedWeapons(upgrades);
+    for (let i = 0; i < WEAPON_SLOTS; i++) {
+      const id = ownedW[i];
+      if (!id) {
+        const empty = el('div', 'slot weapon empty');
+        empty.append(el('div', 'slot-name', '?'), pips(0));
+        empty.title = 'Empty weapon slot';
+        weapons.append(empty);
+        continue;
+      }
+      const def = UPGRADES[id];
+      const level = upgrades[id]!;
+      const evolved = level >= EVOLVED_LEVEL && def.evolution;
+      const card = el('div', evolved ? 'slot weapon evolved' : 'slot weapon');
+      card.append(el('div', 'slot-name', upgradeName(id, level)), pips(level));
+      card.title = evolved ? evolved.text : def.describe(level);
+      weapons.append(card);
+    }
+    this.slots.replaceChildren(passives, weapons);
+  }
+
+  // --- Scoreboard (hold Tab) ---
+
+  private closeScoreboard(): void {
+    this.scoreboardOpen = false;
+    this.scoreboard.classList.add('hidden');
+  }
+
+  private renderScoreboard(force: boolean): void {
+    const now = performance.now();
+    if (!this.latest || this.latest.snap.phase === 'lobby' || (!force && now - this.scoreboardDrawnAt < 250)) return;
+    this.scoreboardDrawnAt = now;
+    this.scoreboard.classList.remove('hidden');
+    const { snap, myId } = this.latest;
+    this.scoreboardRows.replaceChildren(...[...snap.players].sort((a, b) => b.damageDealt - a.damageDealt).map((p) => this.scoreRow(p, p.id === myId)));
+  }
+
+  private scoreRow(p: PlayerState, isMe: boolean): HTMLElement {
+    const hero = CHARACTERS[p.character];
+    const row = el('div', isMe ? 'score-row me' : 'score-row');
+
+    // Who, and how they're doing.
+    const who = el('div', 'score-who');
+    const names = el('div', 'score-names');
+    names.append(el('div', 'score-name', p.name), el('div', 'score-hero', `${hero.name}, ${hero.title}`));
+    const hp = el('div', 'meter hp score-hp');
+    const fill = el('div', `meter-fill${p.hp / p.maxHp <= 0.35 ? ' low' : ''}`);
+    fill.style.width = `${Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100))}%`;
+    hp.append(fill, el('span', '', p.downed ? 'DOWN' : `${p.hp} / ${p.maxHp}`));
+    names.append(hp);
+    who.append(portrait(p.character, p.color), names);
+
+    const numbers = el('div', 'score-numbers');
+    for (const [label, value] of [
+      ['Kills', compact(p.kills)],
+      ['Damage', compact(p.damageDealt)],
+      ['Taken', compact(p.damageTaken)],
+    ]) {
+      const cell = el('div', 'score-number');
+      cell.append(el('div', 'score-value', value), el('div', 'score-label', label));
+      numbers.append(cell);
+    }
+
+    // Their build: E ability, weapons, passives.
+    const build = el('div', 'score-build');
+    const chip = (id: UpgradeId, kind: string) => {
+      const level = p.upgrades[id] ?? 0;
+      const c = el('span', `score-chip ${kind}${level >= EVOLVED_LEVEL ? ' evolved' : ''}`);
+      c.append(el('span', '', upgradeName(id, level)), el('span', 'score-chip-level', level >= EVOLVED_LEVEL ? 'EVO' : String(level)));
+      c.title = UPGRADES[id].describe(level);
+      return c;
+    };
+    const weapons = el('div', 'score-chips');
+    weapons.append(chip(hero.ability, 'ability'), ...ownedWeapons(p.upgrades).map((id) => chip(id, 'weapon')));
+    const passives = el('div', 'score-chips');
+    const ownedP = ownedPassives(p.upgrades);
+    passives.append(...ownedP.map((id) => chip(id, 'passive')));
+    if (ownedP.length === 0) passives.append(el('span', 'score-none', 'No passives yet'));
+    build.append(weapons, passives, el('div', 'score-stats', this.statLine(p)));
+
+    row.append(who, numbers, build);
+    return row;
+  }
+
+  /** Their stats from upgrades, listing only what differs from a fresh hero (plus speed and armor). */
+  private statLine(p: PlayerState): string {
+    const s = playerStats(p.upgrades, p.character);
+    const base = playerStats({}, p.character);
+    const parts: string[] = [];
+    if (s.damageMult !== base.damageMult) parts.push(`Damage +${percent(s.damageMult / base.damageMult - 1)}`);
+    if (s.cooldownMult !== 1) parts.push(`Cooldowns -${percent(1 - s.cooldownMult)}`);
+    if (s.critChance) parts.push(`Crit ${percent(s.critChance)}`);
+    if (s.lifesteal) parts.push(`Lifesteal ${percent(s.lifesteal)}`);
+    if (s.area !== 1) parts.push(`Area +${percent(s.area - 1)}`);
+    if (s.duration !== 1) parts.push(`Duration +${percent(s.duration - 1)}`);
+    if (s.projectiles) parts.push(`+${s.projectiles} projectiles`);
+    if (s.evasion) parts.push(`Evasion ${percent(s.evasion)}`);
+    if (s.xpMult !== 1) parts.push(`XP +${percent(s.xpMult - 1)}`);
+    if (s.regen) parts.push(`Regen ${s.regen.toFixed(1)}/s`);
+    parts.push(`Armor ${percent(s.armor)}`, `Speed ${Math.round(s.speed)}`);
+    return parts.join(' · ');
   }
 
   // --- Level-up ---
@@ -281,12 +527,15 @@ export class UI {
       ...(options ?? []).map((id, i) => {
         const def = UPGRADES[id];
         const next = (upgrades[id] ?? 0) + 1;
-        const card = el('button', `card ${def.kind}`);
+        const evolution = next >= EVOLVED_LEVEL ? def.evolution : undefined;
+        const card = el('button', evolution ? 'card evolve' : def.owner ? 'card hero-ability' : `card ${def.kind}`);
         const header = el('div', 'card-header');
-        header.append(el('span', 'key', String(i + 1)), el('span', 'card-name', def.name));
-        const tag = next === 1 ? 'NEW' : next === MAX_LEVEL ? 'MAX' : `Lv ${next}`;
+        header.append(el('span', 'key', String(i + 1)), el('span', 'card-name', evolution?.name ?? def.name));
+        const max = upgradeMax(id);
+        const tag = evolution ? 'EVOLVE' : next === 1 ? 'NEW' : next === max ? 'MAX' : `Lv ${next}`;
         header.append(el('span', 'tag', tag));
-        card.append(header, el('p', 'card-desc', def.describe(next)), pips(next));
+        const text = evolution ? `${def.name} evolves: ${evolution.text}` : def.describe(next);
+        card.append(header, el('p', 'card-desc', text), pips(next, evolution ? MAX_LEVEL : max));
         card.addEventListener('click', () => this.onChoose(i));
         return card;
       }),
@@ -317,7 +566,11 @@ export class UI {
     const key = JSON.stringify(result);
     if (key === this.shown.result) return;
     this.shown.result = key;
-    this.survived.textContent = `Your team survived ${formatTime(result.time)} and reached level ${result.level}`;
+    this.gameoverTitle.textContent = result.victory ? 'VICTORY' : 'OVERRUN';
+    this.gameoverTitle.classList.toggle('victory', result.victory);
+    this.survived.textContent = result.victory
+      ? `You defeated ${result.boss} in ${formatTime(result.time)}!` + (result.unlockedMap ? ` ${result.unlockedMap} is now unlocked.` : '')
+      : `Your team survived ${formatTime(result.time)} and reached level ${result.level}`;
     const header = el('tr');
     header.append(el('th', '', 'Player'), el('th', '', 'Hero'), el('th', '', 'Kills'));
     const rows = [...result.players]

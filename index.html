@@ -11,6 +11,15 @@
     <div id="hud" class="hidden">
       <div id="xp-bar"><div id="xp-fill"></div><span id="level">Lv 1</span></div>
       <div id="top-info"><span id="timer">00:00</span><span id="kills">0 kills</span></div>
+      <div id="objectives">
+        <div id="boss-bar" class="hidden">
+          <div id="boss-name"></div>
+          <div class="meter boss"><div id="boss-fill" class="meter-fill"></div></div>
+        </div>
+        <div id="boss-chip" class="chip boss hidden"></div>
+        <div id="event-chip" class="chip event hidden"></div>
+        <div id="quest-chip" class="chip quest hidden"></div>
+      </div>
       <div id="banner"></div>
       <div id="loadout">
         <div id="hero" class="slot">
@@ -21,19 +30,40 @@
             <div id="hero-dodge" class="meter dodge"><div id="hero-dodge-fill" class="meter-fill"></div><span>DODGE · SPACE</span></div>
           </div>
         </div>
+        <div id="abilities">
+          <div id="ability-e" class="ability">
+            <div class="ability-shade"></div>
+            <span class="ability-key">E</span>
+            <div class="ability-name"></div>
+            <div class="ability-level"></div>
+            <div class="ability-time"></div>
+          </div>
+          <div id="ability-r" class="ability ult">
+            <div class="ability-shade"></div>
+            <span class="ability-key">R</span>
+            <div class="ability-name"></div>
+            <div class="ability-level"></div>
+            <div class="ability-time"></div>
+          </div>
+        </div>
         <div id="loadout-slots"></div>
       </div>
     </div>
 
     <div id="levelup" class="overlay hidden">
       <div class="levelup-box">
-        <div class="levelup-title">Level up! <span id="choose-timer"></span></div>
+        <div class="levelup-title"><span id="choose-title">Level up!</span> <span id="choose-timer"></span></div>
         <div id="cards"></div>
         <div id="waiting"></div>
       </div>
     </div>
 
-    <div id="countdown" class="hidden"></div>
+    <div id="scoreboard" class="overlay hidden">
+      <div class="panel scoreboard-panel">
+        <h2>Team</h2>
+        <div id="scoreboard-rows"></div>
+      </div>
+    </div>
 
     <div id="lobby" class="overlay">
       <div class="panel lobby-panel">
@@ -43,12 +73,14 @@
           <button id="join" class="primary">Join</button>
         </div>
         <div id="room" class="hidden">
+          <h2>Choose a map</h2>
+          <div id="maps"></div>
           <h2>Choose your hero</h2>
           <div id="characters"></div>
           <h2>Players</h2>
           <ul id="player-list"></ul>
           <button id="start" class="primary">Start game</button>
-          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge · 1 / 2 / 3 to pick upgrades · shoot crates for health · stand next to a downed friend to revive them · red zones on the ground are about to hurt</p>
+          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge · E ability · R ultimate · hold Tab for the scoreboard · 1 / 2 / 3 to pick upgrades · shoot crates for health · stand next to a downed friend to revive them · red zones on the ground are about to hurt · stand in upgrade points (Forge, Altar, Beacon) together to capture them faster · dodge through fences · survive 14 minutes and beat the boss to unlock the next map</p>
         </div>
         <p id="error"></p>
       </div>
@@ -56,11 +88,11 @@
 
     <div id="gameover" class="overlay hidden">
       <div class="panel">
-        <h1>OVERRUN</h1>
+        <h1 id="gameover-title">OVERRUN</h1>
         <p id="survived"></p>
         <table id="results"></table>
         <div class="buttons">
-          <button id="change-hero" class="secondary">Change hero</button>
+          <button id="change-hero" class="secondary">Back to lobby</button>
           <button id="restart" class="primary">Play again</button>
         </div>
       </div>
