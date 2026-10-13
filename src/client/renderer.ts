@@ -1,7 +1,9 @@
-import { Application, BitmapFont, BitmapText, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
+import { Application, BitmapFont, BitmapText, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { CHARACTER_IDS, type CharacterId } from '../shared/characters';
 import { CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS } from '../shared/constants';
-import { AFFIXES, CHAMPION, ENEMY_TYPES } from '../shared/enemies';
+import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
+import { NO_ROTATE, drawEnemy } from './enemyArt';
+import { TILE, decorations, drawWalls, groundTile } from './mapArt';
 import { MAPS } from '../shared/maps';
 import { Minimap } from './minimap';
 import { RALLY_RADIUS, SHRINES, SHRINE_RADIUS, ShrineKind } from '../shared/objectives';
@@ -71,6 +73,11 @@ interface TypedView extends PointView {
   type: number;
 }
 
+interface EnemyView extends TypedView {
+  /** Which way it faces (smoothed), in radians. */
+  facing: number;
+}
+
 interface PlayerView {
   root: Container;
   bladeLayer: Container;
@@ -111,6 +118,8 @@ export class GameRenderer {
 
   private world = new Container();
   private background!: TilingSprite;
+  /** The map's glowing bits (lava, embers), pulsed every frame. */
+  private mapGlow: Graphics | null = null;
   private layers = {
     shrines: new Container(),
     hazards: new Container(),
@@ -127,6 +136,7 @@ export class GameRenderer {
     wolf: Texture;
     treant: Texture;
     enemies: Texture[];
+    enemyFlash: Texture[];
     bodies: Record<CharacterId, { fill: Texture; outline: Texture }>;
     aimArrow: Texture;
     bolt: Texture;
@@ -157,7 +167,7 @@ export class GameRenderer {
   private frame = 0;
   private shrineViews = new Map<number, ShrineView>();
   private spritePool: Sprite[] = [];
-  private enemyViews = new Map<number, TypedView>();
+  private enemyViews = new Map<number, EnemyView>();
   private pickupViews = new Map<number, TypedView>();
   private projectileViews = new Map<number, PointView>();
   private summonViews = new Map<number, PointView>();
@@ -185,17 +195,10 @@ export class GameRenderer {
     });
     parent.appendChild(this.app.canvas);
 
-    // Most textures are white so one texture can be tinted to any color.
-    const circle = (radius: number) =>
-      this.texture(
-        new Graphics()
-          .circle(0, 0, radius)
-          .fill(0xffffff)
-          .circle(0, 0, radius)
-          .stroke({ width: 2, color: 0x000000, alpha: 0.45 }),
-      );
+    // Most textures are white so one texture can be tinted to any color (enemies have their own art).
     this.tex = {
-      enemies: ENEMY_TYPES.map((def) => circle(def.radius)),
+      enemies: ENEMY_TYPES.map((_, type) => this.enemyTexture(type, false)),
+      enemyFlash: ENEMY_TYPES.map((_, type) => this.enemyTexture(type, true)),
       bodies: Object.fromEntries(CHARACTER_IDS.map((id) => [id, this.bodyTextures(id)])) as Record<CharacterId, { fill: Texture; outline: Texture }>,
       aimArrow: this.texture(new Graphics().poly([0, -6, 10, 0, 0, 6]).fill({ color: 0xffffff, alpha: 0.85 })),
       bolt: this.texture(new Graphics().circle(0, 0, 9).fill({ color: 0xffffff, alpha: 0.3 }).circle(0, 0, 5).fill(0xffffff)),
@@ -244,9 +247,10 @@ export class GameRenderer {
     const map = MAPS[index];
     const { theme } = map;
 
-    const tile = new Graphics().rect(0, 0, 64, 64).fill(theme.background).rect(0, 0, 64, 1).fill(theme.grid).rect(0, 0, 1, 64).fill(theme.grid);
     const old = this.background.texture;
-    this.background.texture = this.texture(tile);
+    const tile = groundTile(index, map);
+    this.background.texture = this.app.renderer.generateTexture({ target: tile, frame: new Rectangle(0, 0, TILE, TILE) });
+    tile.destroy();
     if (old !== Texture.EMPTY) old.destroy(true);
 
     for (const child of this.mapLayer.removeChildren()) child.destroy();
@@ -261,25 +265,10 @@ export class GameRenderer {
       .rect(0, 0, map.width, map.height)
       .stroke({ width: 6, color: theme.wallEdge });
 
-    const walls = new Graphics();
-    for (const w of map.walls) {
-      if (w.thin) {
-        // A fence: a light rail with posts along it.
-        walls.rect(w.x, w.y, w.w, w.h).fill({ color: theme.fence, alpha: 0.75 });
-        const along = w.w > w.h;
-        const length = along ? w.w : w.h;
-        for (let d = 0; d <= length; d += 36) {
-          const px = along ? w.x + Math.min(d, w.w - 6) : w.x - 2;
-          const py = along ? w.y - 2 : w.y + Math.min(d, w.h - 6);
-          walls.rect(px, py, along ? 6 : w.w + 4, along ? w.h + 4 : 6).fill(theme.wallEdge);
-        }
-      } else {
-        // A solid block with a lighter top edge.
-        walls.rect(w.x, w.y, w.w, w.h).fill(theme.wall).stroke({ width: 3, color: theme.wallEdge, alignment: 1 });
-        walls.rect(w.x + 3, w.y + 3, w.w - 6, Math.min(6, w.h - 6)).fill({ color: 0xffffff, alpha: 0.12 });
-      }
-    }
-    this.mapLayer.addChild(outside, walls);
+    // Floor decorations and landmarks, then the walls on top. All drawn once.
+    const decor = decorations(index, map);
+    this.mapGlow = decor.glow;
+    this.mapLayer.addChild(decor.still, decor.glow, outside, drawWalls(map));
   }
 
   /** The boss arena: a faint ring until the boss shows up, then a glowing barrier, plus the burning zone outside. */
@@ -386,6 +375,7 @@ export class GameRenderer {
     this.background.tilePosition.set(this.world.x, this.world.y);
 
     const playing = b.snap.phase === 'playing';
+    if (this.mapGlow) this.mapGlow.alpha = 0.75 + 0.25 * Math.sin(performance.now() / 450);
     this.renderArena(b.snap);
     this.renderShrines(b.snap);
     this.renderQuestMarker(b.snap);
@@ -543,8 +533,9 @@ export class GameRenderer {
   private renderEnemies({ a, b, t }: Sample, showDeaths: boolean): void {
     const listA = a.snap.enemies;
     const listB = b.snap.enemies;
-    const blink = Math.floor(performance.now() / 80) % 2 === 0;
-    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 180);
+    const now = performance.now();
+    const blink = Math.floor(now / 80) % 2 === 0;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 180);
     const marks = this.marks.clear();
     if (!marks.parent) this.layers.enemies.addChild(marks);
     else this.layers.enemies.setChildIndex(marks, this.layers.enemies.children.length - 1);
@@ -561,17 +552,34 @@ export class GameRenderer {
       }
       let view = this.enemyViews.get(id);
       if (!view) {
-        view = { sprite: this.acquire(this.tex.enemies[type], this.layers.enemies), type, seen: 0 };
+        view = { sprite: this.acquire(this.tex.enemies[type], this.layers.enemies), type, seen: 0, facing: Math.random() * Math.PI * 2 };
+        if (type === EnemyType.Wraith) view.sprite.alpha = 0.85;
         this.enemyViews.set(id, view);
       }
       view.seen = this.frame;
       view.sprite.position.set(x, y);
+      // Turn toward where it's walking (smoothly), and bob along while it moves.
+      let moving = false;
+      if (j !== undefined) {
+        const dx = listB[i + 2] - listA[j + 2];
+        const dy = listB[i + 3] - listA[j + 3];
+        moving = dx * dx + dy * dy > 0.25;
+        if (moving && !NO_ROTATE.has(type)) {
+          const diff = Math.atan2(Math.sin(Math.atan2(dy, dx) - view.facing), Math.cos(Math.atan2(dy, dx) - view.facing));
+          view.facing += diff * 0.25;
+        }
+      }
+      view.sprite.rotation = NO_ROTATE.has(type) ? 0 : view.facing;
       // Winding up a charge: swell and blink as a warning.
       const windingUp = (flags & EnemyFlag.WindingUp) !== 0;
-      view.sprite.scale.set(windingUp ? 1.15 : 1);
+      const affix = flags >> AFFIX_SHIFT;
+      const size = (windingUp ? 1.15 : 1) * (affix ? CHAMPION.size : 1);
+      const bob = moving ? Math.sin(now / 75 + id) * 0.06 : 0;
+      view.sprite.scale.set(size * (1 + bob), size * (1 - bob));
+      // Hit: the white silhouette. Stunned: tinted icy blue.
       const white = (flags & EnemyFlag.Hit) !== 0 || (windingUp && blink);
-      const stunned = (flags & EnemyFlag.Stunned) !== 0;
-      view.sprite.tint = white ? 0xffffff : stunned ? STUNNED : ENEMY_TYPES[type].color;
+      view.sprite.texture = white ? this.tex.enemyFlash[type] : this.tex.enemies[type];
+      view.sprite.tint = (flags & EnemyFlag.Stunned) !== 0 ? STUNNED : 0xffffff;
       const r = ENEMY_TYPES[type].radius;
       // A shimmering bubble on shielded bosses; a gold ring on enemies a side mission needs dead.
       if (flags & EnemyFlag.Shielded) {
@@ -579,9 +587,7 @@ export class GameRenderer {
       }
       if (flags & EnemyFlag.Marked) marks.circle(x, y, r + 6).stroke({ width: 2.5, color: 0xffd54f, alpha: 0.5 + 0.5 * pulse });
       // Champions: bigger, with a ring in their affix's color.
-      const affix = flags >> AFFIX_SHIFT;
       if (affix) {
-        view.sprite.scale.set((windingUp ? 1.15 : 1) * CHAMPION.size);
         marks.circle(x, y, r * CHAMPION.size + 5).stroke({ width: 3, color: AFFIXES[affix].color, alpha: 0.6 + 0.4 * pulse });
       }
     }
@@ -1011,6 +1017,15 @@ export class GameRenderer {
     const shape = (gr: Graphics) => gr.rect(-half, -arm, half * 2, arm * 2).rect(-arm, -half, arm * 2, half * 2);
     if (outline !== undefined) shape(g).stroke({ width: 4, color: outline, join: 'round' });
     return shape(g).fill(color);
+  }
+
+  /** An enemy type's look (or its white hit-flash silhouette), centered on the enemy and drawn at 2x for sharpness. */
+  private enemyTexture(type: number, flash: boolean): Texture {
+    const g = new Graphics();
+    const reach = Math.ceil(drawEnemy(g, type, flash)) + 4;
+    const texture = this.app.renderer.generateTexture({ target: g, frame: new Rectangle(-reach, -reach, reach * 2, reach * 2), resolution: 2 });
+    g.destroy();
+    return texture;
   }
 
   private texture(g: Graphics): Texture {
