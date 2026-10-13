@@ -161,6 +161,15 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
     },
   },
   gem: { play: (v) => v.tone({ type: 'sine', from: 520, to: 560, duration: 0.05, volume: 0.03 }), max: 3, gap: 0.035 },
+  // Two quick, muted metallic clinks.
+  coin: {
+    play: (v) => {
+      v.tone({ type: 'triangle', from: 988, duration: 0.07, volume: 0.05, lowpass: 2500 });
+      v.tone({ type: 'triangle', from: 1319, duration: 0.09, volume: 0.04, lowpass: 2500, delay: 0.05 });
+    },
+    max: 2,
+    gap: 0.06,
+  },
   heal: {
     play: (v) => {
       v.tone({ type: 'sine', from: 220, duration: 0.35, volume: 0.09, attack: 0.04 });

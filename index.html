@@ -23,7 +23,7 @@
 
     <div id="hud" class="hidden">
       <div id="xp-bar"><div id="xp-fill"></div><span id="level">Lv 1</span></div>
-      <div id="top-info"><span id="timer">00:00</span><span id="kills">0 kills</span></div>
+      <div id="top-info"><span id="timer">00:00</span><span id="kills">0 kills</span><span id="gold" title="Gold: kept between runs, buys heroes">0 gold</span></div>
       <div id="objectives">
         <div id="boss-bar" class="hidden">
           <div id="boss-bars"></div>
@@ -89,7 +89,10 @@
         <div id="room" class="hidden">
           <h2>Choose a map</h2>
           <div id="maps"></div>
-          <h2>Choose your hero</h2>
+          <div class="prestige-head">
+            <h2>Choose your hero</h2>
+            <span id="lobby-gold" class="gold-amount"></span>
+          </div>
           <div id="characters"></div>
           <div class="prestige-head">
             <h2>Prestige</h2>

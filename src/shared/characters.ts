@@ -51,7 +51,7 @@ export interface CharacterDef {
   phaseWalls?: boolean;
   /** Multiplier on the size of areas, auras, blasts and orbits. Defaults to 1. */
   areaMult?: number;
-  /** Prestige points to unlock this hero (per player). Missing means available from the start. */
+  /** Gold to unlock this hero (per player). Missing means available from the start. */
   unlockCost?: number;
 }
 
@@ -134,7 +134,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     ability: 'flamenova',
     ultimate: { id: 'inferno', name: 'Inferno', text: 'For 3s, fireballs rain down all around you.', cooldown: 60 },
     trait: '+25% damage and 30% bigger areas, but fragile',
-    unlockCost: 40,
+    unlockCost: 500,
   },
   ranger: {
     name: 'Sylva',
@@ -150,7 +150,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     ability: 'tumble',
     ultimate: { id: 'arrowstorm', name: 'Arrow Storm', text: 'For 4s, fire a torrent of piercing arrows toward your cursor.', cooldown: 50 },
     trait: '+15% damage, fast, and dodges more often than anyone',
-    unlockCost: 40,
+    unlockCost: 500,
   },
   druid: {
     name: 'Oakhart',
@@ -166,7 +166,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     ability: 'treant',
     ultimate: { id: 'wildcall', name: 'Call of the Wild', text: 'Six more spirit wolves join the hunt for 15s.', cooldown: 70 },
     trait: 'Toughest hero: regenerates and fights with a wolf pack',
-    unlockCost: 40,
+    unlockCost: 500,
   },
   chronobreaker: {
     name: 'Vex',
@@ -187,7 +187,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
       cooldown: 60,
     },
     trait: '+25% damage. Chronobreak turns back time',
-    unlockCost: 40,
+    unlockCost: 500,
   },
 };
 

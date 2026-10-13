@@ -120,6 +120,8 @@ export class UI {
   private level = $('level');
   private timer = $('timer');
   private kills = $('kills');
+  private gold = $('gold');
+  private lobbyGold = $('lobby-gold');
   private banner = $('banner');
   private bossBar = $('boss-bar');
   private bossBars = $('boss-bars');
@@ -274,7 +276,7 @@ export class UI {
     if (snap.phase === 'lobby') {
       this.renderMaps(snap);
       this.renderPlayerList(snap);
-      if (me && snap.me) this.renderCharacters(me, snap.me.heroes, snap.me.prestigePoints);
+      if (me && snap.me) this.renderCharacters(me, snap.me.heroes, snap.me.gold);
       if (me && snap.me) this.renderPrestige(me.prestige, snap.me.prestigePoints);
     }
     this.renderBoss(snap, me);
@@ -282,6 +284,7 @@ export class UI {
     this.level.textContent = `Lv ${snap.level}`;
     this.timer.textContent = formatTime(snap.time);
     this.kills.textContent = `${me?.kills ?? 0} kills`;
+    this.gold.textContent = `${snap.me?.gold ?? 0} gold`;
     this.eventChip.classList.toggle('hidden', !snap.event);
     if (snap.event) this.eventChip.textContent = `${EVENTS[snap.event.kind].name} · ${Math.ceil(snap.event.timeLeft)}s`;
     this.questChip.classList.toggle('hidden', !snap.quest);
@@ -335,8 +338,9 @@ export class UI {
     );
   }
 
-  private renderCharacters(me: PlayerState, unlocked: CharacterId[], points: number): void {
-    const key = `${me.character}|${me.color}|${unlocked.join(',')}|${points}`;
+  private renderCharacters(me: PlayerState, unlocked: CharacterId[], gold: number): void {
+    const key = `${me.character}|${me.color}|${unlocked.join(',')}|${gold}`;
+    this.lobbyGold.textContent = `${gold} gold`;
     if (key === this.shown.characters) return;
     this.shown.characters = key;
     this.characters.replaceChildren(
@@ -355,11 +359,11 @@ export class UI {
           el('div', 'hero-card-weapon', `Starts with ${UPGRADES[c.startWeapon].name}`),
           el('div', 'hero-card-abilities', `E: ${UPGRADES[c.ability].name} · R: ${c.ultimate.name}`),
         );
-        if (locked) info.append(el('div', 'hero-card-unlock', `Locked · unlock for ${c.unlockCost} prestige${points < c.unlockCost! ? ` (you have ${points})` : ''}`));
+        if (locked) info.append(el('div', 'hero-card-unlock', `Locked · buy for ${c.unlockCost} gold${gold < c.unlockCost! ? ` (you have ${gold})` : ''}`));
         card.append(portrait(id, me.color), info);
         card.addEventListener('click', () => {
           if (locked) {
-            if (points >= c.unlockCost! && window.confirm(`Unlock ${c.name}, ${c.title} for ${c.unlockCost} prestige?`)) this.onUnlock(id);
+            if (gold >= c.unlockCost! && window.confirm(`Buy ${c.name}, ${c.title} for ${c.unlockCost} gold?`)) this.onUnlock(id);
             return;
           }
           save(CHARACTER_KEY, id);
@@ -685,7 +689,8 @@ export class UI {
     this.survived.textContent = result.victory
       ? `You defeated ${result.boss} in ${formatTime(result.time)}!` + (result.unlockedMap ? ` ${result.unlockedMap} is now unlocked.` : '')
       : `Your team survived ${formatTime(result.time)} and reached level ${result.level}.`;
-    if (result.prestige > 0) this.survived.textContent += ` Everyone earned ${result.prestige} prestige.`;
+    const earned = [result.prestige > 0 ? `${result.prestige} prestige` : '', result.gold > 0 ? `${result.gold} gold` : ''].filter(Boolean);
+    if (earned.length) this.survived.textContent += ` Everyone earned ${earned.join(' and ')}.`;
     const header = el('tr');
     header.append(el('th', '', 'Player'), el('th', '', 'Hero'), el('th', '', 'Kills'));
     const rows = [...result.players]

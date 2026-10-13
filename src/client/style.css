@@ -320,6 +320,12 @@ button.primary:hover {
   color: #ffd54f;
 }
 
+.gold-amount,
+#gold {
+  font-weight: 800;
+  color: #ffc107;
+}
+
 button.link {
   margin-left: auto;
   padding: 0;

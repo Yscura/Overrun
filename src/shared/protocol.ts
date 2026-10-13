@@ -101,6 +101,8 @@ export interface MeState {
   epoch: number;
   /** Unspent prestige points. */
   prestigePoints: number;
+  /** Gold, kept between runs (heroes are bought with it). */
+  gold: number;
   /** Heroes this player has unlocked (beyond the starting four). */
   heroes: CharacterId[];
 }
@@ -146,7 +148,8 @@ export type SoundId =
   | 'veil'
   | 'nova'
   | 'summon'
-  | 'rewind';
+  | 'rewind'
+  | 'coin';
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
@@ -167,6 +170,8 @@ export interface GameResult {
   unlockedMap: string | null;
   /** Prestige points every player earned this run. */
   prestige: number;
+  /** Gold the team picked up this run (everyone gets all of it). */
+  gold: number;
   time: number;
   level: number;
   players: { name: string; color: number; character: CharacterId; kills: number }[];
@@ -208,7 +213,7 @@ export interface BossFight {
   mission: { kind: MissionKind; done: number; total: number } | null;
 }
 
-export const PickupKind = { Crate: 0, Heart: 1 } as const;
+export const PickupKind = { Crate: 0, Heart: 1, Coin: 2, Bomb: 3 } as const;
 export const ProjectileKind = { Bolt: 0, Knife: 1, Shuriken: 2, Hex: 3, BigShuriken: 4, Fireball: 5, Arrow: 6 } as const;
 /** Allies some heroes call in. */
 export const SummonKind = { Wolf: 0, Treant: 1 } as const;

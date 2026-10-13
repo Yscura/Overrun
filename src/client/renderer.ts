@@ -1,6 +1,6 @@
 import { Application, BitmapFont, BitmapText, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { CHARACTER_IDS, type CharacterId } from '../shared/characters';
-import { CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS } from '../shared/constants';
+import { BOMB, COIN, CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS } from '../shared/constants';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
 import { NO_ROTATE, drawEnemy } from './enemyArt';
 import { TILE, decorations, drawWalls, groundTile } from './mapArt';
@@ -150,6 +150,8 @@ export class GameRenderer {
     gemBig: Texture;
     crate: Texture;
     heart: Texture;
+    coin: Texture;
+    bomb: Texture;
     particle: Texture;
   };
   private aimArrow!: Sprite;
@@ -214,16 +216,34 @@ export class GameRenderer {
       treant: this.texture(this.starShape(new Graphics(), 28, 20, 7).fill(0xffffff).circle(0, 0, 9).fill(0x4e342e)),
       gemSmall: this.texture(new Graphics().poly([0, -7, 5, 0, 0, 7, -5, 0]).fill(0xffffff)),
       gemBig: this.texture(new Graphics().poly([0, -11, 8, 0, 0, 11, -8, 0]).fill(0xffffff)),
-      // A wooden box with a red cross, and the red cross it drops when broken. These keep their own colors.
-      crate: this.texture(
-        this.crossShape(
-          new Graphics().roundRect(-CRATE_RADIUS, -CRATE_RADIUS, CRATE_RADIUS * 2, CRATE_RADIUS * 2, 4).fill(HEALTH_GREEN).stroke({ width: 3, color: 0x1b5e20 }),
-          10,
-          3.5,
-          0xffffff,
-        ),
-      ),
+      // Loot: a wooden crate, the green cross (healing) and gold coins that come out of it, and bombs. Own colors.
+      crate: this.texture(this.crateShape()),
       heart: this.texture(this.crossShape(new Graphics(), HEART_RADIUS, 4.5, HEALTH_GREEN, 0xffffff)),
+      coin: this.texture(
+        new Graphics()
+          .circle(0, 0, COIN.radius)
+          .fill(0xffc107)
+          .stroke({ width: 1.5, color: 0x8d5b00 })
+          .circle(0, 0, COIN.radius * 0.55)
+          .stroke({ width: 1.2, color: 0xffecb3 }),
+      ),
+      bomb: this.texture(
+        new Graphics()
+          .circle(0, 0, BOMB.radius + 3)
+          .fill({ color: 0xff1744, alpha: 0.25 })
+          .circle(0, 0, BOMB.radius)
+          .fill(0x263238)
+          .stroke({ width: 2, color: 0x000000 })
+          .circle(-4, -4, 4)
+          .fill({ color: 0xffffff, alpha: 0.25 })
+          .rect(-3, -BOMB.radius - 4, 6, 5)
+          .fill(0x546e7a)
+          .moveTo(0, -BOMB.radius - 4)
+          .quadraticCurveTo(6, -BOMB.radius - 10, 3, -BOMB.radius - 14)
+          .stroke({ width: 2, color: 0x8d6e63 })
+          .circle(3, -BOMB.radius - 15, 3)
+          .fill(0xffab40),
+      ),
       particle: this.texture(new Graphics().rect(0, 0, 4, 4).fill(0xffffff)),
     };
     // A bitmap font for damage numbers: hundreds of them a second would be slow as regular text.
@@ -674,33 +694,65 @@ export class GameRenderer {
     }
   }
 
-  private renderPickups({ b }: Sample, showBreaks: boolean): void {
-    // Pickups don't move, so no interpolation needed.
+  private renderPickups({ a, b, t }: Sample, showBreaks: boolean): void {
     const list = b.snap.pickups;
-    const bob = 1 + Math.sin(performance.now() / 200) * 0.1;
+    const now = performance.now();
+    const bob = 1 + Math.sin(now / 200) * 0.1;
+    const textures = [this.tex.crate, this.tex.heart, this.tex.coin, this.tex.bomb];
     for (let i = 0; i < list.length; i += PICKUP_STRIDE) {
       const id = list[i];
       const kind = list[i + 1];
       let view = this.pickupViews.get(id);
       if (!view) {
-        const texture = kind === PickupKind.Crate ? this.tex.crate : this.tex.heart;
-        view = { sprite: this.acquire(texture, this.layers.pickups), type: kind, seen: 0 };
-        view.sprite.position.set(list[i + 2], list[i + 3]);
+        view = { sprite: this.acquire(textures[kind], this.layers.pickups), type: kind, seen: 0 };
         this.pickupViews.set(id, view);
       }
       view.seen = this.frame;
-      if (kind === PickupKind.Heart) view.sprite.scale.set(bob);
-      else view.sprite.tint = list[i + 4] ? 0xffcdd2 : 0xffffff;
+      let x = list[i + 2];
+      let y = list[i + 3];
+      // Only coins move (toward whoever picks them up), so only they need smoothing.
+      if (kind === PickupKind.Coin) {
+        const prev = a.snap.pickups;
+        for (let j = 0; j < prev.length; j += PICKUP_STRIDE) {
+          if (prev[j] !== id) continue;
+          x = lerp(prev[j + 2], x, t);
+          y = lerp(prev[j + 3], y, t);
+          break;
+        }
+        // Coins spin: squash them horizontally.
+        view.sprite.scale.set(Math.abs(Math.cos(now / 250 + id)) * 0.7 + 0.3, 1);
+      } else if (kind === PickupKind.Heart) {
+        view.sprite.scale.set(bob);
+      } else if (kind === PickupKind.Bomb) {
+        // The fuse fizzes: a nervous little pulse.
+        view.sprite.scale.set(1 + Math.sin(now / 90 + id) * 0.05);
+      } else {
+        view.sprite.tint = list[i + 4] ? 0xffcdd2 : 0xffffff;
+      }
+      view.sprite.position.set(x, y);
     }
     for (const [id, view] of this.pickupViews) {
       if (view.seen === this.frame) continue;
       if (showBreaks) {
-        const crate = view.type === PickupKind.Crate;
-        this.burst(view.sprite.x, view.sprite.y, crate ? 0x1b5e20 : HEALTH_GREEN, crate ? 12 : 10);
+        if (view.type === PickupKind.Crate) this.burst(view.sprite.x, view.sprite.y, 0x8d6e63, 14);
+        else if (view.type === PickupKind.Heart) this.burst(view.sprite.x, view.sprite.y, HEALTH_GREEN, 10);
+        else if (view.type === PickupKind.Coin) this.burst(view.sprite.x, view.sprite.y, 0xffc107, 3);
       }
       this.release(view.sprite);
       this.pickupViews.delete(id);
     }
+  }
+
+  /** A wooden crate: planks, a cross brace and metal corners. */
+  private crateShape(): Graphics {
+    const r = CRATE_RADIUS;
+    const g = new Graphics().rect(-r + 3, -r + 4, r * 2, r * 2).fill({ color: 0x000000, alpha: 0.3 });
+    g.roundRect(-r, -r, r * 2, r * 2, 3).fill(0xa1744a).stroke({ width: 2.5, color: 0x4e342e });
+    for (const y of [-r / 3, r / 3]) g.moveTo(-r + 2, y).lineTo(r - 2, y).stroke({ width: 1.5, color: 0x6d4c41 });
+    g.moveTo(-r + 3, -r + 3).lineTo(r - 3, r - 3).stroke({ width: 3, color: 0x6d4c41 });
+    for (const [cx, cy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.rect(cx * (r - 3) - 2.5, cy * (r - 3) - 2.5, 5, 5).fill(0x90a4ae);
+    g.rect(-r + 2, -r + 2, r * 2 - 4, 3).fill({ color: 0xffffff, alpha: 0.18 });
+    return g;
   }
 
   /**

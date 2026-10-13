@@ -37,8 +37,17 @@ export const SLOWMO = { start: 0.15, duration: 1.2 };
 export const CRATE_RADIUS = 16;
 export const CRATE_HP = 10;
 /** A new crate appears near the team every this many seconds. */
-export const CRATE_INTERVAL = 25;
-export const MAX_CRATES = 4;
+export const CRATE_INTERVAL = 18;
+export const MAX_CRATES = 5;
+/** What a broken crate holds: the chances of a heart, a pile of gold or a bomb. */
+export const CRATE_LOOT = { heart: 0.45, gold: 0.4, bomb: 0.15 };
+/** Gold coins: a pile has `min`-`max` coins worth `value` each. They fly to you within your pickup radius. */
+export const COIN = { min: 5, max: 9, value: 3, radius: 7, speed: 520 };
+/**
+ * A bomb on the ground goes off when anything hits it, hurting enemies within `blast` (not players).
+ * Damage is `damage` times how tough the horde is at the moment, so it stays useful all run.
+ */
+export const BOMB = { radius: 14, blast: 170, damage: 30 };
 export const HEART_RADIUS = 12;
 /** Fraction of max HP a heart restores. */
 export const HEART_HEAL = 0.2;

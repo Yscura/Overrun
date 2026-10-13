@@ -93,8 +93,8 @@ Pick a hero in the lobby. Ranged and melee heroes are offered different weapons:
 | Oakhart, the Druid | Melee | Wolf Pack (druid only) | Treant: summons a tree that slams and roots | Call of the Wild (70s): 6 more wolves for 15s | 200 HP, regenerates |
 | Vex, the Chronobreaker | Melee | Spirit Blades | Time Bomb: detonates at the cursor and stuns | Chronobreak (60s): rewind 4s, restore HP, explode | +15% damage |
 
-The first four heroes are free. Ignis, Sylva, Oakhart and Vex are unlocked per player for 40 prestige each: click their
-card in the lobby (refunding prestige ranks doesn't lock them again). `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.
+The first four heroes are free. Ignis, Sylva, Oakhart and Vex cost 500 gold each (a full run brings in a few hundred):
+click their card in the lobby. `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.
 
 WASD / arrows to move. Aimed weapons (bolts, knives, cleave) go toward your mouse cursor; the rest work on their own.
 Space dodges toward the cursor: a quick dash during which nothing can hurt you. E casts your hero's ability, R their ultimate.
@@ -114,7 +114,11 @@ Charger is about to dash. Green orbs from Spitters can be dodged or outrun.
 XP is shared by the team. On a level-up the game pauses and everyone picks one of three upgrades with 1 / 2 / 3 (or a click).
 You have 15 seconds before one is picked for you; once everyone has chosen, the game eases back in from slow motion.
 
-Shoot a health crate to break it, then walk over the heart to heal 20% of your max HP (players at full HP leave it for teammates).
+**Crates** appear around the team every 18 seconds. Shoot or hit one to break it open: it holds a **heart** (walk over
+it to heal 20% of your max HP; players at full HP leave it for teammates), a pile of **gold coins**, or a **bomb**. Bombs
+go off when anything hits them, blasting enemies around them (never players) and setting off other crates and bombs
+nearby. **Gold** flies to you like gems and everyone on the team gets all of it. It's kept between runs (in
+`data/progress.json`, by player name) and buys new heroes.
 
 **Upgrade points** appear on the map (arrows on the screen edge point to them). Stand inside one to fill it up; the more
 of the team stands inside, the faster it fills. Altars and Beacons show up every 40 seconds (at most two at a time);

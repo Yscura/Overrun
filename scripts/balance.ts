@@ -129,7 +129,7 @@ for (const map of maps) {
     const fight = fightStart >= 0 ? ` | boss fight ${fmt(g.time - fightStart)}${g.berserk ? `, berserk x${g.berserk}` : ''}` : '';
     console.log(
       `\n${MAPS[map].name}, run ${run}: ${victory ? 'VICTORY' : result ? 'DEFEAT' : 'TIMED OUT'} at ${fmt(g.time)}, level ${g.level}${fight}` +
-        ` | enemies avg ${Math.round(enemySum / Math.max(1, samples))}, peak ${peakEnemies} | ${((performance.now() - started) / 1000).toFixed(1)}s`,
+        ` | gold ${g.runGold} | enemies avg ${Math.round(enemySum / Math.max(1, samples))}, peak ${peakEnemies} | ${((performance.now() - started) / 1000).toFixed(1)}s`,
     );
     const perMinute = [...takenByMinute.entries()].map(([m, t]) => `${m + 1}:${k(t / players.length)}`);
     console.log(`  damage taken per player, by minute: ${perMinute.join(' ')}`);

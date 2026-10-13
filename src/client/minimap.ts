@@ -80,12 +80,13 @@ export class Minimap {
       g.circle(snap.enemies[i + 2] * s, snap.enemies[i + 3] * s, def.radius >= 50 ? 5 : 2.5).fill(def.color);
     }
 
-    // Health packs: small green plus signs.
+    // Crates as small wooden boxes, hearts as green plus signs.
     for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
+      const kind = snap.pickups[i + 1];
       const x = snap.pickups[i + 2] * s;
       const y = snap.pickups[i + 3] * s;
-      const arm = snap.pickups[i + 1] === PickupKind.Crate ? 3.5 : 3;
-      g.rect(x - arm, y - 1.2, arm * 2, 2.4).rect(x - 1.2, y - arm, 2.4, arm * 2).fill(HEALTH_GREEN);
+      if (kind === PickupKind.Crate) g.rect(x - 2.5, y - 2.5, 5, 5).fill(0xbc8a5f).stroke({ width: 1, color: 0x3e2723 });
+      else if (kind === PickupKind.Heart) g.rect(x - 3, y - 1.2, 6, 2.4).rect(x - 1.2, y - 3, 2.4, 6).fill(HEALTH_GREEN);
     }
 
     // Upgrade points and the quest target, with a pulsing halo so they stand out.

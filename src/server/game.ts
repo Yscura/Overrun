@@ -16,8 +16,11 @@ import { WallIndex, blocksShot, moveCircle, overlapsWall, pushOut, type PassFlag
 import {
   BOSS_INTERVAL,
   CHOOSE_TIME,
+  BOMB,
+  COIN,
   CRATE_HP,
   CRATE_INTERVAL,
+  CRATE_LOOT,
   CRATE_RADIUS,
   DODGE_IFRAMES,
   DODGE_SPEED,
@@ -210,6 +213,8 @@ export interface GameOptions {
 export interface Profile {
   /** Unspent points. */
   points: number;
+  /** Gold from crates, spent on heroes. */
+  gold?: number;
   ranks: PrestigeRanks;
   /** Heroes unlocked with prestige. */
   heroes?: string[];
@@ -452,6 +457,7 @@ interface Gem {
 }
 
 /** A health crate (breakable) or the heart it drops. */
+/** Crates, and what comes out of them: hearts, gold coins and bombs. */
 interface Pickup {
   id: number;
   kind: number;
@@ -459,6 +465,10 @@ interface Pickup {
   y: number;
   hp: number;
   flashUntil: number;
+  /** Coins: how much gold. */
+  value: number;
+  /** Coins: flying toward this player once they come close. */
+  target: Player | null;
   dead: boolean;
 }
 
@@ -539,6 +549,8 @@ export class Game {
   private blasts: Blast[] = [];
   private zones: Zone[] = [];
   private summons: Summon[] = [];
+  /** Gold the team has picked up this run. */
+  private runGold = 0;
   /** Real seconds left of the slow-motion ease-in after a pause. */
   private slowmo = 0;
   /** No bombardier may throw before this time (spaces their bombs out). */
@@ -783,8 +795,8 @@ export class Game {
   private unlockHero(p: Player, character: unknown): void {
     if (this.phase === 'playing' || !isCharacterId(character)) return;
     const cost = CHARACTERS[character].unlockCost;
-    if (cost === undefined || this.canPlay(p, character) || p.profile.points < cost) return;
-    p.profile.points -= cost;
+    if (cost === undefined || this.canPlay(p, character) || (p.profile.gold ?? 0) < cost) return;
+    p.profile.gold = (p.profile.gold ?? 0) - cost;
     p.profile.heroes = [...(p.profile.heroes ?? []), character];
     p.character = character;
     this.equip(p);
@@ -855,6 +867,7 @@ export class Game {
     this.blasts = [];
     this.zones = [];
     this.summons = [];
+    this.runGold = 0;
     this.nextLobAt = 0;
     this.slowmo = 0;
     this.bossPhase = 'waiting';
@@ -915,10 +928,11 @@ export class Game {
     this.pause = null;
     const prestige = prestigeReward(this.level, this.map.prestigeReward);
     for (const p of this.players.values()) p.profile.points += prestige;
-    if (prestige > 0) this.options.onProfiles?.();
+    if (prestige > 0 || this.runGold > 0) this.options.onProfiles?.();
     this.result = {
       victory,
       prestige,
+      gold: this.runGold,
       boss: victory ? mapBossName(this.map) : null,
       unlockedMap,
       time: this.time,
@@ -1078,6 +1092,7 @@ export class Game {
     }
     this.updateGems(dt);
     this.updateHearts();
+    this.updateCoins(dt);
     this.enemies = this.enemies.filter((e) => !e.dead);
     this.pickups = this.pickups.filter((c) => !c.dead);
     if (this.players.size > 0 && this.alivePlayers().length === 0) this.endGame(false);
@@ -2420,7 +2435,7 @@ export class Game {
       this.knockback(e, p.x, p.y, s.knockback);
     }
     for (const c of this.pickups) {
-      if (c.kind === PickupKind.Crate && this.inSwing(p, c.x, c.y, CRATE_RADIUS, s.range, s.arc)) this.damageCrate(c, damage);
+      if (this.breakable(c) && this.inSwing(p, c.x, c.y, CRATE_RADIUS, s.range, s.arc)) this.damageCrate(c, damage, p);
     }
     this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: s.range, a: round2(p.aim), arc: s.arc, c: p.color });
     return s.cooldown;
@@ -2449,7 +2464,7 @@ export class Game {
       if (s.stun) this.stun(e, s.stun);
     }
     for (const c of this.pickups) {
-      if (c.kind === PickupKind.Crate && dist2(c.x, c.y, p.x, p.y) < (s.radius + CRATE_RADIUS) ** 2) this.damageCrate(c, damage);
+      if (this.breakable(c) && dist2(c.x, c.y, p.x, p.y) < (s.radius + CRATE_RADIUS) ** 2) this.damageCrate(c, damage, p);
     }
     this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: s.radius, c: p.color, snd: 'slam' });
     return s.cooldown;
@@ -2560,7 +2575,7 @@ export class Game {
       }
       if (pr.dead) continue;
       for (const c of this.pickups) {
-        if (c.kind !== PickupKind.Crate || c.dead || pr.hit.has(c.id)) continue;
+        if (!this.breakable(c) || pr.hit.has(c.id)) continue;
         if (dist2(c.x, c.y, pr.x, pr.y) >= (PROJECTILE_RADIUS + CRATE_RADIUS) ** 2) continue;
         pr.hit.add(c.id);
         this.damageCrate(c, pr.damage);
@@ -2963,9 +2978,10 @@ export class Game {
     this.blasts = this.blasts.filter((b) => b.t > 0);
   }
 
-  private hitCratesAround(x: number, y: number, r: number, damage: number): void {
-    for (const c of this.pickups) {
-      if (c.kind === PickupKind.Crate && dist2(c.x, c.y, x, y) < (r + CRATE_RADIUS) ** 2) this.damageCrate(c, damage);
+  private hitCratesAround(x: number, y: number, r: number, damage: number, by?: Player): void {
+    // A copy: a bomb going off can add to the list.
+    for (const c of [...this.pickups]) {
+      if (this.breakable(c) && dist2(c.x, c.y, x, y) < (r + CRATE_RADIUS) ** 2) this.damageCrate(c, damage, by);
     }
   }
 
@@ -2978,16 +2994,87 @@ export class Game {
     if (this.bossPhase === 'fight' && this.map.arena) return;
     if (this.pickups.filter((c) => c.kind === PickupKind.Crate).length >= MAX_CRATES) return;
     const { x, y } = this.pointNear(alive, 300, 600, CRATE_RADIUS + 4);
-    this.pickups.push({ id: this.nextId++, kind: PickupKind.Crate, x, y, hp: CRATE_HP, flashUntil: 0, dead: false });
+    this.addPickup(PickupKind.Crate, x, y, CRATE_HP);
   }
 
-  private damageCrate(c: Pickup, amount: number): void {
-    if (c.dead) return;
+  private addPickup(kind: number, x: number, y: number, hp = 0, value = 0): Pickup {
+    const pickup: Pickup = { id: this.nextId++, kind, x, y, hp, flashUntil: 0, value, target: null, dead: false };
+    this.pickups.push(pickup);
+    return pickup;
+  }
+
+  /** Things your attacks can hit besides enemies: crates and bombs. */
+  private breakable(c: Pickup): boolean {
+    return !c.dead && (c.kind === PickupKind.Crate || c.kind === PickupKind.Bomb);
+  }
+
+  /** A hit on a crate (which breaks open after enough damage) or a bomb (which goes off). */
+  private damageCrate(c: Pickup, amount: number, by?: Player): void {
+    if (!this.breakable(c)) return;
+    if (c.kind === PickupKind.Bomb) {
+      this.explodeBomb(c, by);
+      return;
+    }
     c.hp -= amount;
     c.flashUntil = this.time + 0.1;
-    if (c.hp <= 0) {
-      c.dead = true;
-      this.pickups.push({ id: this.nextId++, kind: PickupKind.Heart, x: c.x, y: c.y, hp: 0, flashUntil: 0, dead: false });
+    if (c.hp > 0) return;
+    c.dead = true;
+    const roll = Math.random();
+    if (roll < CRATE_LOOT.heart) {
+      this.addPickup(PickupKind.Heart, c.x, c.y);
+    } else if (roll < CRATE_LOOT.heart + CRATE_LOOT.gold) {
+      // A pile of coins spilling out.
+      const count = COIN.min + Math.floor(Math.random() * (COIN.max - COIN.min + 1));
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const d = 12 + Math.random() * 30;
+        this.addPickup(PickupKind.Coin, c.x + Math.cos(a) * d, c.y + Math.sin(a) * d, 0, COIN.value);
+      }
+    } else {
+      this.addPickup(PickupKind.Bomb, c.x, c.y);
+    }
+  }
+
+  /** Boom: heavy damage to enemies around it, and it sets off any crates and bombs nearby. */
+  private explodeBomb(b: Pickup, by?: Player): void {
+    b.dead = true;
+    const damage = BOMB.damage * this.horde().hp * this.map.difficulty;
+    // The grid may be stale if this happens between ticks (a cast).
+    this.rebuildGrid();
+    for (const e of this.grid.query(b.x, b.y, BOMB.blast + MAX_ENEMY_RADIUS, this.splashNear)) {
+      if (e.dead || dist2(e.x, e.y, b.x, b.y) >= (BOMB.blast + ENEMY_TYPES[e.type].radius) ** 2) continue;
+      this.damageEnemy(e, damage, by);
+      this.knockback(e, b.x, b.y, 40);
+    }
+    this.fx.push({ k: 'boom', x: Math.round(b.x), y: Math.round(b.y), r: BOMB.blast });
+    this.fx.push({ k: 'ring', x: Math.round(b.x), y: Math.round(b.y), r: BOMB.blast, c: 0xff6d00, snd: 'explode' });
+    this.hitCratesAround(b.x, b.y, BOMB.blast, damage, by);
+  }
+
+  /** Gold coins fly to a player who comes close; picking one up gives its gold to the whole team. */
+  private updateCoins(dt: number): void {
+    const alive = this.alivePlayers();
+    for (const c of this.pickups) {
+      if (c.kind !== PickupKind.Coin || c.dead) continue;
+      if (!c.target || c.target.downed || !this.players.has(c.target.id)) {
+        c.target = null;
+        for (const p of alive) {
+          if (dist2(p.x, p.y, c.x, c.y) < this.stats(p).magnet ** 2) c.target = p;
+        }
+        if (!c.target) continue;
+      }
+      const p = c.target;
+      const d = Math.sqrt(dist2(p.x, p.y, c.x, c.y));
+      if (d < PLAYER_RADIUS + COIN.radius) {
+        c.dead = true;
+        this.runGold += c.value;
+        for (const q of this.players.values()) q.profile.gold = (q.profile.gold ?? 0) + c.value;
+        p.sounds.push('coin');
+        continue;
+      }
+      const step = Math.min(d, COIN.speed * dt);
+      c.x += ((p.x - c.x) / d) * step;
+      c.y += ((p.y - c.y) / d) * step;
     }
   }
 
@@ -3204,6 +3291,7 @@ export class Game {
       sounds: [...new Set(p.sounds.splice(0))], // One of each per snapshot is plenty.
       epoch: p.epoch,
       prestigePoints: p.profile.points,
+      gold: p.profile.gold ?? 0,
       heroes: this.options.allHeroes ? CHARACTER_IDS : (p.profile.heroes ?? []).filter(isCharacterId),
     };
   }
