@@ -1,3 +1,4 @@
+import { DEV_NAME } from '../shared/protocol';
 import { CHARACTERS } from '../shared/characters';
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, TICK_RATE } from '../shared/constants';
@@ -52,6 +53,7 @@ async function main() {
   ui.onPrestige = (id) => net.send({ t: 'prestige', id });
   ui.onRespec = () => net.send({ t: 'respec' });
   ui.onUnlock = (character) => net.send({ t: 'unlock', character });
+  ui.onDev = (action) => net.send({ t: 'dev', action });
 
   net.onWelcome = (id) => {
     myId = id;
@@ -106,6 +108,8 @@ async function main() {
     const aim = Math.round(input.aim() * 100) / 100;
     const wantsDodge = input.consumeDodge();
     const cast = input.consumeCast();
+    const cheat = input.consumeDev();
+    if (cheat && me?.name.toLowerCase() === DEV_NAME && latest!.phase === 'playing') net.send({ t: 'dev', action: cheat });
     if (cast && canAct && latest!.phase === 'playing') {
       net.send({ t: 'cast', slot: cast, aim, dist: Math.round(input.aimDistance()) });
     }

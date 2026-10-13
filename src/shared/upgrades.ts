@@ -218,10 +218,10 @@ export function daggersStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   const evolved = level >= EVOLVED_LEVEL;
   return {
-    damage: 24 + 9 * n,
+    damage: 28 + 10 * n,
     cooldown: Math.max(0.3, 0.5 - 0.04 * n) * (evolved ? 0.7 : 1),
-    range: 90,
-    targets: 1 + Math.floor(n / 2),
+    range: 105,
+    targets: 2 + Math.floor(n / 2),
     /** Evolved: every enemy within reach, 30% faster. */
     all: evolved,
   };
@@ -593,7 +593,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     owner: 'ranger',
     describe: (level) => {
       const s = tumbleStats(level);
-      return `[E] Roll toward your cursor, then loose a fan of ${s.arrows} arrows for ${s.damage} damage each. ${s.cooldown.toFixed(1)}s cooldown.`;
+      return `[E] Roll toward your cursor, then loose a fan of ${s.arrows} arrows at the nearest enemy for ${s.damage} damage each. ${s.cooldown.toFixed(1)}s cooldown.`;
     },
     evolution: { name: 'Hail of Arrows', text: 'Twice the arrows, and each pierces 3 enemies.' },
   },

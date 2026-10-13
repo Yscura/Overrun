@@ -50,6 +50,53 @@ body {
   transition: opacity 0.15s;
 }
 
+/* God-mode cheats, only for a player named "dev". */
+#dev-panel {
+  position: fixed;
+  top: 64px;
+  left: 8px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid #ff6d00;
+  border-radius: 8px;
+}
+
+.dev-title {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: #ff9e40;
+  text-align: center;
+}
+
+#dev-panel button {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#dev-panel button:hover {
+  border-color: #ff9e40;
+}
+
+#dev-panel kbd {
+  font: inherit;
+  color: var(--muted);
+}
+
 #sound-control:hover {
   opacity: 1;
 }

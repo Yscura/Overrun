@@ -37,7 +37,12 @@ Then give your friends a URL to that port:
 
 A run is about 10 minutes: the named boss arrives at 9:00. The horde ramps up gently at first and steeply over the last
 few minutes (more health, more damage, faster, more elites; see `hordeScaling` in `src/shared/enemies.ts`), and keeps
-growing if the boss fight drags on. On arena maps a burning zone then sweeps in from the map's far corners, closing in on
+growing if the boss fight drags on. Hordes are kept smallish (`HORDE_DENSITY`): fewer enemies, each tougher.
+
+**Champions.** From about 2 minutes in, a few percent of enemies spawn as champions: bigger, with a colored ring,
+4x the health, 1.5x the damage and 5x the XP, plus an affix: **Hasted** (yellow, much faster), **Vampiric** (red,
+heals by hitting you), **Volatile** (orange, leaves a bomb when it dies) or **Splitting** (green, splits in three).
+**Warlords** still show up every 2 minutes. On arena maps a burning zone then sweeps in from the map's far corners, closing in on
 the arena over 45 seconds and burning anyone it catches, and anyone who enters the arena is locked in until the fight ends.
 Bosses only take a short stun and are briefly immune afterwards, and they ignore Deep Freeze.
 
@@ -45,6 +50,8 @@ Bosses only take a short stun and are briefly immune afterwards, and they ignore
 
 - **5 minutes:** kill the boss within 5 minutes of the fight starting. After that it goes **berserk**, and every 30
   seconds it hits harder, attacks faster and makes its bomb circles, charge lanes and bullet rings bigger.
+- **The horde backs off:** when the boss arrives on an open map, all but the 30 enemies closest to the team scatter,
+  and only a trickle keeps coming during the fight. Boss summons are smaller and skipped when the fight is crowded.
 - **Side missions:** at 66% and 33% of their health, bosses put up a shield and are immune until the team completes a
   side mission. That's one of: destroy 4 Wards, charge 3 Sigils by standing in them, or kill a marked brood. The
   berserk clock keeps running.
@@ -63,6 +70,10 @@ name every time. The later maps are tuned to need a few runs' worth of prestige.
 
 **Walls:** thick walls (stone) block movement and all projectiles. Thin walls (fences) block movement but you can shoot
 over them and dodge through them. Kael's dodge goes through thick walls too. Wraiths fly over everything.
+
+**God mode:** join as `dev` and you take damage but never go down. A DEV panel (top left) has cheats for testing:
+**T** jumps the clock a minute ahead (with the level-ups you'd have earned; during the boss fight it pushes toward
+berserk), **U** gives a free level-up pick, **F** a free Forge pick, and **B** fills your slots and maxes everything.
 
 **Testing switches** for the server: `OVERRUN_BOSS_TIME=60` brings the final boss after a minute and
 `OVERRUN_UNLOCK_ALL=1` unlocks every map. In PowerShell: `$env:OVERRUN_BOSS_TIME=60; npm run dev`.
@@ -117,6 +128,22 @@ Forges come on a fixed schedule: 6 per run, at 2:15, 3:36, 4:57, 6:07, 7:12 and 
 - **Altar** (cyan): a 20-second team-wide effect: Deep Freeze, Frenzy (double damage), Haste or Vacuum.
 - **Beacon** (yellow): starts a quest: get the whole team to a rally point, or chase down a gold thief. Success drops a pile of gems.
 Stand next to a downed teammate to revive them. The run ends when everyone is down.
+
+## Balance testing with bots
+
+```sh
+npm run balance -- --map 0 --heroes mage,tank,ranger,druid --runs 3
+npm run balance -- --map all --god          # bots can't die, so every run reaches the boss
+```
+
+Bots (`scripts/bot.ts`) play like a real client: they only see snapshots and only move, dodge, cast and pick upgrades.
+They kite and dodge telegraphs, use E and R, take upgrade points, hearts and Forges, revive each other and do the boss
+side missions. The report shows how far the team got, the boss fight length, damage taken per minute, and each hero's
+share of the team's damage (1.0 = an even share), downs and kills. Options: `--prestige N` (all prestige upgrades at
+rank N), `--skill 0..1`, `--boss-time S`, `--log`.
+
+The bots play worse than a good human (they lose by the middle of a run in normal mode), so use them to compare: before
+and after a change, or hero against hero. `--god` is the way to look at the late game and the boss fights.
 
 ## How it's built
 

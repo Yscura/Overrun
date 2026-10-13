@@ -13,7 +13,7 @@ import { MISSIONS } from '../shared/enemies';
 import { MAPS, mapBossName } from '../shared/maps';
 import { EVENTS, QUESTS } from '../shared/objectives';
 import { PRESTIGE, PRESTIGE_IDS, prestigeCost, type PrestigeId, type PrestigeRanks } from '../shared/prestige';
-import type { GameResult, PlayerState, Snapshot } from '../shared/protocol';
+import { DEV_NAME, type DevAction, type GameResult, type PlayerState, type Snapshot } from '../shared/protocol';
 import {
   EVOLVED_LEVEL,
   MAX_LEVEL,
@@ -103,6 +103,7 @@ export class UI {
   onPrestige: (id: PrestigeId) => void = () => {};
   onRespec: () => void = () => {};
   onUnlock: (character: CharacterId) => void = () => {};
+  onDev: (action: DevAction) => void = () => {};
 
   private lobby = $('lobby');
   private joinForm = $('join-form');
@@ -148,6 +149,7 @@ export class UI {
   private gameover = $('gameover');
   private survived = $('survived');
   private results = $('results');
+  private devPanel = $('dev-panel');
   private scoreboard = $('scoreboard');
   private scoreboardRows = $('scoreboard-rows');
 
@@ -177,6 +179,9 @@ export class UI {
     $('restart').addEventListener('click', () => this.onStart());
     $('change-hero').addEventListener('click', () => this.onLobby());
     $('respec').addEventListener('click', () => this.onRespec());
+    for (const button of this.devPanel.querySelectorAll<HTMLButtonElement>('button[data-dev]')) {
+      button.addEventListener('click', () => this.onDev(button.dataset.dev as DevAction));
+    }
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement || this.cards.childElementCount === 0) return;
       const index = CHOICE_KEYS.indexOf(e.code.replace('Numpad', 'Digit'));
@@ -263,6 +268,8 @@ export class UI {
     this.lobby.classList.toggle('hidden', snap.phase !== 'lobby');
     this.gameover.classList.toggle('hidden', snap.phase !== 'gameover');
     this.hud.classList.toggle('hidden', snap.phase === 'lobby');
+    // God mode: the testing cheats.
+    this.devPanel.classList.toggle('hidden', snap.phase !== 'playing' || me?.name.toLowerCase() !== DEV_NAME);
 
     if (snap.phase === 'lobby') {
       this.renderMaps(snap);

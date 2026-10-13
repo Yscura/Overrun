@@ -57,7 +57,7 @@ export interface CharacterDef {
 
 export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   assassin: {
-    name: 'Kael',
+    name: 'Katarina',
     title: 'the Assassin',
     role: 'melee',
     maxHp: 70,
@@ -65,12 +65,12 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     armor: 0,
     regen: 0,
     damageMult: 1.4,
-    areaMult: 0.7,
+    areaMult: 0.8,
     dodgeCooldown: 1.6,
     startWeapon: 'daggers',
     ability: 'veil',
     ultimate: { id: 'shadowstrike', name: 'Shadow Strike', text: 'Blink between up to 7 enemies nearby, striking each one hard. Untouchable while it lasts.', cooldown: 45 },
-    trait: '+40% damage but 30% smaller areas. Fastest, and shadowsteps through any wall',
+    trait: '+40% damage but 20% smaller areas. Fastest, and shadowsteps through any wall',
     phaseWalls: true,
   },
   mage: {
@@ -176,7 +176,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     speed: 225,
     armor: 0.05,
     regen: 0,
-    damageMult: 1.15,
+    damageMult: 1.25,
     dodgeCooldown: 2.5,
     startWeapon: 'orbit',
     ability: 'timebomb',
@@ -186,7 +186,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
       text: 'Rewind to where you were 4s ago, restore the most HP you had since, and explode on arrival.',
       cooldown: 60,
     },
-    trait: '+15% damage. Chronobreak turns back time',
+    trait: '+25% damage. Chronobreak turns back time',
     unlockCost: 40,
   },
 };

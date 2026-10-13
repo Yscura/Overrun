@@ -1,7 +1,7 @@
 import { Application, BitmapFont, BitmapText, Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { CHARACTER_IDS, type CharacterId } from '../shared/characters';
 import { CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS } from '../shared/constants';
-import { ENEMY_TYPES } from '../shared/enemies';
+import { AFFIXES, CHAMPION, ENEMY_TYPES } from '../shared/enemies';
 import { MAPS } from '../shared/maps';
 import { Minimap } from './minimap';
 import { RALLY_RADIUS, SHRINES, SHRINE_RADIUS, ShrineKind } from '../shared/objectives';
@@ -24,6 +24,7 @@ import {
   type Snapshot,
   SUMMON_STRIDE,
   SummonKind,
+  AFFIX_SHIFT,
 } from '../shared/protocol';
 import { fieldRadius, orbitLayout } from '../shared/characters';
 import type { Sample } from './snapshots';
@@ -577,6 +578,12 @@ export class GameRenderer {
         marks.circle(x, y, r + 14).fill({ color: 0xe040fb, alpha: 0.12 + 0.08 * pulse }).stroke({ width: 3, color: 0xea80fc, alpha: 0.5 + 0.4 * pulse });
       }
       if (flags & EnemyFlag.Marked) marks.circle(x, y, r + 6).stroke({ width: 2.5, color: 0xffd54f, alpha: 0.5 + 0.5 * pulse });
+      // Champions: bigger, with a ring in their affix's color.
+      const affix = flags >> AFFIX_SHIFT;
+      if (affix) {
+        view.sprite.scale.set((windingUp ? 1.15 : 1) * CHAMPION.size);
+        marks.circle(x, y, r * CHAMPION.size + 5).stroke({ width: 3, color: AFFIXES[affix].color, alpha: 0.6 + 0.4 * pulse });
+      }
     }
     // Enemies that vanished died (or the run reset).
     for (const [id, view] of this.enemyViews) {

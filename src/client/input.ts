@@ -1,14 +1,19 @@
+import type { DevAction } from '../shared/protocol';
+
 // Uses KeyboardEvent.code, so WASD is by physical position and works on any keyboard layout.
 const UP = ['KeyW', 'ArrowUp'];
 const DOWN = ['KeyS', 'ArrowDown'];
 const LEFT = ['KeyA', 'ArrowLeft'];
 const RIGHT = ['KeyD', 'ArrowRight'];
+/** God-mode cheat keys (see the dev panel). */
+export const DEV_KEYS: Record<string, DevAction> = { KeyT: 'skip', KeyU: 'level', KeyF: 'forge', KeyB: 'max' };
 
 export class Input {
   private keys = new Set<string>();
   private mouse = { x: 1, y: 0 };
   private dodgePressed = false;
   private castPressed: 'e' | 'r' | null = null;
+  private devPressed: DevAction | null = null;
 
   constructor() {
     window.addEventListener('keydown', (e) => {
@@ -20,6 +25,7 @@ export class Input {
       }
       if (!e.repeat && e.code === 'KeyE') this.castPressed = 'e';
       if (!e.repeat && e.code === 'KeyR') this.castPressed = 'r';
+      if (!e.repeat && e.code in DEV_KEYS) this.devPressed = DEV_KEYS[e.code];
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
@@ -53,6 +59,13 @@ export class Input {
     const slot = this.castPressed;
     this.castPressed = null;
     return slot;
+  }
+
+  /** A god-mode cheat key, once per press (only sent when your name is "dev"). */
+  consumeDev(): DevAction | null {
+    const action = this.devPressed;
+    this.devPressed = null;
+    return action;
   }
 
   /** True once per Space press. */

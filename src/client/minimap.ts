@@ -2,7 +2,7 @@ import { Container, Graphics } from 'pixi.js';
 import { ENEMY_TYPES } from '../shared/enemies';
 import { MAPS } from '../shared/maps';
 import { SHRINES } from '../shared/objectives';
-import { ENEMY_STRIDE, PICKUP_STRIDE, PickupKind, SHRINE_STRIDE, type Snapshot } from '../shared/protocol';
+import { AFFIX_SHIFT, ENEMY_STRIDE, PICKUP_STRIDE, PickupKind, SHRINE_STRIDE, type Snapshot } from '../shared/protocol';
 
 const HEALTH_GREEN = 0x00e676;
 
@@ -63,7 +63,7 @@ export class Minimap {
     const elites: number[] = [];
     for (let i = 0; i < snap.enemies.length; i += ENEMY_STRIDE) {
       const type = snap.enemies[i + 1];
-      if (ENEMY_TYPES[type].elite) {
+      if (ENEMY_TYPES[type].elite || snap.enemies[i + 4] >> AFFIX_SHIFT) {
         elites.push(i);
         continue;
       }

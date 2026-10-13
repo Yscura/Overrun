@@ -7,6 +7,7 @@ import {
   isCharacterId,
   offerableUpgrades,
   orbitLayout,
+  ownedWeapons,
   playerStats,
   type CharacterId,
   type PlayerStats,
@@ -48,6 +49,12 @@ import {
   BOSS_POWER,
   BOSS_STUN,
   BOSS_SUMMON,
+  BOSS_FIGHT_HORDE,
+  BOSS_FIGHT_STAY,
+  AFFIX_TUNING,
+  Affix,
+  CHAMPION,
+  HORDE_DENSITY,
   BOSS_VENGEFUL,
   MISSION_KINDS,
   MISSIONS,
@@ -89,6 +96,7 @@ import {
 } from '../shared/objectives';
 import {
   EnemyFlag,
+  AFFIX_SHIFT,
   HazardKind,
   PickupKind,
   ProjectileKind,
@@ -96,6 +104,8 @@ import {
   type ActiveEvent,
   type ChoiceReason,
   type ClientMessage,
+  type DevAction,
+  DEV_NAME,
   type Fx,
   type SoundId,
   SummonKind,
@@ -108,7 +118,9 @@ import {
 } from '../shared/protocol';
 import {
   MAX_LEVEL,
+  EVOLVED_LEVEL,
   UPGRADES,
+  upgradeMax,
   CRIT_MULTIPLIER,
   arrowsStats,
   boltStats,
@@ -359,6 +371,8 @@ interface Enemy {
   vengeful: boolean;
   /** Has to die to complete the current boss side mission (wards, brood). */
   missionTarget: boolean;
+  /** Champions: their affix (see Affix), else Affix.None. */
+  affix: number;
 }
 
 /** A boss side mission in progress; the bosses are shielded until it's done. */
@@ -693,7 +707,59 @@ export class Game {
       case 'unlock':
         this.unlockHero(p, msg.character);
         break;
+      case 'dev':
+        if (p.name.toLowerCase() === DEV_NAME && this.phase === 'playing') this.devCheat(p, msg.action);
+        break;
     }
+  }
+
+  // --- God-mode cheats (player named "dev") ---
+
+  private devCheat(p: Player, action: DevAction): void {
+    switch (action) {
+      case 'skip':
+        if (!this.pause) this.skipMinute();
+        break;
+      case 'level':
+        this.choices.push('level');
+        break;
+      case 'forge':
+        this.choices.push('forge');
+        break;
+      case 'max':
+        this.maxBuild(p);
+        break;
+    }
+  }
+
+  /** Jumps the clock a minute ahead, as if the team had played it: same difficulty, and the level-ups earned. */
+  private skipMinute(): void {
+    this.time += 60;
+    if (this.bossPhase === 'fight') this.fightTime += 60; // Straight toward berserk.
+    // Don't unleash every warlord that was skipped over at once.
+    this.nextBossAt = Math.max(this.nextBossAt, Math.ceil(this.time / BOSS_INTERVAL) * BOSS_INTERVAL);
+    // Of the Forges skipped over, only the latest one appears.
+    while (this.forgesSpawned < FORGE_SCHEDULE.length - 1 && this.time >= FORGE_SCHEDULE[this.forgesSpawned + 1] * this.bossTime) this.forgesSpawned++;
+    if (this.bossPhase === 'waiting') {
+      const expected = Math.round(1 + UPGRADE_PICKS * Math.pow(Math.min(1, this.time / this.bossTime), 0.9));
+      for (; this.level < expected; this.level++) this.choices.push('level');
+      this.xp = 0;
+    }
+    const m = Math.floor(this.time / 60);
+    const s = Math.floor(this.time % 60);
+    this.banner(`Dev: skipped to ${m}:${String(s).padStart(2, '0')}`, 'good');
+  }
+
+  /** Fills every free weapon and passive slot, then maxes everything (evolving what can evolve). */
+  private maxBuild(p: Player): void {
+    for (let i = 0; i < 20; i++) {
+      const fresh = offerableUpgrades(p.upgrades, p.character).filter((id) => !p.upgrades[id]);
+      if (fresh.length === 0) break;
+      p.upgrades[pick(fresh)] = 1;
+    }
+    for (const id of Object.keys(p.upgrades) as UpgradeId[]) p.upgrades[id] = UPGRADES[id].evolution ? EVOLVED_LEVEL : upgradeMax(id);
+    p.hp = this.stats(p).maxHp;
+    this.banner(`Dev: ${p.name} is fully upgraded (${ownedWeapons(p.upgrades).length} weapons)`, 'good');
   }
 
   // --- Prestige (between runs only) ---
@@ -1051,7 +1117,7 @@ export class Game {
     if (this.bossPhase === 'fight' && this.map.arena) return;
     // More enemies over time, and more with more players. Fewer while fighting the boss out in the open.
     let perSecond = this.horde().spawnRate * (0.6 + 0.4 * this.players.size);
-    if (this.bossPhase === 'fight') perSecond *= 0.4;
+    if (this.bossPhase === 'fight') perSecond *= BOSS_FIGHT_HORDE;
     this.spawnAcc += perSecond * dt;
     while (this.spawnAcc >= 1) {
       this.spawnAcc -= 1;
@@ -1109,9 +1175,16 @@ export class Game {
     if (type === EnemyType.Warlord || type === EnemyType.Thief) {
       // One-off enemies grow steadily rather than steeply, or the last warlord would rival the final boss.
       hp = ENEMY_TYPES[type].hp * (1 + 7 * Math.min(1, this.time / this.bossTime)) * this.map.difficulty;
-      hp *= 1 + 0.5 * (this.players.size - 1);
+      hp *= 1 + 0.35 * (this.players.size - 1);
+      return this.addEnemy(type, x, y, hp);
     }
-    return this.addEnemy(type, x, y, hp);
+    // Later on, some spawns are champions with an affix.
+    const progress = this.time / this.bossTime;
+    const chance = progress < CHAMPION.from ? 0 : CHAMPION.minChance + (CHAMPION.maxChance - CHAMPION.minChance) * Math.min(1, (progress - CHAMPION.from) / (1 - CHAMPION.from));
+    const champion = Math.random() < chance;
+    const e = this.addEnemy(type, x, y, champion ? hp * CHAMPION.hp : hp);
+    if (champion) e.affix = 1 + Math.floor(Math.random() * 4);
+    return e;
   }
 
   /** How tough the horde is right now (see hordeScaling). */
@@ -1121,8 +1194,11 @@ export class Game {
 
   /** Multiplier on an enemy's damage: it grows over the run (named bosses have their own) and with the map's difficulty. */
   private damageScale(e: Enemy): number {
-    const scale = ENEMY_TYPES[e.type].behavior === 'named' ? BOSS_POWER.damage * this.bossMods(e).damage : this.horde().damage;
-    return scale * this.map.difficulty;
+    const behavior = ENEMY_TYPES[e.type].behavior;
+    // Fewer-but-tougher only applies to the horde, not to one-off enemies like warlords.
+    const horde = behavior === 'boss' || behavior === 'flee' ? this.horde().damage * HORDE_DENSITY ** 0.7 : this.horde().damage;
+    const scale = behavior === 'named' ? BOSS_POWER.damage * this.bossMods(e).damage : horde;
+    return scale * this.map.difficulty * (e.affix ? CHAMPION.damage : 1);
   }
 
   /** A regular enemy's health at this point in the run, on this map. */
@@ -1159,6 +1235,7 @@ export class Game {
       enraged: false,
       vengeful: false,
       missionTarget: false,
+      affix: Affix.None,
     };
     this.enemies.push(enemy);
     return enemy;
@@ -1216,6 +1293,15 @@ export class Game {
       ({ x, y } = arena);
     } else {
       ({ x, y } = this.pointNear(alive, 450, 650, ENEMY_TYPES[type].radius));
+      // The horde scatters: only the few enemies closest to the team stay to fight.
+      const near = (e: Enemy) => Math.min(...alive.map((p) => dist2(p.x, p.y, e.x, e.y)));
+      const stay = new Set(
+        this.enemies
+          .filter((e) => !e.dead)
+          .sort((a, b) => near(a) - near(b))
+          .slice(0, BOSS_FIGHT_STAY),
+      );
+      for (const e of this.enemies) if (!stay.has(e)) e.dead = true;
     }
     const types = this.map.twin !== undefined ? [type, this.map.twin] : [type];
     this.bosses = types.map((t, i) => {
@@ -1275,7 +1361,9 @@ export class Game {
         for (let i = 0; i < BOSS_MISSIONS.wards; i++) {
           const a = (i / BOSS_MISSIONS.wards) * Math.PI * 2 + Math.PI / 4;
           const spot = this.missionSpot(center, a, BOSS_MISSIONS.wardDistance, ENEMY_TYPES[EnemyType.Ward].radius);
-          const ward = this.addEnemy(EnemyType.Ward, spot.x, spot.y, this.enemyHp(EnemyType.Ward) * scale);
+          // Pinned to boss-time strength, so a long fight doesn't make the wards ever tougher.
+          const hp = ENEMY_TYPES[EnemyType.Ward].hp * hordeScaling(1).hp * this.map.difficulty * scale;
+          const ward = this.addEnemy(EnemyType.Ward, spot.x, spot.y, hp);
           ward.missionTarget = true;
           ids.push(ward.id);
         }
@@ -1419,6 +1507,8 @@ export class Game {
         this.startWindup(e, ux, uy, { ...BOSS_CHARGE, width: BOSS_CHARGE.width * mods.area });
         return [0, 0];
       case 'summon':
+        // Don't pile on: skip the summon while the fight is already crowded.
+        if (this.enemies.filter((m) => !m.dead && !this.bosses.includes(m) && !m.missionTarget).length >= BOSS_SUMMON.maxMinions) break;
         for (let i = 0; i < BOSS_SUMMON.count; i++) {
           const angle = (i / BOSS_SUMMON.count) * Math.PI * 2;
           const type = pick(def.minions);
@@ -1573,7 +1663,7 @@ export class Game {
       const def = ENEMY_TYPES[e.type];
       if (def.behavior === 'ward') continue; // Rooted to the spot.
       // The horde gets faster toward the end (bosses and the thief keep their pace).
-      const speed = def.behavior === 'named' || def.behavior === 'flee' ? def.speed : def.speed * hordeSpeed;
+      const speed = def.behavior === 'named' || def.behavior === 'flee' ? def.speed : def.speed * hordeSpeed * (e.affix === Affix.Hasted ? AFFIX_TUNING.hasteSpeed : 1);
 
       // Everyone targets the nearest living player, unless taunted by a War Cry.
       let target: Player | null = null;
@@ -1899,7 +1989,9 @@ export class Game {
     for (const e of p.veil > 0 ? [] : this.grid.query(p.x, p.y, PLAYER_RADIUS + MAX_ENEMY_RADIUS, this.near)) {
       const def = ENEMY_TYPES[e.type];
       if (e.dead || def.damage === 0 || this.isStunned(e)) continue;
-      if (dist2(e.x, e.y, p.x, p.y) < (PLAYER_RADIUS + def.radius) ** 2) this.hurtPlayer(p, def.damage * this.damageScale(e) * dt, true);
+      if (dist2(e.x, e.y, p.x, p.y) >= (PLAYER_RADIUS + def.radius) ** 2) continue;
+      const amount = def.damage * this.damageScale(e) * dt;
+      if (this.hurtPlayer(p, amount, true) && e.affix === Affix.Vampiric) e.hp = Math.min(e.maxHp, e.hp + amount * AFFIX_TUNING.vampHeal);
     }
     if (!p.downed) this.fireWeapons(p, stats, dt);
   }
@@ -2381,7 +2473,7 @@ export class Game {
   }
 
   private knockback(e: Enemy, fromX: number, fromY: number, amount: number): void {
-    if (ENEMY_TYPES[e.type].radius >= 50) return; // Bosses don't budge.
+    if (ENEMY_TYPES[e.type].radius >= 50 || ENEMY_TYPES[e.type].behavior === 'ward') return; // Bosses and wards don't budge.
     const dx = e.x - fromX;
     const dy = e.y - fromY;
     const d = Math.hypot(dx, dy);
@@ -2425,7 +2517,17 @@ export class Game {
     if (by) by.kills++;
     if (this.bosses.includes(e)) this.bossDied(e);
     else if (this.quest?.kind === 'hunt' && e.id === this.quest.targetId) this.completeQuest(e.x, e.y);
-    else if (ENEMY_TYPES[e.type].xp > 0) this.dropGem(e.x, e.y, ENEMY_TYPES[e.type].xp);
+    else if (ENEMY_TYPES[e.type].xp > 0) this.dropGem(e.x, e.y, Math.round(ENEMY_TYPES[e.type].xp * this.horde().xp * (e.affix ? CHAMPION.xp : 1)));
+    if (e.affix === Affix.Volatile) {
+      const v = AFFIX_TUNING.volatile;
+      this.addHazard(HazardKind.Circle, e.x, e.y, v.radius, 0, 0, v.delay, v.damage * this.damageScale({ ...e, affix: Affix.None }));
+    } else if (e.affix === Affix.Splitting) {
+      for (let i = 0; i < AFFIX_TUNING.splits; i++) {
+        const a = (i / AFFIX_TUNING.splits) * Math.PI * 2;
+        const spot = pushOut(this.walls, e.x + Math.cos(a) * 25, e.y + Math.sin(a) * 25, ENEMY_TYPES[e.type].radius);
+        this.addEnemy(e.type, spot.x, spot.y, this.enemyHp(e.type));
+      }
+    }
   }
 
   private updateProjectiles(dt: number): void {
@@ -2639,8 +2741,14 @@ export class Game {
         p.epoch++;
         p.invuln = Math.max(p.invuln, 0.3);
         const arrows = s.arrows + 2 * stats.projectiles;
+        // The volley goes at the nearest enemy, so you can roll away and still shoot back.
+        let nearest: Enemy | null = null;
+        for (const e of this.grid.query(p.x, p.y, 700, this.near)) {
+          if (!e.dead && (!nearest || dist2(e.x, e.y, p.x, p.y) < dist2(nearest.x, nearest.y, p.x, p.y))) nearest = e;
+        }
+        const volley = nearest ? Math.atan2(nearest.y - p.y, nearest.x - p.x) : p.aim;
         for (let i = 0; i < arrows; i++) {
-          const angle = p.aim + (i - (arrows - 1) / 2) * (1.0 / Math.max(1, arrows - 1));
+          const angle = volley + (i - (arrows - 1) / 2) * (1.0 / Math.max(1, arrows - 1));
           const pr = this.projectile(p, ProjectileKind.Arrow, angle, 820, s.damage * stats.damageMult, 0.75);
           pr.pierce = s.pierce;
         }
@@ -2997,7 +3105,8 @@ export class Game {
         (e.mode === Mode.Windup ? EnemyFlag.WindingUp : 0) |
         (this.isStunned(e) ? EnemyFlag.Stunned : 0) |
         (this.mission && this.bosses.includes(e) && !e.dead ? EnemyFlag.Shielded : 0) |
-        (e.missionTarget ? EnemyFlag.Marked : 0);
+        (e.missionTarget ? EnemyFlag.Marked : 0) |
+        (e.affix << AFFIX_SHIFT);
       enemies.push(e.id, e.type, Math.round(e.x), Math.round(e.y), flags);
     }
     const projectiles: number[] = [];

@@ -26,7 +26,7 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Runner', radius: 10, speed: 145, hp: 8, damage: 8, xp: 1, color: 0xffd54f, behavior: 'chase', spawnAfter: 25, weight: 4 },
   { name: 'Brute', radius: 24, speed: 60, hp: 70, damage: 20, xp: 5, color: 0xba68c8, behavior: 'chase', spawnAfter: 60, weight: 2, elite: true },
   // Mini-boss every few minutes.
-  { name: 'Warlord', radius: 56, speed: 75, hp: 2000, damage: 40, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true },
+  { name: 'Warlord', radius: 56, speed: 75, hp: 1200, damage: 40, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true },
   { name: 'Spitter', radius: 13, speed: 80, hp: 16, damage: 6, xp: 2, color: 0x9ccc65, behavior: 'ranged', spawnAfter: 50, weight: 1.2 },
   { name: 'Bombardier', radius: 17, speed: 55, hp: 30, damage: 8, xp: 3, color: 0x4db6ac, behavior: 'lobber', spawnAfter: 90, weight: 0.7, elite: true },
   { name: 'Charger', radius: 18, speed: 75, hp: 45, damage: 12, xp: 3, color: 0x7986cb, behavior: 'charger', spawnAfter: 65, weight: 1.5, elite: true },
@@ -39,7 +39,7 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Ashlord Vael', radius: 64, speed: 80, hp: 28000, damage: 50, xp: 0, color: 0xff5722, behavior: 'named', spawnAfter: 0, weight: 0, elite: true },
   { name: 'Embra', radius: 52, speed: 95, hp: 24000, damage: 35, xp: 0, color: 0xffab40, behavior: 'named', spawnAfter: 0, weight: 0, elite: true },
   // Stationary totems that shield the boss during a side mission.
-  { name: 'Ward', radius: 26, speed: 0, hp: 400, damage: 0, xp: 0, color: 0x80deea, behavior: 'ward', spawnAfter: 0, weight: 0, elite: true },
+  { name: 'Ward', radius: 26, speed: 0, hp: 160, damage: 0, xp: 0, color: 0x80deea, behavior: 'ward', spawnAfter: 0, weight: 0, elite: true },
 ];
 
 export const EnemyType = {
@@ -146,7 +146,12 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
 /** A ring of bullets in every direction. */
 export const BOSS_NOVA = { shots: 18, speed: 210, damage: 12, life: 4 };
 export const BOSS_CHARGE: ChargeConfig = { windup: 1.0, speed: 640, duration: 0.8, recover: 0.8, damage: 40, width: 120 };
-export const BOSS_SUMMON = { count: 6 };
+/** Each summon calls `count` minions, but never while `maxMinions` regular enemies are already in the fight. */
+export const BOSS_SUMMON = { count: 3, maxMinions: 10 };
+/** During the final fight on an open map, the horde keeps coming at this share of its usual rate. */
+export const BOSS_FIGHT_HORDE = 0.03;
+/** When the final boss shows up on an open map, only this many of the horde (the ones closest to the team) stay. */
+export const BOSS_FIGHT_STAY = 30;
 /** Bosses (Warlords and named bosses) take only `share` of any stun, then can't be stunned for `immunity` seconds. */
 export const BOSS_STUN = { share: 0.3, immunity: 4 };
 /**
@@ -185,6 +190,34 @@ export function bossDisplayName(type: number): string {
 }
 
 /**
+ * Fewer, tougher enemies: the horde spawns at this share of the base rate, and each enemy has 1/DENSITY times
+ * the health and gives 1/DENSITY times the XP, so the total difficulty stays about the same. Damage grows a bit
+ * less, since fewer enemies also means fewer of them touching you at once.
+ */
+export const HORDE_DENSITY = 0.65;
+
+/**
+ * Champions: from `from` of the way to the boss, a growing share of spawns (up to `maxChance`) are champions
+ * with one affix, `hp` times the health, `damage` times the damage and `xp` times the XP.
+ */
+export const CHAMPION = { from: 0.2, minChance: 0.02, maxChance: 0.08, hp: 4, damage: 1.5, xp: 5, size: 1.35 };
+export const Affix = { None: 0, Hasted: 1, Vampiric: 2, Volatile: 3, Splitting: 4 } as const;
+export const AFFIXES = [
+  { name: '', color: 0 },
+  { name: 'Hasted', color: 0xffee58 },
+  { name: 'Vampiric', color: 0xff1744 },
+  { name: 'Volatile', color: 0xff9100 },
+  { name: 'Splitting', color: 0x69f0ae },
+];
+/** Affix tuning: Hasted speed, Vampiric healing per damage dealt, Volatile death bomb, Splitting children. */
+export const AFFIX_TUNING = {
+  hasteSpeed: 1.6,
+  vampHeal: 10,
+  volatile: { radius: 90, delay: 1.1, damage: 30 },
+  splits: 3,
+};
+
+/**
  * How tough the horde gets `progress` of the way to the final boss (0 at the start, 1 when it arrives):
  * gentle early on, then steep toward the end when builds come together. Health and damage are further
  * multiplied by the map's difficulty.
@@ -192,11 +225,13 @@ export function bossDisplayName(type: number): string {
 export function hordeScaling(progress: number) {
   const f = Math.min(progress, 1.2);
   return {
-    hp: 1 + 5 * f + 24 * f ** 3,
-    damage: 1 + 2 * f * f,
+    hp: (1 + 4 * f + 25 * f ** 4) / HORDE_DENSITY,
+    damage: (1 + 2 * f * f) / HORDE_DENSITY ** 0.7,
     speed: 1 + 0.25 * f * f,
+    /** XP per enemy. */
+    xp: 1 / HORDE_DENSITY,
     /** Enemies per second, before the player-count factor. */
-    spawnRate: 0.8 + 24 * f + 14 * f * f,
+    spawnRate: (0.8 + 24 * f + 14 * f * f) * HORDE_DENSITY,
     /** Extra spawn weight for elite enemies. */
     elite: 1 + 2 * f,
   };

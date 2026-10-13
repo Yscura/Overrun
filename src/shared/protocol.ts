@@ -31,7 +31,16 @@ export type ClientMessage =
   /** Refund all prestige ranks (between runs). */
   | { t: 'respec' }
   /** Unlock a hero with prestige points. */
-  | { t: 'unlock'; character: CharacterId };
+  | { t: 'unlock'; character: CharacterId }
+  /** Testing cheats, only for a player named "dev" (see DevAction). */
+  | { t: 'dev'; action: DevAction };
+
+/**
+ * God-mode cheats for testing: 'skip' jumps the clock a minute ahead (with the level-ups you'd have earned),
+ * 'level' and 'forge' hand out a free pick, 'max' fills your slots and maxes everything.
+ */
+export type DevAction = 'skip' | 'level' | 'forge' | 'max';
+export const DEV_NAME = 'dev';
 
 export type ServerMessage = { t: 'welcome'; id: number } | { t: 'full' } | Snapshot;
 
@@ -209,6 +218,8 @@ export const ZoneKind = { Venom: 0, Mine: 1, Fire: 2 } as const;
 export const HazardKind = { Circle: 0, Line: 1 } as const;
 /** Bit flags in the enemy list. */
 export const EnemyFlag = { Hit: 1, WindingUp: 2, Stunned: 4, Shielded: 8, Marked: 16 } as const;
+/** Champions carry their affix (see Affix) in the flags, shifted up by this many bits. */
+export const AFFIX_SHIFT = 5;
 
 // Entity lists are flat number arrays to keep snapshots small:
 // enemies:     [id, type, x, y, flags, ...]
