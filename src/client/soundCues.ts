@@ -6,6 +6,8 @@ import type { Sound } from './audio';
 export class SoundCues {
   /** Hazards we've already warned about. */
   private seenHazards = new Set<number>();
+  /** Revive progress at the last chime, per downed player. */
+  private reviveChimes = new Map<number, number>();
 
   constructor(private readonly sound: Sound) {}
 
@@ -61,6 +63,22 @@ export class SoundCues {
       sound.play(snap.hazards[i + 1] === HazardKind.Line ? 'chargeWarn' : 'bombWarn', ...near(x, y));
     }
     this.seenHazards = current;
+
+    // Reviving: a chime each time the bar fills another step, rising in pitch; a chord when they're back up.
+    for (const p of snap.players) {
+      const before = prev?.players.find((o) => o.id === p.id);
+      if (p.downed) {
+        const last = this.reviveChimes.get(p.id) ?? 0;
+        if (p.revive < last - 0.05) this.reviveChimes.set(p.id, p.revive); // The bar is draining: start over.
+        else if (p.revive - last >= 0.08) {
+          this.reviveChimes.set(p.id, p.revive);
+          sound.play('revive', ...near(p.x, p.y), 1 + p.revive * 1.5);
+        }
+      } else {
+        if (before?.downed && snap.phase === 'playing') sound.play('revived', ...near(p.x, p.y));
+        this.reviveChimes.delete(p.id);
+      }
+    }
 
     // Big moments.
     if (snap.pause?.kind === 'choose' && !prev?.pause) sound.play('levelup');

@@ -10,6 +10,9 @@ npm run dev
 ```
 
 Open http://localhost:5173. Every tab you open is another player, which is handy for testing co-op alone.
+No friends online? **+ Add bot** in the lobby adds a bot teammate (up to a team of four) with a random hero. Bots
+play on the server: they fight, dodge, use E and R, pick upgrades, revive you and do the boss missions. They don't save
+any progress, the pause screen doesn't wait for them, and they leave when the last person does.
 Code changes reload automatically (the client hot-reloads; the server restarts, which ends the current run).
 
 ## Play with friends
@@ -153,7 +156,7 @@ npm run balance -- --map 0 --heroes mage,tank,ranger,druid --runs 3
 npm run balance -- --map all --god          # bots can't die, so every run reaches the boss
 ```
 
-Bots (`scripts/bot.ts`) play like a real client: they only see snapshots and only move, dodge, cast and pick upgrades.
+Bots (`src/server/bot.ts`, the same ones you can add in the lobby) play like a real client: they only see snapshots and only move, dodge, cast and pick upgrades.
 They kite and dodge telegraphs, use E and R, take upgrade points, hearts and Forges, revive each other and do the boss
 side missions. The report shows how far the team got, the boss fight length, damage taken per minute, and each hero's
 share of the team's damage (1.0 = an even share), downs and kills. Options: `--prestige N` (all prestige upgrades at

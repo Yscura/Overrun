@@ -13,7 +13,8 @@ export class Input {
   private mouse = { x: 1, y: 0 };
   private dodgePressed = false;
   private castPressed: 'e' | 'r' | null = null;
-  private devPressed: DevAction | null = null;
+  /** Cheat keys pressed since the last frame, in order (two quick presses shouldn't drop one). */
+  private devPressed: DevAction[] = [];
   private pausePressed = false;
 
   constructor() {
@@ -26,7 +27,7 @@ export class Input {
       }
       if (!e.repeat && e.code === 'KeyE') this.castPressed = 'e';
       if (!e.repeat && e.code === 'KeyR') this.castPressed = 'r';
-      if (!e.repeat && e.code in DEV_KEYS) this.devPressed = DEV_KEYS[e.code];
+      if (!e.repeat && e.code in DEV_KEYS) this.devPressed.push(DEV_KEYS[e.code]);
       if (!e.repeat && (e.code === 'Escape' || e.code === 'KeyP')) this.pausePressed = true;
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -65,9 +66,7 @@ export class Input {
 
   /** A god-mode cheat key, once per press (only sent when your name is "dev"). */
   consumeDev(): DevAction | null {
-    const action = this.devPressed;
-    this.devPressed = null;
-    return action;
+    return this.devPressed.shift() ?? null;
   }
 
   /** True once per Esc or P press: pause the game, or (while paused) toggle being ready. */

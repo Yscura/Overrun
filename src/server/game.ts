@@ -97,7 +97,7 @@ import {
   SHRINE_FIRST,
   SHRINE_INTERVAL,
   SHRINE_RADIUS,
-  SHRINE_SOLO_SHARE,
+  captureSpeed,
   SHRINE_SPACING,
   ShrineKind,
   type QuestKind,
@@ -164,10 +164,13 @@ import {
   type Upgrades,
   type WeaponId,
 } from '../shared/upgrades';
+import { Bot } from './bot';
 import { FlowField } from './navigation';
 import { SpatialGrid } from './spatialGrid';
 
 const SEPARATION_SPEED = 150;
+/** Names for bot teammates. */
+const BOT_NAMES = ['Rook (bot)', 'Mira (bot)', 'Bram (bot)', 'Juno (bot)', 'Wren (bot)', 'Pike (bot)'];
 const GEM_ACCEL = 1500;
 const GEM_MAX_SPEED = 900;
 /** Weapons that fire on their own (hero abilities are cast with E instead). */
@@ -313,6 +316,8 @@ interface Player {
   profile: Profile;
   /** God mode: damage never takes them below 1 HP. On by default for "dev", who can toggle it. */
   god: boolean;
+  /** A bot teammate: the server plays it through the same messages a client sends. */
+  bot: Bot | null;
 }
 
 /** Venom puddles and mines on the ground. */
@@ -647,7 +652,7 @@ export class Game {
     return profile;
   }
 
-  addPlayer(name: string, character: unknown, send: (text: string) => void): number | null {
+  addPlayer(name: string, character: unknown, send: (text: string) => void, isBot = false): number | null {
     if (this.players.size >= MAX_PLAYERS) return null;
     const used = new Set([...this.players.values()].map((p) => p.color));
     const player: Player = {
@@ -696,10 +701,12 @@ export class Game {
       takenTimer: 0,
       sounds: [],
       lifestealBudget: 0,
-      profile: this.profile(name),
+      // Bots get a throwaway profile, so they never end up in the saved progress.
+      profile: isBot ? { points: 0, ranks: {}, gold: 0, heroes: [...CHARACTER_IDS] } : this.profile(name),
       god: name.toLowerCase() === DEV_NAME,
+      bot: null,
     };
-    if (isCharacterId(character) && this.canPlay(player, character)) player.character = character;
+    if (isCharacterId(character) && (isBot || this.canPlay(player, character))) player.character = character;
     this.resetPlayer(player, this.players.size);
     // Joining mid-run drops you next to a teammate (and into the current pick, if there is one).
     const buddy = this.phase === 'playing' ? this.alivePlayers().find((p) => !p.inArena) : undefined;
@@ -709,8 +716,30 @@ export class Game {
     return player.id;
   }
 
+  /** Adds a bot teammate with a random hero not already in the team. Returns its id, or null if the team is full. */
+  addBot(): number | null {
+    if (this.players.size >= MAX_PLAYERS) return null;
+    const names = new Set([...this.players.values()].map((p) => p.name));
+    const name = BOT_NAMES.find((n) => !names.has(n)) ?? `Bot ${this.nextId}`;
+    const taken = new Set([...this.players.values()].map((p) => p.character));
+    const free = CHARACTER_IDS.filter((c) => !taken.has(c));
+    let bot: Bot | null = null;
+    const id = this.addPlayer(name, pick(free.length > 0 ? free : CHARACTER_IDS), (text) => bot?.receive(text), true);
+    if (id === null) return null;
+    bot = new Bot((msg) => this.handleMessage(id, msg), id);
+    this.players.get(id)!.bot = bot;
+    return id;
+  }
+
+  /** Real players (not bots). */
+  private humans(): Player[] {
+    return [...this.players.values()].filter((p) => !p.bot);
+  }
+
   removePlayer(id: number): void {
     this.players.delete(id);
+    // Bots don't play on their own: once the last person leaves, they go too.
+    if (this.humans().length === 0) for (const p of [...this.players.values()]) this.players.delete(p.id);
     this.summons = this.summons.filter((m) => m.owner !== id);
     if (this.players.size === 0) {
       this.phase = 'lobby';
@@ -741,6 +770,14 @@ export class Game {
       case 'lobby':
         if (this.phase === 'gameover') this.backToLobby();
         break;
+      case 'addbot':
+        if (this.phase === 'lobby' && !p.bot) this.addBot();
+        break;
+      case 'removebot': {
+        const target = this.players.get(msg.id);
+        if (this.phase === 'lobby' && target?.bot) this.removePlayer(target.id);
+        break;
+      }
       case 'giveup':
         // From the pause screen: the run ends as a defeat (prestige and gold earned so far still count).
         if (this.phase === 'playing' && this.pause?.kind === 'menu') {
@@ -895,11 +932,12 @@ export class Game {
 
   tick(): void {
     this.tickCount++;
+    for (const p of this.players.values()) p.bot?.think();
     if (this.phase === 'playing') {
       if (this.pause?.kind === 'menu') {
         // Everyone (still here) is ready: carry on, easing in from slow motion like after a pick.
         const ready = this.pause.ready;
-        if ([...this.players.values()].every((p) => ready.includes(p.id))) {
+        if (this.humans().every((p) => ready.includes(p.id))) {
           this.pause = null;
           this.slowMotion(SLOWMO.start, 0, SLOWMO.duration);
         }
@@ -1562,7 +1600,8 @@ export class Game {
     if (m.kind === 'sigils') {
       for (const s of this.shrines) {
         if (s.kind !== ShrineKind.Sigil) continue;
-        if (alive.some((p) => dist2(p.x, p.y, s.x, s.y) < SHRINE_RADIUS ** 2)) s.progress = Math.min(1, s.progress + dt / BOSS_MISSIONS.sigilTime);
+        const inside = alive.filter((p) => dist2(p.x, p.y, s.x, s.y) < SHRINE_RADIUS ** 2).length;
+        s.progress = Math.min(1, s.progress + (dt / BOSS_MISSIONS.sigilTime) * captureSpeed(inside));
         if (s.progress >= 1 && !s.captured) {
           s.captured = true;
           this.fx.push({ k: 'ring', x: Math.round(s.x), y: Math.round(s.y), r: SHRINE_RADIUS * 1.3, c: SHRINES[ShrineKind.Sigil].color, snd: 'pop' });
@@ -1675,9 +1714,8 @@ export class Game {
     for (const s of this.shrines) {
       const inside = alive.filter((p) => dist2(p.x, p.y, s.x, s.y) < SHRINE_RADIUS ** 2).length;
       if (inside > 0) {
-        // The bigger share of the team inside, the faster it fills.
-        const share = SHRINE_SOLO_SHARE + (1 - SHRINE_SOLO_SHARE) * (inside / alive.length);
-        s.progress += (dt / SHRINE_CAPTURE_TIME) * share;
+        // The more players inside, the faster it fills.
+        s.progress += (dt / SHRINE_CAPTURE_TIME) * captureSpeed(inside);
       }
       if (s.progress >= 1) {
         s.captured = true;
@@ -3359,6 +3397,8 @@ export class Game {
       invuln: p.invuln > 0,
       hurt: p.hurtUntil > this.time,
       inArena: p.inArena,
+      bot: p.bot !== null,
+      ult: round2(1 - p.ultCd / CHARACTERS[p.character].ultimate.cooldown),
       veiled: p.veil > 0,
       aura:
         p.strikes > 0 ? AURA.strike : p.arrowStorm > 0 ? AURA.storm : p.inferno > 0 ? AURA.inferno : p.rage > 0 ? AURA.rage : p.guard > 0 ? AURA.guard : 0,

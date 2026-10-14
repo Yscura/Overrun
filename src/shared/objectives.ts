@@ -1,8 +1,8 @@
 // Upgrade points ("shrines") on the map, and the timed events and quests they start.
 
 /**
- * Stand inside a shrine to capture it. It fills faster the bigger share of the team is inside:
- * the whole team takes SHRINE_CAPTURE_TIME seconds, a lone player in a team of four about twice that.
+ * Stand inside a shrine to capture it. One player fills it in SHRINE_CAPTURE_TIME seconds, and every extra player
+ * inside speeds it up (see captureSpeed).
  */
 export const ShrineKind = { Forge: 0, Event: 1, Quest: 2, Sigil: 3 } as const;
 
@@ -16,8 +16,16 @@ export const SHRINES = [
 
 export const SHRINE_RADIUS = 100;
 export const SHRINE_CAPTURE_TIME = 6;
-/** Fill speed with a fraction f of the living team inside: SOLO_SHARE + (1 - SOLO_SHARE) * f. */
-export const SHRINE_SOLO_SHARE = 0.4;
+/** Every player inside beyond the first adds this much to the fill speed. */
+export const CAPTURE_PER_EXTRA_PLAYER = 0.6;
+
+/**
+ * How fast a circle fills with `inside` players standing in it, relative to one player:
+ * 1 player 1x (6 s), 2 players 1.6x (3.8 s), 3 players 2.2x (2.7 s), 4 players 2.8x (2.1 s).
+ */
+export function captureSpeed(inside: number): number {
+  return inside <= 0 ? 0 : 1 + CAPTURE_PER_EXTRA_PLAYER * (inside - 1);
+}
 /** The first shrine appears this many seconds in, then one every SHRINE_INTERVAL while there's room. */
 export const SHRINE_FIRST = 30;
 export const SHRINE_INTERVAL = 40;

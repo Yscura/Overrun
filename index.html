@@ -73,6 +73,11 @@
       </div>
     </div>
 
+    <div id="spectate" class="hidden">
+      <div class="spectate-title">You're down. Watch a teammate:</div>
+      <div id="spectate-list"></div>
+    </div>
+
     <div id="pausemenu" class="overlay hidden">
       <div class="panel pause-box">
         <h1>PAUSED</h1>
@@ -115,7 +120,10 @@
           </div>
           <p class="prestige-hint">Permanent upgrades, kept between runs. Every team level you reach in a run earns a point (more on harder maps).</p>
           <div id="prestige"></div>
-          <h2>Players</h2>
+          <div class="prestige-head">
+            <h2>Players</h2>
+            <button id="add-bot" class="link" title="A bot teammate that plays alongside you">+ Add bot</button>
+          </div>
           <ul id="player-list"></ul>
           <button id="start" class="primary">Start game</button>
           <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge the way you're moving · E ability · R ultimate · hold Tab for the scoreboard · 1 / 2 / 3 to pick upgrades · shoot crates for health · stand next to a downed friend to revive them · red zones on the ground are about to hurt · stand in upgrade points (Forge, Altar, Quest) together to capture them faster · dodge through fences · survive 9 minutes and beat the boss to unlock the next map</p>

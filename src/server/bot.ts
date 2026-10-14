@@ -5,12 +5,12 @@
 // client. Plays decently, not perfectly: it kites, dodges telegraphs, uses its E and R, grabs upgrade points,
 // hearts and revives, and does the boss side missions.
 
-import { CHARACTERS, heroDamageType, ownedPassives, ownedWeapons, type CharacterId } from '../src/shared/characters';
-import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../src/shared/collision';
-import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, REVIVE_RADIUS, TICK_DT } from '../src/shared/constants';
-import { ENEMY_TYPES } from '../src/shared/enemies';
-import { MAPS } from '../src/shared/maps';
-import { ShrineKind } from '../src/shared/objectives';
+import { CHARACTERS, heroDamageType, ownedPassives, ownedWeapons, type CharacterId } from '../shared/characters';
+import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
+import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, REVIVE_RADIUS, TICK_DT } from '../shared/constants';
+import { ENEMY_TYPES } from '../shared/enemies';
+import { MAPS } from '../shared/maps';
+import { ShrineKind } from '../shared/objectives';
 import {
   ENEMY_SHOT_Swiftness,
   ENEMY_Swiftness,
@@ -24,9 +24,9 @@ import {
   type ClientMessage,
   type PlayerState,
   type Snapshot,
-} from '../src/shared/protocol';
-import { EVOLVED_LEVEL, PASSIVE_SLOTS, UPGRADES, WEAPON_SLOTS, damageType, isBonus, type ChoiceId, type UpgradeId, type Upgrades, type WeaponId } from '../src/shared/upgrades';
-import { FlowField } from '../src/server/navigation';
+} from '../shared/protocol';
+import { EVOLVED_LEVEL, PASSIVE_SLOTS, UPGRADES, WEAPON_SLOTS, damageType, isBonus, type ChoiceId, type UpgradeId, type Upgrades, type WeaponId } from '../shared/upgrades';
+import { FlowField } from './navigation';
 
 interface Point {
   x: number;

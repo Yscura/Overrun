@@ -327,6 +327,13 @@ export class GameRenderer {
     }
   }
 
+  /** Whose camera to follow while you're down (null = your own). */
+  private spectateId: number | null = null;
+
+  spectate(id: number | null): void {
+    this.spectateId = id;
+  }
+
   /**
    * A boss's entrance: pan from the player to the boss, hold there (with a shake when it roars), and pan back.
    * Timed in real seconds, like the server's slow motion.
@@ -434,7 +441,13 @@ export class GameRenderer {
     if (b.snap.map !== this.mapIndex) this.setMap(b.snap.map);
     const { width, height } = this.app.screen;
     const hasMe = b.snap.players.some((p) => p.id === myId);
-    const follow = hasMe ? local : MAPS[b.snap.map].spawn;
+    // While you're down you can follow a teammate's camera instead.
+    let follow: Point = hasMe ? local : MAPS[b.snap.map].spawn;
+    if (this.spectateId !== null) {
+      const target = b.snap.players.find((p) => p.id === this.spectateId);
+      const prev = a.snap.players.find((p) => p.id === this.spectateId);
+      if (target) follow = prev ? { x: lerp(prev.x, target.x, t), y: lerp(prev.y, target.y, t) } : target;
+    }
     const cam = this.introCamera(follow);
     this.world.position.set(Math.round(width / 2 - cam.x), Math.round(height / 2 - cam.y));
     this.background.width = width;

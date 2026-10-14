@@ -39,7 +39,10 @@ export type ClientMessage =
   /** While paused: toggle being ready to carry on. */
   | { t: 'ready' }
   /** While paused: end the run for everyone (a defeat) and go back to the lobby. */
-  | { t: 'giveup' };
+  | { t: 'giveup' }
+  /** In the lobby: add a bot teammate, or remove one. */
+  | { t: 'addbot' }
+  | { t: 'removebot'; id: number };
 
 /**
  * Cheats for testing: 'skip' jumps the clock a minute ahead (with the level-ups you'd have earned), 'level' and
@@ -71,6 +74,10 @@ export interface PlayerState {
   hurt: boolean;
   /** Locked inside the boss arena. */
   inArena: boolean;
+  /** A bot teammate (played by the server). */
+  bot: boolean;
+  /** How charged their ultimate is, 0 (just used) to 1 (ready). */
+  ult: number;
   /** Hidden by Shadow Veil (drawn faintly). */
   veiled: boolean;
   /** Color of an active buff's glow (Bloodrage, guard, Death Lotus), or 0. */
@@ -167,7 +174,9 @@ export type SoundId =
   | 'summon'
   | 'rewind'
   | 'coin'
-  | 'roar';
+  | 'roar'
+  | 'revive'
+  | 'revived';
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */

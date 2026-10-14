@@ -274,6 +274,23 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
       v.tone({ type: 'sine', from: 73, to: 49, duration: 1.4, volume: 0.13, delay: 0.75 });
     },
   },
+  // Reviving: a soft chime, played higher and higher as the bar fills.
+  revive: {
+    play: (v) => {
+      v.tone({ type: 'triangle', from: 220, to: 233, duration: 0.22, volume: 0.07, attack: 0.03, lowpass: 2000 });
+      v.tone({ type: 'sine', from: 440, to: 466, duration: 0.18, volume: 0.04, attack: 0.02 });
+    },
+    max: 2,
+    gap: 0.08,
+  },
+  // Back on your feet: a rising major chord.
+  revived: {
+    play: (v) => {
+      for (const [i, f] of [220, 277, 330, 440].entries()) v.tone({ type: 'triangle', from: f, duration: 0.6, volume: 0.07, delay: i * 0.07, lowpass: 2400 });
+      v.noise({ filter: 'bandpass', from: 1200, to: 3200, duration: 0.5, volume: 0.05, q: 2 });
+    },
+    max: 1,
+  },
   roar: {
     // A deep, rising-then-falling growl with a rumble underneath.
     play: (v) => {
@@ -356,7 +373,7 @@ export class Sound {
    * Plays a sound. With `at` and `listener`, it gets quieter with distance and pans left/right;
    * without, it plays at full volume in the middle (your own actions).
    */
-  play(name: SoundName, at?: { x: number; y: number }, listener?: { x: number; y: number }): void {
+  play(name: SoundName, at?: { x: number; y: number }, listener?: { x: number; y: number }, pitchScale = 1): void {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || this.volume === 0 || ctx.state !== 'running') return;
     const recipe = RECIPES[name];
@@ -384,7 +401,7 @@ export class Sound {
     out.connect(panner).connect(this.master);
 
     // A little random pitch so repeated sounds don't sound identical.
-    const pitch = 0.94 + Math.random() * 0.12;
+    const pitch = pitchScale * (0.94 + Math.random() * 0.12);
     let end = now;
     const voice: Voice = {
       tone: (o) => {

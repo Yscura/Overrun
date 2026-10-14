@@ -56,6 +56,9 @@ async function main() {
   ui.onDev = (action) => net.send({ t: 'dev', action });
   ui.onReady = () => net.send({ t: 'ready' });
   ui.onGiveUp = () => net.send({ t: 'giveup' });
+  ui.onAddBot = () => net.send({ t: 'addbot' });
+  ui.onSpectate = (id) => renderer.spectate(id);
+  ui.onRemoveBot = (id) => net.send({ t: 'removebot', id });
 
   net.onWelcome = (id) => {
     myId = id;

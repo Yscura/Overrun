@@ -11,6 +11,7 @@ import {
   type CharacterId,
   type UltimateId,
 } from '../shared/characters';
+import { MAX_PLAYERS } from '../shared/constants';
 import { MISSIONS } from '../shared/enemies';
 import { MAPS, mapBossName } from '../shared/maps';
 import { EVENTS, QUESTS } from '../shared/objectives';
@@ -160,6 +161,11 @@ export class UI {
   onDev: (action: DevAction) => void = () => {};
   onReady: () => void = () => {};
   onGiveUp: () => void = () => {};
+  onAddBot: () => void = () => {};
+  /** While you're down: whose camera to follow (null = your own). */
+  onSpectate: (id: number | null) => void = () => {};
+  private spectating: number | null = null;
+  onRemoveBot: (id: number) => void = () => {};
 
   private lobby = $('lobby');
   private joinForm = $('join-form');
@@ -208,6 +214,9 @@ export class UI {
   private survived = $('survived');
   private results = $('results');
   private devPanel = $('dev-panel');
+  private spectateBar = $('spectate');
+  private spectateList = $('spectate-list');
+  private addBot = $<HTMLButtonElement>('add-bot');
   private devGod = $('dev-god');
   private pauseMenu = $('pausemenu');
   private pauseBy = $('pause-by');
@@ -225,7 +234,7 @@ export class UI {
   private latest: { snap: Snapshot; myId: number | null } | null = null;
 
   // Only rebuild DOM when the content actually changed (snapshots arrive 30 times a second).
-  private shown = { pauseList: '', players: '', maps: '', prestige: '', characters: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
+  private shown = { spectate: '', pauseList: '', players: '', maps: '', prestige: '', characters: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
   private bannerTimer = 0;
 
   constructor() {
@@ -246,6 +255,7 @@ export class UI {
     $('change-hero').addEventListener('click', () => this.onLobby());
     $('respec').addEventListener('click', () => this.onRespec());
     this.pauseReady.addEventListener('click', () => this.onReady());
+    this.addBot.addEventListener('click', () => this.onAddBot());
     $('pause-giveup').addEventListener('click', () => {
       if (window.confirm('Give up this run for everyone and go back to the lobby? Prestige and gold earned so far are kept.')) this.onGiveUp();
     });
@@ -383,6 +393,7 @@ export class UI {
     this.levelup.classList.toggle('hidden', !pause);
     document.body.classList.toggle('paused', !!anyPause);
     this.renderPauseMenu(anyPause?.kind === 'menu' ? anyPause : null, snap, myId);
+    this.renderSpectate(snap, me);
     if (pause) {
       this.chooseTitle.textContent = pause.reason === 'forge' ? 'The Forge: upgrade a weapon' : 'Level up!';
       this.chooseTimer.textContent = `${Math.ceil(pause.timeLeft)}s`;
@@ -483,13 +494,20 @@ export class UI {
   }
 
   private renderPlayerList(snap: Snapshot): void {
-    const key = snap.players.map((p) => `${p.id}:${p.name}:${p.character}`).join('|');
+    const key = snap.players.map((p) => `${p.id}:${p.name}:${p.character}:${p.bot}`).join('|');
     if (key === this.shown.players) return;
     this.shown.players = key;
+    this.addBot.disabled = snap.players.length >= MAX_PLAYERS;
     this.playerList.replaceChildren(
       ...snap.players.map((p) => {
-        const li = el('li');
+        const li = el('li', p.bot ? 'is-bot' : '');
         li.append(portrait(p.character, p.color, 'portrait tiny'), el('span', 'player-name', p.name), el('span', 'player-hero', CHARACTERS[p.character].name));
+        if (p.bot) {
+          const remove = el('button', 'remove-bot', '×') as HTMLButtonElement;
+          remove.title = 'Remove this bot';
+          remove.addEventListener('click', () => this.onRemoveBot(p.id));
+          li.append(remove);
+        }
         return li;
       }),
     );
@@ -688,6 +706,7 @@ export class UI {
   private closeScoreboard(): void {
     this.scoreboardOpen = false;
     this.scoreboard.classList.add('hidden');
+    this.tooltip.classList.add('hidden');
   }
 
   private renderScoreboard(force: boolean): void {
@@ -724,22 +743,37 @@ export class UI {
       cell.append(el('div', 'score-value', value), el('div', 'score-label', label));
       numbers.append(cell);
     }
+    // Their ultimate's charge: a ring that fills up, green when it's ready.
+    const ready = p.ult >= 1;
+    const ring = el('div', `ult-ring${ready ? ' ready' : ''}`);
+    ring.style.setProperty('--charge', `${Math.round(Math.min(1, p.ult) * 360)}deg`);
+    ring.append(ultIconEl(hero.ultimate.id, 18));
+    this.tip(ring, () => ({
+      title: hero.ultimate.name,
+      ult: hero.ultimate.id,
+      tags: [
+        { text: ready ? 'Ready' : `${Math.round(p.ult * 100)}% charged`, cls: ready ? 'tip-ready' : 'tip-level' },
+        { text: `${hero.ultimate.cooldown}s cooldown`, cls: 'tip-level' },
+      ],
+      lines: [{ text: hero.ultimate.text }],
+    }));
+    const ultCell = el('div', 'score-number');
+    ultCell.append(ring, el('div', 'score-label', 'Ult'));
+    numbers.append(ultCell);
 
-    // Their build as icon tiles: E ability, R ultimate and weapons (big), then passives.
+    // Their build as icon tiles: weapons (big), then passives. Hero abilities are the same for everyone, so they're left out.
     const build = el('div', 'score-build');
-    const tile = (id: UpgradeId, kind: 'ability' | 'weapon' | 'passive') => {
+    const tile = (id: UpgradeId, kind: 'weapon' | 'passive') => {
       const level = p.upgrades[id] ?? 0;
       const evolved = level >= EVOLVED_LEVEL;
       const t = el('div', `score-tile ${kind} ${typeOf(id)}${evolved ? ' evolved shimmer' : ''}`);
       t.append(iconEl(id, kind === 'passive' ? 26 : 38), el('div', 'score-tile-name', upgradeName(id, level)));
       if (!evolved) t.append(el('span', 'score-tile-level', String(level)));
-      if (kind === 'ability') t.append(el('span', 'score-tile-key', 'E'));
+      this.tip(t, () => (kind === 'passive' ? passiveTip(id, level) : weaponTip(id, level)));
       return t;
     };
-    const ult = el('div', `score-tile ult${hero.ultimate.damage ? ` ${hero.ultimate.damage}` : ''}`);
-    ult.append(ultIconEl(hero.ultimate.id, 38), el('div', 'score-tile-name', hero.ultimate.name), el('span', 'score-tile-key', 'R'));
     const weapons = el('div', 'score-tiles');
-    weapons.append(tile(hero.ability, 'ability'), ult, ...ownedWeapons(p.upgrades).map((id) => tile(id, 'weapon')));
+    weapons.append(...ownedWeapons(p.upgrades).map((id) => tile(id, 'weapon')));
     const passives = el('div', 'score-tiles');
     const ownedP = ownedPassives(p.upgrades);
     passives.append(...ownedP.map((id) => tile(id, 'passive')));
@@ -814,6 +848,42 @@ export class UI {
         card.append(header, iconEl(id, 56), el('div', 'card-name', evolution?.name ?? def.name), el('p', 'card-desc', text), pips(next, evolution ? MAX_LEVEL : max));
         card.addEventListener('click', () => this.onChoose(i));
         return card;
+      }),
+    );
+  }
+
+  /** While you're down: your teammates' portraits; click one to follow their camera, or yourself to come back. */
+  private renderSpectate(snap: Snapshot, me: PlayerState | undefined): void {
+    const down = snap.phase === 'playing' && !!me?.downed;
+    this.spectateBar.classList.toggle('hidden', !down);
+    if (!down || !me) {
+      if (this.spectating !== null) {
+        this.spectating = null;
+        this.onSpectate(null);
+      }
+      this.shown.spectate = '';
+      return;
+    }
+    // Stop following someone who left.
+    if (this.spectating !== null && !snap.players.some((p) => p.id === this.spectating)) {
+      this.spectating = null;
+      this.onSpectate(null);
+    }
+    const key = `${this.spectating}|${snap.players.map((p) => `${p.id}:${p.downed}:${p.character}`).join(',')}`;
+    if (key === this.shown.spectate) return;
+    this.shown.spectate = key;
+    this.spectateList.replaceChildren(
+      ...snap.players.map((p) => {
+        const mine = p.id === me.id;
+        const watching = mine ? this.spectating === null : this.spectating === p.id;
+        const b = el('button', `spectate-card${watching ? ' watching' : ''}${p.downed ? ' down' : ''}`) as HTMLButtonElement;
+        b.append(portrait(p.character, p.color), el('span', 'spectate-name', mine ? 'You' : p.name));
+        b.addEventListener('click', () => {
+          this.spectating = mine ? null : p.id;
+          this.onSpectate(this.spectating);
+          this.shown.spectate = '';
+        });
+        return b;
       }),
     );
   }

@@ -22,7 +22,7 @@ import { MAPS } from '../src/shared/maps';
 import { PRESTIGE_IDS } from '../src/shared/prestige';
 import { EVOLVED_LEVEL } from '../src/shared/upgrades';
 import { Game, type Profile } from '../src/server/game';
-import { Bot } from './bot';
+import { Bot } from '../src/server/bot';
 
 function arg(name: string, fallback: string): string {
   const i = process.argv.indexOf(`--${name}`);
