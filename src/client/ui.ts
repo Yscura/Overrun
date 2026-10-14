@@ -7,13 +7,15 @@ import {
   ownedPassives,
   ownedWeapons,
   playerStats,
+  typeCounts,
   type CharacterId,
+  type UltimateId,
 } from '../shared/characters';
 import { MISSIONS } from '../shared/enemies';
 import { MAPS, mapBossName } from '../shared/maps';
 import { EVENTS, QUESTS } from '../shared/objectives';
 import { PRESTIGE, PRESTIGE_IDS, prestigeCost, type PrestigeId, type PrestigeRanks } from '../shared/prestige';
-import { DEV_NAME, type DevAction, type GameResult, type PlayerState, type Snapshot } from '../shared/protocol';
+import { DEV_NAME, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot } from '../shared/protocol';
 import {
   EVOLVED_LEVEL,
   MAX_LEVEL,
@@ -23,9 +25,17 @@ import {
   upgradeMax,
   type UpgradeId,
   type Upgrades,
+  DAMAGE_NAMES,
+  DAMAGE_TYPES,
+  ATTUNEMENT,
+  type DamageType,
+  BONUSES,
+  isBonus,
+  type ChoiceId,
 } from '../shared/upgrades';
 import type { Sound } from './audio';
-import { portraitSvg } from './portraits';
+import { iconEl, ultIconEl } from './icons';
+import { portraitHtml } from './portraits';
 
 const SPEAKER =
   '<path d="M3 9h4l5-4v14l-5-4H3z" fill="currentColor"/>';
@@ -53,7 +63,7 @@ function colorDot(color: number): HTMLElement {
 
 function portrait(character: CharacterId, color: number, className = 'portrait'): HTMLElement {
   const box = el('div', className);
-  box.innerHTML = portraitSvg(character, color); // Static SVG, no user input.
+  box.innerHTML = portraitHtml(character, color); // A bundled image, no user input.
   return box;
 }
 
@@ -68,6 +78,50 @@ function pips(level: number, max = MAX_LEVEL): HTMLElement {
 function upgradeName(id: UpgradeId, level: number): string {
   const def = UPGRADES[id];
   return level >= EVOLVED_LEVEL && def.evolution ? def.evolution.name : def.name;
+}
+
+/** What a hover tooltip shows: a title, small colored tags, and lines of text. */
+interface Tip {
+  title: string;
+  icon?: ChoiceId;
+  /** Ultimates have their own icons. */
+  ult?: UltimateId;
+  tags: { text: string; cls: string }[];
+  lines: { text: string; cls?: string }[];
+}
+
+/** The damage type of a weapon or ability, for coloring (abilities without damage count as physical). */
+const typeOf = (id: UpgradeId): DamageType => UPGRADES[id].damage ?? 'physical';
+
+/** Tooltip for a weapon or E ability at a level: what it does, and what comes next. */
+function weaponTip(id: UpgradeId, level: number): Tip {
+  const def = UPGRADES[id];
+  const evolved = level >= EVOLVED_LEVEL && def.evolution;
+  const strip = (text: string) => text.replace(/^\[E\] /, '');
+  const tags = [{ text: DAMAGE_NAMES[typeOf(id)], cls: `damage-tag ${typeOf(id)}` }];
+  tags.push(evolved ? { text: 'Evolved', cls: 'tip-evolved' } : { text: `Level ${Math.max(1, level)} / ${upgradeMax(id)}`, cls: 'tip-level' });
+  if (def.owner) tags.push({ text: 'E ability', cls: 'tip-level' });
+  const lines: Tip['lines'] = [{ text: strip(def.describe(Math.max(1, Math.min(level, MAX_LEVEL)))) }];
+  if (evolved) lines.push({ text: `${def.evolution!.name}: ${def.evolution!.text}`, cls: 'tip-evo' });
+  else if (level < upgradeMax(id)) lines.push({ text: `Next level: ${strip(def.describe(level + 1))}`, cls: 'tip-muted' });
+  else if (def.evolution) lines.push({ text: `Evolves at a Forge into ${def.evolution.name}: ${def.evolution.text}`, cls: 'tip-muted' });
+  return { title: upgradeName(id, level), icon: id, tags, lines };
+}
+
+function passiveTip(id: UpgradeId, level: number): Tip {
+  return {
+    title: UPGRADES[id].name,
+    icon: id,
+    tags: [{ text: `Level ${level} / ${upgradeMax(id)}`, cls: 'tip-level' }],
+    lines: [{ text: `Each level: ${UPGRADES[id].describe(level)}` }],
+  };
+}
+
+/** A slot's name with its icon in front. */
+function iconName(id: ChoiceId, text: string, size: number, className = 'slot-name'): HTMLElement {
+  const row = el('div', className);
+  row.append(iconEl(id, size), el('span', 'icon-label', text));
+  return row;
 }
 
 const compact = (n: number) => (n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)));
@@ -104,6 +158,8 @@ export class UI {
   onRespec: () => void = () => {};
   onUnlock: (character: CharacterId) => void = () => {};
   onDev: (action: DevAction) => void = () => {};
+  onReady: () => void = () => {};
+  onGiveUp: () => void = () => {};
 
   private lobby = $('lobby');
   private joinForm = $('join-form');
@@ -152,6 +208,14 @@ export class UI {
   private survived = $('survived');
   private results = $('results');
   private devPanel = $('dev-panel');
+  private devGod = $('dev-god');
+  private pauseMenu = $('pausemenu');
+  private pauseBy = $('pause-by');
+  private pausePlayers = $('pause-players');
+  private pauseReady = $<HTMLButtonElement>('pause-ready');
+  /** The hover tooltip, and what each hoverable element shows in it. */
+  private tooltip = el('div', 'tooltip hidden');
+  private tips = new WeakMap<HTMLElement, () => Tip>();
   private scoreboard = $('scoreboard');
   private scoreboardRows = $('scoreboard-rows');
 
@@ -161,7 +225,7 @@ export class UI {
   private latest: { snap: Snapshot; myId: number | null } | null = null;
 
   // Only rebuild DOM when the content actually changed (snapshots arrive 30 times a second).
-  private shown = { players: '', maps: '', prestige: '', characters: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
+  private shown = { pauseList: '', players: '', maps: '', prestige: '', characters: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
   private bannerTimer = 0;
 
   constructor() {
@@ -181,6 +245,19 @@ export class UI {
     $('restart').addEventListener('click', () => this.onStart());
     $('change-hero').addEventListener('click', () => this.onLobby());
     $('respec').addEventListener('click', () => this.onRespec());
+    this.pauseReady.addEventListener('click', () => this.onReady());
+    $('pause-giveup').addEventListener('click', () => {
+      if (window.confirm('Give up this run for everyone and go back to the lobby? Prestige and gold earned so far are kept.')) this.onGiveUp();
+    });
+    document.body.append(this.tooltip);
+    document.addEventListener('pointerover', (e) => {
+      // Element, not HTMLElement: the pointer is often over an icon, which is SVG.
+      const target = e.target instanceof Element ? e.target.closest<HTMLElement>('.has-tip') : null;
+      const build = target && this.tips.get(target);
+      if (target && build) this.showTip(target, build());
+      else this.tooltip.classList.add('hidden');
+    });
+    window.addEventListener('blur', () => this.tooltip.classList.add('hidden'));
     for (const button of this.devPanel.querySelectorAll<HTMLButtonElement>('button[data-dev]')) {
       button.addEventListener('click', () => this.onDev(button.dataset.dev as DevAction));
     }
@@ -272,6 +349,9 @@ export class UI {
     this.hud.classList.toggle('hidden', snap.phase === 'lobby');
     // God mode: the testing cheats.
     this.devPanel.classList.toggle('hidden', snap.phase !== 'playing' || me?.name.toLowerCase() !== DEV_NAME);
+    const god = !!snap.me?.god;
+    this.devGod.classList.toggle('on', god);
+    this.devGod.firstChild!.textContent = god ? 'God mode: on ' : 'God mode: off ';
 
     if (snap.phase === 'lobby') {
       this.renderMaps(snap);
@@ -298,8 +378,11 @@ export class UI {
       this.renderLoadout(snap.me.upgrades);
     }
 
-    const pause = snap.phase === 'playing' ? snap.pause : null;
+    const anyPause = snap.phase === 'playing' ? snap.pause : null;
+    const pause = anyPause?.kind === 'choose' ? anyPause : null;
     this.levelup.classList.toggle('hidden', !pause);
+    document.body.classList.toggle('paused', !!anyPause);
+    this.renderPauseMenu(anyPause?.kind === 'menu' ? anyPause : null, snap, myId);
     if (pause) {
       this.chooseTitle.textContent = pause.reason === 'forge' ? 'The Forge: upgrade a weapon' : 'Level up!';
       this.chooseTimer.textContent = `${Math.ceil(pause.timeLeft)}s`;
@@ -360,7 +443,7 @@ export class UI {
           el('div', 'hero-card-abilities', `E: ${UPGRADES[c.ability].name} · R: ${c.ultimate.name}`),
         );
         if (locked) info.append(el('div', 'hero-card-unlock', `Locked · buy for ${c.unlockCost} gold${gold < c.unlockCost! ? ` (you have ${gold})` : ''}`));
-        card.append(portrait(id, me.color), info);
+        card.append(portrait(id, me.color, 'portrait large'), info);
         card.addEventListener('click', () => {
           if (locked) {
             if (gold >= c.unlockCost! && window.confirm(`Buy ${c.name}, ${c.title} for ${c.unlockCost} gold?`)) this.onUnlock(id);
@@ -472,7 +555,7 @@ export class UI {
     const key = `${me.character}|${me.color}`;
     if (key !== this.shown.hero) {
       this.shown.hero = key;
-      this.heroPortrait.innerHTML = portraitSvg(me.character, me.color);
+      this.heroPortrait.innerHTML = portraitHtml(me.character, me.color);
       this.heroName.textContent = `${CHARACTERS[me.character].name} · ${me.name}`;
     }
     const ratio = Math.max(0, Math.min(1, me.hp / me.maxHp));
@@ -489,16 +572,34 @@ export class UI {
     const key = `${me.character}|${level}`;
     if (key !== this.shown.abilities) {
       this.shown.abilities = key;
-      this.abilityE.querySelector('.ability-name')!.textContent = upgradeName(hero.ability, level);
+      this.abilityE.querySelector('.ability-name')!.replaceChildren(iconEl(hero.ability, 34), el('span', 'icon-label', upgradeName(hero.ability, level)));
       this.abilityE.querySelector('.ability-level')!.replaceChildren(pips(level));
-      const evolution = level >= EVOLVED_LEVEL ? UPGRADES[hero.ability].evolution : undefined;
-      this.abilityE.title = evolution ? evolution.text : UPGRADES[hero.ability].describe(Math.max(1, level));
-      this.abilityR.querySelector('.ability-name')!.textContent = hero.ultimate.name;
-      this.abilityR.title = `${hero.ultimate.text} ${hero.ultimate.cooldown}s cooldown.`;
+      const eType = typeOf(hero.ability);
+      const rType = hero.ultimate.damage;
+      for (const t of DAMAGE_TYPES) {
+        this.abilityE.classList.toggle(t, t === eType);
+        this.abilityR.classList.toggle(t, t === rType);
+      }
+      this.abilityE.classList.toggle('shimmer', level >= EVOLVED_LEVEL);
+      this.tip(this.abilityE, () => weaponTip(hero.ability, level));
+      this.abilityR.querySelector('.ability-name')!.replaceChildren(ultIconEl(hero.ultimate.id, 34), el('span', 'icon-label', hero.ultimate.name));
+      this.tip(this.abilityR, () => ({
+        title: hero.ultimate.name,
+        ult: hero.ultimate.id,
+        tags: [
+          ...(rType ? [{ text: DAMAGE_NAMES[rType], cls: `damage-tag ${rType}` }] : []),
+          { text: 'R ultimate', cls: 'tip-level' },
+          { text: `${hero.ultimate.cooldown}s cooldown`, cls: 'tip-level' },
+        ],
+        lines: [{ text: hero.ultimate.text }],
+      }));
     }
     const show = (slot: HTMLElement, cd: number, cooldown: number, active = 0) => {
+      // Gray while cooling down; color sweeps back in clockwise as the timer runs out.
       const shade = slot.querySelector<HTMLElement>('.ability-shade')!;
-      shade.style.height = `${cooldown > 0 ? Math.min(100, (cd / cooldown) * 100) : 0}%`;
+      const done = cd > 0 && cooldown > 0 ? 1 - Math.min(1, cd / cooldown) : 1;
+      shade.style.setProperty('--done', `${Math.round(done * 360)}deg`);
+      slot.classList.toggle('cooling', done < 1);
       slot.querySelector('.ability-time')!.textContent = active > 0 ? `${Math.ceil(active)}s` : cd > 0 ? `${Math.ceil(cd)}` : '';
       slot.classList.toggle('ready', cd <= 0 && !me.downed);
       slot.classList.toggle('active', active > 0);
@@ -521,10 +622,10 @@ export class UI {
       const chip = el('div', id ? 'slot passive' : 'slot passive empty');
       if (id) {
         const level = upgrades[id]!;
-        chip.append(el('div', 'slot-name', UPGRADES[id].name), pips(level, upgradeMax(id)));
-        chip.title = UPGRADES[id].describe(level);
+        chip.append(iconEl(id, 28), el('div', 'slot-name', UPGRADES[id].name), pips(level, upgradeMax(id)));
+        this.tip(chip, () => passiveTip(id, level));
       } else {
-        chip.append(el('div', 'slot-name', '?'));
+        chip.append(el('div', 'slot-empty', '?'));
         chip.title = 'Empty passive slot';
       }
       passives.append(chip);
@@ -536,7 +637,7 @@ export class UI {
       const id = ownedW[i];
       if (!id) {
         const empty = el('div', 'slot weapon empty');
-        empty.append(el('div', 'slot-name', '?'), pips(0));
+        empty.append(el('div', 'slot-empty', '?'), el('div', 'slot-name', 'Empty'), pips(0));
         empty.title = 'Empty weapon slot';
         weapons.append(empty);
         continue;
@@ -544,12 +645,42 @@ export class UI {
       const def = UPGRADES[id];
       const level = upgrades[id]!;
       const evolved = level >= EVOLVED_LEVEL && def.evolution;
-      const card = el('div', evolved ? 'slot weapon evolved' : 'slot weapon');
-      card.append(el('div', 'slot-name', upgradeName(id, level)), pips(level));
-      card.title = evolved ? evolved.text : def.describe(level);
+      const card = el('div', `slot weapon ${typeOf(id)}${evolved ? ' evolved shimmer' : ''}`);
+      card.append(iconEl(id, 44), el('div', 'slot-name', upgradeName(id, level)), pips(level));
+      this.tip(card, () => weaponTip(id, level));
       weapons.append(card);
     }
     this.slots.replaceChildren(passives, weapons);
+  }
+
+  // --- Tooltips ---
+
+  /** Makes an element show a tooltip on hover (the content is built when it's shown, so it's always current). */
+  private tip(target: HTMLElement, build: () => Tip): void {
+    target.classList.add('has-tip');
+    target.removeAttribute('title');
+    this.tips.set(target, build);
+  }
+
+  private showTip(target: HTMLElement, tip: Tip): void {
+    const box = this.tooltip;
+    let title = tip.icon ? iconName(tip.icon, tip.title, 24, 'tip-title') : el('div', 'tip-title', tip.title);
+    if (tip.ult) {
+      title = el('div', 'tip-title');
+      title.append(ultIconEl(tip.ult, 24), el('span', 'icon-label', tip.title));
+    }
+    const tags = el('div', 'tip-tags');
+    tags.append(...tip.tags.map((t) => el('span', t.cls, t.text)));
+    box.replaceChildren(title, tags, ...tip.lines.map((l) => el('p', l.cls ?? '', l.text)));
+    box.classList.remove('hidden');
+    // Above the element, centered, kept on screen.
+    const r = target.getBoundingClientRect();
+    const w = box.offsetWidth;
+    const h = box.offsetHeight;
+    const x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+    const y = r.top - h - 10 >= 8 ? r.top - h - 10 : r.bottom + 10;
+    box.style.left = `${x}px`;
+    box.style.top = `${y}px`;
   }
 
   // --- Scoreboard (hold Tab) ---
@@ -594,20 +725,24 @@ export class UI {
       numbers.append(cell);
     }
 
-    // Their build: E ability, weapons, passives.
+    // Their build as icon tiles: E ability, R ultimate and weapons (big), then passives.
     const build = el('div', 'score-build');
-    const chip = (id: UpgradeId, kind: string) => {
+    const tile = (id: UpgradeId, kind: 'ability' | 'weapon' | 'passive') => {
       const level = p.upgrades[id] ?? 0;
-      const c = el('span', `score-chip chip-${kind}${level >= EVOLVED_LEVEL ? ' evolved' : ''}`);
-      c.append(el('span', '', upgradeName(id, level)), el('span', 'score-chip-level', level >= EVOLVED_LEVEL ? 'EVO' : String(level)));
-      c.title = UPGRADES[id].describe(level);
-      return c;
+      const evolved = level >= EVOLVED_LEVEL;
+      const t = el('div', `score-tile ${kind} ${typeOf(id)}${evolved ? ' evolved shimmer' : ''}`);
+      t.append(iconEl(id, kind === 'passive' ? 26 : 38), el('div', 'score-tile-name', upgradeName(id, level)));
+      if (!evolved) t.append(el('span', 'score-tile-level', String(level)));
+      if (kind === 'ability') t.append(el('span', 'score-tile-key', 'E'));
+      return t;
     };
-    const weapons = el('div', 'score-chips');
-    weapons.append(chip(hero.ability, 'ability'), ...ownedWeapons(p.upgrades).map((id) => chip(id, 'weapon')));
-    const passives = el('div', 'score-chips');
+    const ult = el('div', `score-tile ult${hero.ultimate.damage ? ` ${hero.ultimate.damage}` : ''}`);
+    ult.append(ultIconEl(hero.ultimate.id, 38), el('div', 'score-tile-name', hero.ultimate.name), el('span', 'score-tile-key', 'R'));
+    const weapons = el('div', 'score-tiles');
+    weapons.append(tile(hero.ability, 'ability'), ult, ...ownedWeapons(p.upgrades).map((id) => tile(id, 'weapon')));
+    const passives = el('div', 'score-tiles');
     const ownedP = ownedPassives(p.upgrades);
-    passives.append(...ownedP.map((id) => chip(id, 'passive')));
+    passives.append(...ownedP.map((id) => tile(id, 'passive')));
     if (ownedP.length === 0) passives.append(el('span', 'score-none', 'No passives yet'));
     build.append(weapons, passives, el('div', 'score-stats', this.statLine(p)));
 
@@ -624,6 +759,7 @@ export class UI {
     if (s.cooldownMult !== 1) parts.push(`Cooldowns -${percent(1 - s.cooldownMult)}`);
     if (s.maxHp !== base.maxHp) parts.push(`Max HP ${s.maxHp}`);
     if (s.critChance) parts.push(`Crit ${percent(s.critChance)}`);
+    for (const t of DAMAGE_TYPES) if (s.typeDamage[t] > 1.001) parts.push(`${DAMAGE_NAMES[t]} +${percent(s.typeDamage[t] - 1)}`);
     if (s.lifesteal) parts.push(`Lifesteal ${percent(s.lifesteal)}`);
     if (s.area !== 1) parts.push(`Area +${percent(s.area - 1)}`);
     if (s.duration !== 1) parts.push(`Duration +${percent(s.duration - 1)}`);
@@ -632,30 +768,73 @@ export class UI {
     if (s.xpMult !== 1) parts.push(`XP +${percent(s.xpMult - 1)}`);
     if (s.regen) parts.push(`Regen ${s.regen.toFixed(1)}/s`);
     parts.push(`Armor ${percent(s.armor)}`, `Speed ${Math.round(s.speed)}`);
+    const total = p.damageByType.reduce((a, b) => a + b, 0);
+    if (total > 0) {
+      const split = DAMAGE_TYPES.map((t, i) => [t, p.damageByType[i] / total] as const).filter(([, share]) => share >= 0.01);
+      parts.push(`Damage ${split.map(([t, share]) => `${percent(share)} ${t}`).join(' / ')}`);
+    }
     return parts.join(' · ');
   }
 
   // --- Level-up ---
 
-  private renderOptions(options: UpgradeId[] | null, upgrades: Upgrades): void {
+  private renderOptions(options: ChoiceId[] | null, upgrades: Upgrades): void {
     const key = options ? options.join(',') : '';
     if (key === this.shown.options) return;
     this.shown.options = key;
     this.cards.replaceChildren(
       ...(options ?? []).map((id, i) => {
+        if (isBonus(id)) {
+          // Nothing left to upgrade: a heal or some gold.
+          const card = el('button', 'card bonus');
+          const header = el('div', 'card-header');
+          header.append(el('span', 'key', String(i + 1)), el('span', 'tag', 'BONUS'));
+          card.append(header, iconEl(id, 56), el('div', 'card-name', BONUSES[id].name), el('p', 'card-desc', BONUSES[id].text));
+          card.addEventListener('click', () => this.onChoose(i));
+          return card;
+        }
         const def = UPGRADES[id];
         const next = (upgrades[id] ?? 0) + 1;
         const evolution = next >= EVOLVED_LEVEL ? def.evolution : undefined;
-        const card = el('button', evolution ? 'card evolve' : def.owner ? 'card hero-ability' : `card ${def.kind}`);
+        const kind = evolution ? 'evolve shimmer' : def.owner ? 'hero-ability' : def.kind;
+        const card = el('button', `card ${kind}${def.damage ? ` ${def.damage}` : ''}`);
         const header = el('div', 'card-header');
-        header.append(el('span', 'key', String(i + 1)), el('span', 'card-name', evolution?.name ?? def.name));
+        header.append(el('span', 'key', String(i + 1)));
         const max = upgradeMax(id);
         const tag = evolution ? 'EVOLVE' : next === 1 ? 'NEW' : next === max ? 'MAX' : `Lv ${next}`;
-        header.append(el('span', 'tag', tag));
-        const text = evolution ? `${def.name} evolves: ${evolution.text}` : def.describe(next);
-        card.append(header, el('p', 'card-desc', text), pips(next, evolution ? MAX_LEVEL : max));
+        const tags = el('span', 'card-tags');
+        tags.append(el('span', 'tag', tag));
+        if (def.damage) tags.append(el('span', `damage-tag ${def.damage}`, DAMAGE_NAMES[def.damage]));
+        header.append(tags);
+        let text = evolution ? `${def.name} evolves: ${evolution.text}` : def.describe(next);
+        // A new weapon of a type you already carry attunes you further.
+        if (def.damage && next === 1 && typeCounts(upgrades)[def.damage] > 0) {
+          text += ` Attunes: +${Math.round(ATTUNEMENT[def.damage] * 100)}% ${def.damage} damage.`;
+        }
+        card.append(header, iconEl(id, 56), el('div', 'card-name', evolution?.name ?? def.name), el('p', 'card-desc', text), pips(next, evolution ? MAX_LEVEL : max));
         card.addEventListener('click', () => this.onChoose(i));
         return card;
+      }),
+    );
+  }
+
+  /** The pause screen: who paused, who's ready, and your Ready button. */
+  private renderPauseMenu(pause: Extract<Pause, { kind: 'menu' }> | null, snap: Snapshot, myId: number | null): void {
+    this.pauseMenu.classList.toggle('hidden', !pause);
+    if (!pause) return;
+    this.pauseBy.textContent = `Paused by ${pause.by}`;
+    const imReady = myId !== null && pause.ready.includes(myId);
+    this.pauseReady.textContent = imReady ? 'Ready ✓ (click to cancel)' : 'Ready';
+    this.pauseReady.classList.toggle('is-ready', imReady);
+    const key = `${pause.ready.join(',')}|${snap.players.map((p) => p.id).join(',')}`;
+    if (key === this.shown.pauseList) return;
+    this.shown.pauseList = key;
+    this.pausePlayers.replaceChildren(
+      ...snap.players.map((p) => {
+        const ready = pause.ready.includes(p.id);
+        const li = el('li', ready ? 'ready' : '');
+        li.append(portrait(p.character, p.color, 'portrait tiny'), el('span', 'player-name', p.name), el('span', 'pause-state', ready ? 'Ready' : 'Not ready'));
+        return li;
       }),
     );
   }

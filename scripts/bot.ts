@@ -5,27 +5,27 @@
 // client. Plays decently, not perfectly: it kites, dodges telegraphs, uses its E and R, grabs upgrade points,
 // hearts and revives, and does the boss side missions.
 
-import { CHARACTERS, ownedPassives, ownedWeapons, type CharacterId } from '../src/shared/characters';
+import { CHARACTERS, heroDamageType, ownedPassives, ownedWeapons, type CharacterId } from '../src/shared/characters';
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../src/shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, REVIVE_RADIUS, TICK_DT } from '../src/shared/constants';
 import { ENEMY_TYPES } from '../src/shared/enemies';
 import { MAPS } from '../src/shared/maps';
 import { ShrineKind } from '../src/shared/objectives';
 import {
-  ENEMY_SHOT_STRIDE,
-  ENEMY_STRIDE,
+  ENEMY_SHOT_Swiftness,
+  ENEMY_Swiftness,
   EnemyFlag,
-  GEM_STRIDE,
-  HAZARD_STRIDE,
+  GEM_Swiftness,
+  HAZARD_Swiftness,
   HazardKind,
-  PICKUP_STRIDE,
+  PICKUP_Swiftness,
   PickupKind,
-  SHRINE_STRIDE,
+  SHRINE_Swiftness,
   type ClientMessage,
   type PlayerState,
   type Snapshot,
 } from '../src/shared/protocol';
-import { EVOLVED_LEVEL, PASSIVE_SLOTS, UPGRADES, WEAPON_SLOTS, type UpgradeId, type Upgrades } from '../src/shared/upgrades';
+import { EVOLVED_LEVEL, PASSIVE_SLOTS, UPGRADES, WEAPON_SLOTS, damageType, isBonus, type ChoiceId, type UpgradeId, type Upgrades, type WeaponId } from '../src/shared/upgrades';
 import { FlowField } from '../src/server/navigation';
 
 interface Point {
@@ -47,6 +47,7 @@ const PASSIVE_PRIORITY: Partial<Record<UpgradeId, number>> = {
   haste: 34,
   multishot: 33,
   crit: 32,
+  arcana: 32,
   area: 30,
   vitality: 29,
   armor: 27,
@@ -123,7 +124,7 @@ export class Bot {
     }
 
     if (snap.pause) {
-      if (snap.me.options) this.send({ t: 'choose', index: this.pickUpgrade(snap.me.options, snap.me.upgrades, me.character) });
+      if (snap.me.options) this.send({ t: 'choose', index: this.pickUpgrade(snap.me.options, snap.me.upgrades, me.character, me.hp / me.maxHp) });
       return;
     }
     if (me.downed) return;
@@ -177,7 +178,7 @@ export class Bot {
   private enemiesAround(snap: Snapshot): EnemyView[] {
     const out: EnemyView[] = [];
     const list = snap.enemies;
-    for (let i = 0; i < list.length; i += ENEMY_STRIDE) {
+    for (let i = 0; i < list.length; i += ENEMY_Swiftness) {
       const type = list[i + 1];
       const def = ENEMY_TYPES[type];
       const x = list[i + 2];
@@ -223,7 +224,7 @@ export class Bot {
     // Focus a boss in reach: leaving a warlord alive costs more than the trash around it.
     if (boss && boss.d < 400) return at(boss);
     if (me.hp / me.maxHp < 0.6) {
-      for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
+      for (let i = 0; i < snap.pickups.length; i += PICKUP_Swiftness) {
         if (snap.pickups[i + 1] !== PickupKind.Crate) continue;
         const c = { x: snap.pickups[i + 2], y: snap.pickups[i + 3] };
         if (Math.hypot(c.x - this.local.x, c.y - this.local.y) < 300) return at(c);
@@ -232,7 +233,7 @@ export class Bot {
     if (nearest && nearest.d < 220) return at(nearest);
     if (boss) return at(boss);
     // Nothing close: shoot open a crate.
-    for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
+    for (let i = 0; i < snap.pickups.length; i += PICKUP_Swiftness) {
       if (snap.pickups[i + 1] !== PickupKind.Crate) continue;
       const c = { x: snap.pickups[i + 2], y: snap.pickups[i + 3] };
       if (Math.hypot(c.x - this.local.x, c.y - this.local.y) < 350) return at(c);
@@ -299,21 +300,29 @@ export class Bot {
 
   // --- Upgrades ---
 
-  private pickUpgrade(options: UpgradeId[], upgrades: Upgrades, character: CharacterId): number {
+  private pickUpgrade(options: ChoiceId[], upgrades: Upgrades, character: CharacterId, hpShare: number): number {
     const hero = CHARACTERS[character];
     const weapons = ownedWeapons(upgrades).length;
     const passives = ownedPassives(upgrades).length;
-    const score = (id: UpgradeId): number => {
+    const score = (id: ChoiceId): number => {
+      // Nothing left to upgrade: heal when hurt, otherwise take the gold.
+      if (isBonus(id)) return id === 'bonusHeal' ? (hpShare < 0.7 ? 2 : 0.5) : 1;
       const def = UPGRADES[id];
       const level = upgrades[id] ?? 0;
       if (level + 1 >= EVOLVED_LEVEL) return 100; // Evolutions are the best thing in the game.
       if (id === hero.ability) return 60 - level;
       if (def.kind === 'weapon') {
         if (level > 0) return 52 - level;
-        // A fourth weapon is fine, but not before the starting one has grown.
-        return weapons < WEAPON_SLOTS ? 40 - weapons * 3 : 0;
+        // A fourth weapon is fine, but not before the starting one has grown. Same damage type as the hero: attunement.
+        const attunes = damageType(id as WeaponId) === heroDamageType(character) ? 8 : 0;
+        return weapons < WEAPON_SLOTS ? 40 - weapons * 3 + attunes : 0;
       }
       let s = PASSIVE_PRIORITY[id] ?? 10;
+      // Only physical damage crits, so Crit is worth as much as your build is physical.
+      if (id === 'crit' || id === 'arcana') {
+        const mine = [hero.ability, ...ownedWeapons(upgrades)];
+        s *= mine.filter((w) => damageType(w as WeaponId) === (id === 'crit' ? 'physical' : 'magic')).length / mine.length;
+      }
       if (id === 'area' && (hero.areaMult ?? 1) < 1) s -= 8;
       if ((id === 'vitality' || id === 'armor') && hero.role === 'melee') s += 4;
       if (level > 0) s += 6;
@@ -347,18 +356,26 @@ export class Bot {
     let threat = 0;
     for (const e of enemies) {
       if (e.d > comfort + 150) break;
-      const keep = (e.boss ? Math.max(comfort, 160) : comfort) + e.radius;
+      // Bosses: ranged keep well clear; melee fights in close while healthy (hit and run when hurt).
+      const bossKeep = melee && hpShare > 0.5 ? 45 : Math.max(comfort, 160);
+      const keep = (e.boss ? bossKeep : comfort) + e.radius;
       if (e.d < keep) threat += ((keep - e.d) / keep) * (e.boss ? 3 : 1);
     }
     // Melee can stand next to a few enemies, but not in the middle of a crowd.
     const crowd = this.countNear(enemies, this.local.x, this.local.y, 110);
-    const bossClose = enemies.some((e) => e.boss && e.d < 160 + e.radius);
+    const bossClose = enemies.some((e) => e.boss && e.d < (hpShare > 0.5 ? 45 : 160) + e.radius);
     if (melee && !bossClose && crowd <= (hpShare > 0.6 ? 4 : 2)) threat = Math.min(threat, 0.3);
     if (threat > 0.15) {
       const gap = this.bestGap(enemies, 450);
       const w = Math.min(2.5, threat);
       vx += gap.x * w;
       vy += gap.y * w;
+    }
+    // Melee heroes go after a boss in reach while healthy.
+    const boss = enemies.find((e) => e.boss && e.d < 600);
+    if (melee && boss && hpShare > 0.5 && !goal && boss.d > boss.radius + 50) {
+      vx += ((boss.x - this.local.x) / boss.d) * 1.2;
+      vy += ((boss.y - this.local.y) / boss.d) * 1.2;
     }
     // Melee heroes with nothing to do close in on the nearest enemy.
     if (melee && !goal && enemies[0] && enemies[0].d > comfort + enemies[0].radius + 10 && enemies[0].d < 500 && hpShare > 0.45 && crowd <= 3) {
@@ -368,7 +385,7 @@ export class Bot {
 
     // Get out of bomb circles and charge lanes.
     const h = snap.hazards;
-    for (let i = 0; i < h.length; i += HAZARD_STRIDE) {
+    for (let i = 0; i < h.length; i += HAZARD_Swiftness) {
       const kind = h[i + 1];
       const hx = h[i + 2];
       const hy = h[i + 3];
@@ -391,7 +408,7 @@ export class Bot {
     }
     // Sidestep bullets coming at you.
     const shots = snap.enemyShots;
-    for (let i = 0; i < shots.length; i += ENEMY_SHOT_STRIDE) {
+    for (let i = 0; i < shots.length; i += ENEMY_SHOT_Swiftness) {
       const dx = this.local.x - shots[i + 1];
       const dy = this.local.y - shots[i + 2];
       const d = Math.hypot(dx, dy);
@@ -455,14 +472,14 @@ export class Bot {
     return best;
   }
 
-  /** Charge lanes seen now, plus ones that just vanished because the dash started. As HAZARD_STRIDE-sized records. */
+  /** Charge lanes seen now, plus ones that just vanished because the dash started. As HAZARD_Swiftness-sized records. */
   private rememberLanes(snap: Snapshot): void {
     const h = snap.hazards;
     const seen = new Set<number>();
-    for (let i = 0; i < h.length; i += HAZARD_STRIDE) {
+    for (let i = 0; i < h.length; i += HAZARD_Swiftness) {
       if (h[i + 1] !== HazardKind.Line) continue;
       seen.add(h[i]);
-      this.lanes.set(h[i], { h: h.slice(i, i + HAZARD_STRIDE), until: Infinity });
+      this.lanes.set(h[i], { h: h.slice(i, i + HAZARD_Swiftness), until: Infinity });
     }
     for (const [id, lane] of this.lanes) {
       if (!seen.has(id) && lane.until === Infinity) lane.until = this.clock + 0.8;
@@ -492,7 +509,7 @@ export class Bot {
   /** About to get hit by something a dodge would avoid? */
   private inDanger(snap: Snapshot, me: PlayerState, enemies: EnemyView[]): boolean {
     const h = snap.hazards;
-    for (let i = 0; i < h.length; i += HAZARD_STRIDE) {
+    for (let i = 0; i < h.length; i += HAZARD_Swiftness) {
       const progress = h[i + 7];
       if (h[i + 1] === HazardKind.Circle) {
         const inside = Math.hypot(this.local.x - h[i + 2], this.local.y - h[i + 3]) < h[i + 4] + PLAYER_RADIUS * 0.5;
@@ -503,7 +520,7 @@ export class Bot {
       if ((dashing || lane[7] > 0.7) && this.laneOffset(lane, 0)) return true;
     }
     const shots = snap.enemyShots;
-    for (let i = 0; i < shots.length; i += ENEMY_SHOT_STRIDE) {
+    for (let i = 0; i < shots.length; i += ENEMY_SHOT_Swiftness) {
       if (Math.hypot(this.local.x - shots[i + 1], this.local.y - shots[i + 2]) < 40) return true;
     }
     // Surrounded and hurting.
@@ -523,15 +540,15 @@ export class Bot {
     if (fight?.mission) {
       if (fight.mission.kind === 'sigils') {
         const sigils: Point[] = [];
-        for (let i = 0; i < snap.shrines.length; i += SHRINE_STRIDE) {
+        for (let i = 0; i < snap.shrines.length; i += SHRINE_Swiftness) {
           if (snap.shrines[i + 1] === ShrineKind.Sigil) sigils.push({ x: snap.shrines[i + 2], y: snap.shrines[i + 3] });
         }
         // Spread the team over the sigils.
         const mine = sigils.sort((a, b) => dist(a) - dist(b))[this.id % Math.max(1, sigils.length)] ?? sigils[0];
-        if (mine) return { point: mine, weight: dist(mine) > 40 ? 1.6 : 0 };
+        if (mine) return { point: mine, weight: dist(mine) > 40 ? 2.6 : 0 };
       } else {
         const target = enemies.find((e) => e.marked);
-        if (target) return { point: target, weight: target.d > (this.isMelee(me) ? 60 : 220) ? 1.3 : 0 };
+        if (target) return { point: target, weight: target.d > (this.isMelee(me) ? 60 : 220) ? 2.2 : 0 };
       }
     }
 
@@ -539,7 +556,7 @@ export class Bot {
     const hurt = me.hp / me.maxHp;
     if (hurt < 0.75) {
       let best: { p: Point; d: number; crate: boolean } | null = null;
-      for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
+      for (let i = 0; i < snap.pickups.length; i += PICKUP_Swiftness) {
         const p = { x: snap.pickups[i + 2], y: snap.pickups[i + 3] };
         const crate = snap.pickups[i + 1] === PickupKind.Crate;
         // A crate is worth a detour only when you're quite hurt; it has to be shot open first.
@@ -554,7 +571,7 @@ export class Bot {
 
     // Upgrade points: Forges first, then whatever's closest.
     let shrine: { p: Point; score: number } | null = null;
-    for (let i = 0; i < snap.shrines.length; i += SHRINE_STRIDE) {
+    for (let i = 0; i < snap.shrines.length; i += SHRINE_Swiftness) {
       const kind = snap.shrines[i + 1];
       if (kind === ShrineKind.Sigil) continue;
       const p = { x: snap.shrines[i + 2], y: snap.shrines[i + 3] };
@@ -565,7 +582,7 @@ export class Bot {
 
     // Otherwise sweep up gems, and don't wander away from the team.
     let gem: Point | null = null;
-    for (let i = 0; i < snap.gems.length; i += GEM_STRIDE) {
+    for (let i = 0; i < snap.gems.length; i += GEM_Swiftness) {
       const g = { x: snap.gems[i + 1], y: snap.gems[i + 2] };
       if (dist(g) < 350 && (!gem || dist(g) < dist(gem))) gem = g;
     }

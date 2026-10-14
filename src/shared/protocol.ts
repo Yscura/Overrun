@@ -4,7 +4,7 @@ import type { CharacterId } from './characters';
 import type { MissionKind } from './enemies';
 import type { EventKind, QuestKind } from './objectives';
 import type { PrestigeId, PrestigeRanks } from './prestige';
-import type { UpgradeId, Upgrades } from './upgrades';
+import type { ChoiceId, UpgradeId, Upgrades } from './upgrades';
 
 export type Phase = 'lobby' | 'playing' | 'gameover';
 
@@ -33,13 +33,19 @@ export type ClientMessage =
   /** Unlock a hero with prestige points. */
   | { t: 'unlock'; character: CharacterId }
   /** Testing cheats, only for a player named "dev" (see DevAction). */
-  | { t: 'dev'; action: DevAction };
+  | { t: 'dev'; action: DevAction }
+  /** Pause the game for everyone. */
+  | { t: 'pause' }
+  /** While paused: toggle being ready to carry on. */
+  | { t: 'ready' }
+  /** While paused: end the run for everyone (a defeat) and go back to the lobby. */
+  | { t: 'giveup' };
 
 /**
- * God-mode cheats for testing: 'skip' jumps the clock a minute ahead (with the level-ups you'd have earned),
- * 'level' and 'forge' hand out a free pick, 'max' fills your slots and maxes everything.
+ * Cheats for testing: 'skip' jumps the clock a minute ahead (with the level-ups you'd have earned), 'level' and
+ * 'forge' hand out a free pick, 'max' fills your slots and maxes everything, 'god' toggles god mode.
  */
-export type DevAction = 'skip' | 'level' | 'forge' | 'max';
+export type DevAction = 'skip' | 'level' | 'forge' | 'max' | 'god';
 export const DEV_NAME = 'dev';
 
 export type ServerMessage = { t: 'welcome'; id: number } | { t: 'full' } | Snapshot;
@@ -74,6 +80,8 @@ export interface PlayerState {
   /** Permanent prestige ranks (they change their stats). */
   prestige: PrestigeRanks;
   damageDealt: number;
+  /** Damage dealt split by type: physical, magic, true. */
+  damageByType: [number, number, number];
   damageTaken: number;
 }
 
@@ -85,14 +93,18 @@ export interface AbilityState {
 
 /** Private state only sent to the player it belongs to. */
 export interface MeState {
-  options: UpgradeId[] | null;
+  /** Choices while a level-up waits on you: upgrades, or bonuses once there's nothing left to upgrade. */
+  options: ChoiceId[] | null;
   upgrades: Upgrades;
   speed: number;
   dodgeCooldown: number;
   ability: AbilityState;
   /** `active` is how long the ultimate's effect still lasts. */
   ultimate: AbilityState & { active: number };
-  /** Damage numbers since the last snapshot: your hits as [x, y, amount, crit, ...], and damage you took (0 = evaded). */
+  /**
+   * Damage numbers since the last snapshot: your hits as [x, y, amount, crit, type, ...] (type indexes DAMAGE_TYPES),
+   * and damage you took (0 = evaded).
+   */
   hits: number[];
   taken: number[];
   /** Your own actions since the last snapshot that make a sound (weapons firing, casts, pickups). */
@@ -101,6 +113,8 @@ export interface MeState {
   epoch: number;
   /** Unspent prestige points. */
   prestigePoints: number;
+  /** God mode (dev only): damage never takes you below 1 HP. */
+  god: boolean;
   /** Gold, kept between runs (heroes are bought with it). */
   gold: number;
   /** Heroes this player has unlocked (beyond the starting four). */
@@ -111,7 +125,10 @@ export interface MeState {
  * The game is frozen while everyone picks an upgrade, then eases back in from slow motion.
  * `reason` is what earned the pick: a team level-up or a captured Forge.
  */
-export type Pause = { kind: 'choose'; timeLeft: number; reason: ChoiceReason };
+export type Pause =
+  | { kind: 'choose'; timeLeft: number; reason: ChoiceReason }
+  /** A player paused the game (`by` is their name); it resumes once every player in `ready` (ids) is ready. */
+  | { kind: 'menu'; by: string; ready: number[] };
 export type ChoiceReason = 'level' | 'forge';
 
 /** A timed effect from an Altar. */
@@ -120,7 +137,7 @@ export interface ActiveEvent {
   timeLeft: number;
 }
 
-/** A quest from a Beacon. (x, y) is the rally point, or where the thief is. */
+/** A quest from a Quest point. (x, y) is the rally point, or where the thief is. */
 export interface ActiveQuest {
   kind: QuestKind;
   timeLeft: number;
@@ -149,7 +166,8 @@ export type SoundId =
   | 'nova'
   | 'summon'
   | 'rewind'
-  | 'coin';
+  | 'coin'
+  | 'roar';
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
@@ -157,6 +175,8 @@ export type Fx =
   | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number }
   | { k: 'zap'; x: number; y: number }
   | { k: 'boom'; x: number; y: number; r: number }
+  /** A final boss arrives at (x, y): clients pan the camera there and play its roar. */
+  | { k: 'intro'; x: number; y: number }
   /** A friendly area that fills up over `t` seconds before it hits (Meteor). */
   | { k: 'cast'; x: number; y: number; r: number; c: number; t: number }
   /** Big announcement text. */
@@ -236,15 +256,15 @@ export const AFFIX_SHIFT = 5;
 // shrines:     [id, kind, x, y, progress, ...]
 // zones:       [id, kind, x, y, r, ...]  venom puddles, burning ground and mines
 // summons:     [id, kind, x, y, ...]  wolves and treants
-export const ENEMY_STRIDE = 5;
-export const PROJECTILE_STRIDE = 4;
-export const ENEMY_SHOT_STRIDE = 3;
-export const GEM_STRIDE = 4;
-export const PICKUP_STRIDE = 5;
-export const HAZARD_STRIDE = 8;
-export const SHRINE_STRIDE = 5;
-export const ZONE_STRIDE = 5;
-export const SUMMON_STRIDE = 4;
+export const ENEMY_Swiftness = 5;
+export const PROJECTILE_Swiftness = 4;
+export const ENEMY_SHOT_Swiftness = 3;
+export const GEM_Swiftness = 4;
+export const PICKUP_Swiftness = 5;
+export const HAZARD_Swiftness = 8;
+export const SHRINE_Swiftness = 5;
+export const ZONE_Swiftness = 5;
+export const SUMMON_Swiftness = 4;
 
 export interface Snapshot {
   t: 'snap';

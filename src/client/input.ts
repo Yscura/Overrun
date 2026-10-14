@@ -6,7 +6,7 @@ const DOWN = ['KeyS', 'ArrowDown'];
 const LEFT = ['KeyA', 'ArrowLeft'];
 const RIGHT = ['KeyD', 'ArrowRight'];
 /** God-mode cheat keys (see the dev panel). */
-export const DEV_KEYS: Record<string, DevAction> = { KeyT: 'skip', KeyU: 'level', KeyF: 'forge', KeyB: 'max' };
+export const DEV_KEYS: Record<string, DevAction> = { KeyT: 'skip', KeyU: 'level', KeyF: 'forge', KeyB: 'max', KeyG: 'god' };
 
 export class Input {
   private keys = new Set<string>();
@@ -14,6 +14,7 @@ export class Input {
   private dodgePressed = false;
   private castPressed: 'e' | 'r' | null = null;
   private devPressed: DevAction | null = null;
+  private pausePressed = false;
 
   constructor() {
     window.addEventListener('keydown', (e) => {
@@ -26,6 +27,7 @@ export class Input {
       if (!e.repeat && e.code === 'KeyE') this.castPressed = 'e';
       if (!e.repeat && e.code === 'KeyR') this.castPressed = 'r';
       if (!e.repeat && e.code in DEV_KEYS) this.devPressed = DEV_KEYS[e.code];
+      if (!e.repeat && (e.code === 'Escape' || e.code === 'KeyP')) this.pausePressed = true;
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
@@ -66,6 +68,13 @@ export class Input {
     const action = this.devPressed;
     this.devPressed = null;
     return action;
+  }
+
+  /** True once per Esc or P press: pause the game, or (while paused) toggle being ready. */
+  consumePause(): boolean {
+    const pressed = this.pausePressed;
+    this.pausePressed = false;
+    return pressed;
   }
 
   /** True once per Space press. */

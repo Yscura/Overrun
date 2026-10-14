@@ -2,7 +2,7 @@ import { Container, Graphics } from 'pixi.js';
 import { ENEMY_TYPES } from '../shared/enemies';
 import { MAPS } from '../shared/maps';
 import { SHRINES } from '../shared/objectives';
-import { AFFIX_SHIFT, ENEMY_STRIDE, PICKUP_STRIDE, PickupKind, SHRINE_STRIDE, type Snapshot } from '../shared/protocol';
+import { AFFIX_SHIFT, ENEMY_Swiftness, PICKUP_Swiftness, PickupKind, SHRINE_Swiftness, type Snapshot } from '../shared/protocol';
 
 const HEALTH_GREEN = 0x00e676;
 
@@ -61,7 +61,7 @@ export class Minimap {
     // Ordinary enemies as a heat map, elites individually.
     const heat = new Map<number, number>();
     const elites: number[] = [];
-    for (let i = 0; i < snap.enemies.length; i += ENEMY_STRIDE) {
+    for (let i = 0; i < snap.enemies.length; i += ENEMY_Swiftness) {
       const type = snap.enemies[i + 1];
       if (ENEMY_TYPES[type].elite || snap.enemies[i + 4] >> AFFIX_SHIFT) {
         elites.push(i);
@@ -81,7 +81,7 @@ export class Minimap {
     }
 
     // Crates as small wooden boxes, hearts as green plus signs.
-    for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
+    for (let i = 0; i < snap.pickups.length; i += PICKUP_Swiftness) {
       const kind = snap.pickups[i + 1];
       const x = snap.pickups[i + 2] * s;
       const y = snap.pickups[i + 3] * s;
@@ -91,7 +91,7 @@ export class Minimap {
 
     // Upgrade points and the quest target, with a pulsing halo so they stand out.
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
-    for (let i = 0; i < snap.shrines.length; i += SHRINE_STRIDE) {
+    for (let i = 0; i < snap.shrines.length; i += SHRINE_Swiftness) {
       const x = snap.shrines[i + 2] * s;
       const y = snap.shrines[i + 3] * s;
       const color = SHRINES[snap.shrines[i + 1]].color;

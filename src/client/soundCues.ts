@@ -1,6 +1,6 @@
 // Decides which sounds a snapshot calls for: your own actions, what happens around you, and big moments.
 
-import { HAZARD_STRIDE, HazardKind, type Snapshot } from '../shared/protocol';
+import { HAZARD_Swiftness, HazardKind, type Snapshot } from '../shared/protocol';
 import type { Sound } from './audio';
 
 export class SoundCues {
@@ -19,7 +19,7 @@ export class SoundCues {
       const hits = snap.me.hits;
       if (hits.length > 0) {
         let crit = false;
-        for (let i = 3; i < hits.length; i += 4) if (hits[i]) crit = true;
+        for (let i = 3; i < hits.length; i += 5) if (hits[i]) crit = true;
         sound.play(crit ? 'crit' : 'hit');
       }
       const taken = snap.me.taken;
@@ -45,12 +45,15 @@ export class SoundCues {
         case 'boom':
           sound.play('boom', ...near(fx.x, fx.y));
           break;
+        case 'intro':
+          sound.play('roar');
+          break;
       }
     }
 
     // A warning tone when a charge lane or bomb circle appears near you.
     const current = new Set<number>();
-    for (let i = 0; i < snap.hazards.length; i += HAZARD_STRIDE) {
+    for (let i = 0; i < snap.hazards.length; i += HAZARD_Swiftness) {
       const id = snap.hazards[i];
       current.add(id);
       if (this.seenHazards.has(id)) continue;
@@ -60,7 +63,7 @@ export class SoundCues {
     this.seenHazards = current;
 
     // Big moments.
-    if (snap.pause && !prev?.pause) sound.play('levelup');
+    if (snap.pause?.kind === 'choose' && !prev?.pause) sound.play('levelup');
     if (prev?.pause && !snap.pause && snap.phase === 'playing') sound.play('resume');
     if (snap.result && prev && !prev.result) sound.play(snap.result.victory ? 'victory' : 'defeat');
   }

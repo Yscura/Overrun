@@ -274,6 +274,17 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
       v.tone({ type: 'sine', from: 73, to: 49, duration: 1.4, volume: 0.13, delay: 0.75 });
     },
   },
+  roar: {
+    // A deep, rising-then-falling growl with a rumble underneath.
+    play: (v) => {
+      v.tone({ type: 'sawtooth', from: 55, to: 85, duration: 0.5, volume: 0.16, attack: 0.15, lowpass: 450 });
+      v.tone({ type: 'sawtooth', from: 85, to: 38, duration: 1.1, volume: 0.16, delay: 0.45, lowpass: 400 });
+      v.tone({ type: 'square', from: 41, to: 33, duration: 1.4, volume: 0.06, attack: 0.2, lowpass: 200 });
+      v.noise({ filter: 'lowpass', from: 300, to: 90, duration: 1.4, volume: 0.22 });
+      v.tone({ type: 'sine', from: 50, to: 28, duration: 1.5, volume: 0.3, delay: 0.1 });
+    },
+    max: 1,
+  },
   resume: {
     // Back into the fight: a rising rush that lands on a deep drum hit.
     play: (v) => {

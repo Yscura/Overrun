@@ -1,6 +1,7 @@
 import { Application, BitmapFont, BitmapText, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
-import { CHARACTER_IDS, type CharacterId } from '../shared/characters';
-import { BOMB, COIN, CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS } from '../shared/constants';
+import { CHARACTER_IDS, type CharacterId, REWIND_SECONDS } from '../shared/characters';
+import { BOMB, BOSS_INTRO, COIN, CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS } from '../shared/constants';
+import { DAMAGE_COLORS, DAMAGE_TYPES } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
 import { NO_ROTATE, drawEnemy } from './enemyArt';
 import { TILE, decorations, drawWalls, groundTile } from './mapArt';
@@ -8,23 +9,23 @@ import { MAPS } from '../shared/maps';
 import { Minimap } from './minimap';
 import { RALLY_RADIUS, SHRINES, SHRINE_RADIUS, ShrineKind } from '../shared/objectives';
 import {
-  ENEMY_SHOT_STRIDE,
-  ENEMY_STRIDE,
+  ENEMY_SHOT_Swiftness,
+  ENEMY_Swiftness,
   EnemyFlag,
-  GEM_STRIDE,
-  HAZARD_STRIDE,
+  GEM_Swiftness,
+  HAZARD_Swiftness,
   HazardKind,
-  PICKUP_STRIDE,
-  PROJECTILE_STRIDE,
+  PICKUP_Swiftness,
+  PROJECTILE_Swiftness,
   PickupKind,
   ProjectileKind,
-  SHRINE_STRIDE,
-  ZONE_STRIDE,
+  SHRINE_Swiftness,
+  ZONE_Swiftness,
   ZoneKind,
   type Fx,
   type PlayerState,
   type Snapshot,
-  SUMMON_STRIDE,
+  SUMMON_Swiftness,
   SummonKind,
   AFFIX_SHIFT,
 } from '../shared/protocol';
@@ -34,6 +35,9 @@ import type { Sample } from './snapshots';
 const MAX_PARTICLES = 800;
 const DANGER = 0xff1744;
 const STUNNED = 0x90caf9;
+/** Damage numbers: [x, y, amount, crit, type] per hit. */
+const HIT_Swiftness = 5;
+const CRIT_COLOR = 0xffd740;
 const FIRE = 0xff3d00;
 const HEALTH_GREEN = 0x00e676;
 const QUEST_COLOR = 0xffee58;
@@ -163,6 +167,10 @@ export class GameRenderer {
   private zone = new Graphics();
   private minimap = new Minimap();
   private questMarker = new Graphics();
+  /** Chronobreak preview: where you've been (game time, position), and a ghost where the ult would take you. */
+  private rewindTrail = new Graphics();
+  private rewindPath: { t: number; x: number; y: number }[] = [];
+  private rewindEpoch = -1;
   /** Screen-space arrows pointing at off-screen shrines and quest targets. */
   private pointers = new Container();
 
@@ -257,7 +265,7 @@ export class GameRenderer {
     this.aimArrow.anchor.set(0.5);
 
     this.background = new TilingSprite({ texture: Texture.EMPTY, width: 1, height: 1 });
-    this.world.addChild(this.mapLayer, this.arenaRing, this.questMarker, ...Object.values(this.layers), this.zone, this.aimArrow);
+    this.world.addChild(this.mapLayer, this.arenaRing, this.questMarker, this.rewindTrail, ...Object.values(this.layers), this.zone, this.aimArrow);
     this.app.stage.addChild(this.background, this.world, this.pointers, this.minimap.container);
   }
 
@@ -319,8 +327,46 @@ export class GameRenderer {
     }
   }
 
+  /**
+   * A boss's entrance: pan from the player to the boss, hold there (with a shake when it roars), and pan back.
+   * Timed in real seconds, like the server's slow motion.
+   */
+  private intro: { x: number; y: number; start: number } | null = null;
+
+  private introCamera(follow: Point): Point {
+    if (!this.intro) return follow;
+    const { panIn, hold, ease, panOut } = BOSS_INTRO;
+    const t = (performance.now() - this.intro.start) / 1000;
+    const end = hold + ease;
+    if (t >= end) {
+      this.intro = null;
+      return follow;
+    }
+    const smooth = (x: number) => x * x * (3 - 2 * x);
+    // In, hold, then back out, finishing as the game reaches full speed.
+    const k = t < panIn ? smooth(t / panIn) : t < end - panOut ? 1 : smooth((end - t) / panOut);
+    // The roar shakes the screen for a moment.
+    const shake = t > panIn && t < panIn + 0.6 ? 8 * (1 - (t - panIn) / 0.6) : 0;
+    return {
+      x: follow.x + (this.intro.x - follow.x) * k + (Math.random() - 0.5) * shake,
+      y: follow.y + (this.intro.y - follow.y) * k + (Math.random() - 0.5) * shake,
+    };
+  }
+
   addFx(fx: Fx): void {
     switch (fx.k) {
+      case 'intro': {
+        this.intro = { x: fx.x, y: fx.y, start: performance.now() };
+        // A shockwave from the boss as the camera arrives.
+        for (const [delay, color] of [[0, 0xff5252], [0.15, 0xffd180]] as const) {
+          this.addEffect(fx.x, fx.y, 1.2 + delay, (g, p) => {
+            const q = Math.max(0, (p * (1.2 + delay) - delay - 0.35) / 0.85);
+            if (q <= 0) return;
+            g.circle(0, 0, 60 + 520 * q).stroke({ width: 10 * (1 - q) + 2, color, alpha: 1 - q });
+          });
+        }
+        break;
+      }
       case 'ring':
         this.addEffect(fx.x, fx.y, 0.35, (g, p) =>
           g
@@ -388,7 +434,8 @@ export class GameRenderer {
     if (b.snap.map !== this.mapIndex) this.setMap(b.snap.map);
     const { width, height } = this.app.screen;
     const hasMe = b.snap.players.some((p) => p.id === myId);
-    const cam = hasMe ? local : MAPS[b.snap.map].spawn;
+    const follow = hasMe ? local : MAPS[b.snap.map].spawn;
+    const cam = this.introCamera(follow);
     this.world.position.set(Math.round(width / 2 - cam.x), Math.round(height / 2 - cam.y));
     this.background.width = width;
     this.background.height = height;
@@ -402,7 +449,7 @@ export class GameRenderer {
     this.renderHazards(sample);
     this.renderZones(b.snap.zones);
     this.renderEnemies(sample, playing);
-    this.renderPoints(this.projectileViews, a.snap.projectiles, a.projectiles, b.snap.projectiles, PROJECTILE_STRIDE, 2, t, this.layers.projectiles, (list, i) =>
+    this.renderPoints(this.projectileViews, a.snap.projectiles, a.projectiles, b.snap.projectiles, PROJECTILE_Swiftness, 2, t, this.layers.projectiles, (list, i) =>
       list[i + 1] === ProjectileKind.Knife
         ? { texture: this.tex.knife, tint: 0xeceff1, rotate: true }
         : list[i + 1] === ProjectileKind.Shuriken || list[i + 1] === ProjectileKind.BigShuriken
@@ -415,17 +462,18 @@ export class GameRenderer {
             ? { texture: this.tex.hex, tint: 0xea80fc, spin: true }
             : { texture: this.tex.bolt, tint: 0xb3e5fc },
     );
-    this.renderPoints(this.summonViews, a.snap.summons, a.summons, b.snap.summons, SUMMON_STRIDE, 2, t, this.layers.projectiles, (list, i) =>
+    this.renderPoints(this.summonViews, a.snap.summons, a.summons, b.snap.summons, SUMMON_Swiftness, 2, t, this.layers.projectiles, (list, i) =>
       list[i + 1] === SummonKind.Treant ? { texture: this.tex.treant, tint: 0x6d8f3a } : { texture: this.tex.wolf, tint: 0xa5d6a7, rotate: true },
     );
-    this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_STRIDE, 1, t, this.layers.enemyShots, () => ({
+    this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_Swiftness, 1, t, this.layers.enemyShots, () => ({
       texture: this.tex.enemyShot,
       tint: 0xd4e157,
     }));
-    this.renderPoints(this.gemViews, a.snap.gems, a.gems, b.snap.gems, GEM_STRIDE, 1, t, this.layers.gems, (list, i) =>
+    this.renderPoints(this.gemViews, a.snap.gems, a.gems, b.snap.gems, GEM_Swiftness, 1, t, this.layers.gems, (list, i) =>
       list[i + 3] ? { texture: this.tex.gemBig, tint: 0xb388ff } : { texture: this.tex.gemSmall, tint: 0x69f0ae },
     );
     this.renderPickups(sample, playing);
+    this.renderRewindTrail(b.snap, myId, local);
     this.renderPlayers(sample, myId, local);
 
     this.aimArrow.visible = hasMe && aim !== null;
@@ -444,8 +492,8 @@ export class GameRenderer {
 
   private renderShrines(snap: Snapshot): void {
     const list = snap.shrines;
-    for (let i = 0; i < list.length; i += SHRINE_STRIDE) {
-      const [id, kind, x, y, progress] = list.slice(i, i + SHRINE_STRIDE);
+    for (let i = 0; i < list.length; i += SHRINE_Swiftness) {
+      const [id, kind, x, y, progress] = list.slice(i, i + SHRINE_Swiftness);
       const view = this.shrineViews.get(id) ?? this.createShrineView(id, kind, x, y);
       view.seen = this.frame;
       const color = SHRINES[kind].color;
@@ -521,7 +569,7 @@ export class GameRenderer {
     for (const child of [...this.pointers.children]) this.release(child as Sprite);
     if (snap.phase !== 'playing') return;
     const targets: { x: number; y: number; color: number }[] = [];
-    for (let i = 0; i < snap.shrines.length; i += SHRINE_STRIDE) {
+    for (let i = 0; i < snap.shrines.length; i += SHRINE_Swiftness) {
       targets.push({ x: snap.shrines[i + 2], y: snap.shrines[i + 3], color: SHRINES[snap.shrines[i + 1]].color });
     }
     if (snap.quest) targets.push({ x: snap.quest.x, y: snap.quest.y, color: QUEST_COLOR });
@@ -559,7 +607,7 @@ export class GameRenderer {
     const marks = this.marks.clear();
     if (!marks.parent) this.layers.enemies.addChild(marks);
     else this.layers.enemies.setChildIndex(marks, this.layers.enemies.children.length - 1);
-    for (let i = 0; i < listB.length; i += ENEMY_STRIDE) {
+    for (let i = 0; i < listB.length; i += ENEMY_Swiftness) {
       const id = listB[i];
       const type = listB[i + 1];
       let x = listB[i + 2];
@@ -629,8 +677,8 @@ export class GameRenderer {
     const venom = this.venom.clear();
     if (!venom.parent) this.layers.hazards.addChildAt(venom, 0);
     const blink = Math.floor(performance.now() / 300) % 2 === 0;
-    for (let i = 0; i < list.length; i += ZONE_STRIDE) {
-      const [id, kind, x, y, r] = list.slice(i, i + ZONE_STRIDE);
+    for (let i = 0; i < list.length; i += ZONE_Swiftness) {
+      const [id, kind, x, y, r] = list.slice(i, i + ZONE_Swiftness);
       if (kind === ZoneKind.Venom) {
         venom.circle(x, y, r).fill({ color: 0x76ff03, alpha: 0.16 });
         continue;
@@ -659,7 +707,7 @@ export class GameRenderer {
   /** Telegraphed attacks: red zones that fill up until they go off. */
   private renderHazards({ b }: Sample): void {
     const list = b.snap.hazards;
-    for (let i = 0; i < list.length; i += HAZARD_STRIDE) {
+    for (let i = 0; i < list.length; i += HAZARD_Swiftness) {
       const id = list[i];
       let view = this.hazardViews.get(id);
       if (!view) {
@@ -668,7 +716,7 @@ export class GameRenderer {
         this.hazardViews.set(id, view);
       }
       view.seen = this.frame;
-      const [kind, x, y, ha, hb, w, progress] = list.slice(i + 1, i + HAZARD_STRIDE);
+      const [kind, x, y, ha, hb, w, progress] = list.slice(i + 1, i + HAZARD_Swiftness);
       const g = view.g.clear();
       g.position.set(x, y);
       if (kind === HazardKind.Circle) {
@@ -699,7 +747,7 @@ export class GameRenderer {
     const now = performance.now();
     const bob = 1 + Math.sin(now / 200) * 0.1;
     const textures = [this.tex.crate, this.tex.heart, this.tex.coin, this.tex.bomb];
-    for (let i = 0; i < list.length; i += PICKUP_STRIDE) {
+    for (let i = 0; i < list.length; i += PICKUP_Swiftness) {
       const id = list[i];
       const kind = list[i + 1];
       let view = this.pickupViews.get(id);
@@ -713,7 +761,7 @@ export class GameRenderer {
       // Only coins move (toward whoever picks them up), so only they need smoothing.
       if (kind === PickupKind.Coin) {
         const prev = a.snap.pickups;
-        for (let j = 0; j < prev.length; j += PICKUP_STRIDE) {
+        for (let j = 0; j < prev.length; j += PICKUP_Swiftness) {
           if (prev[j] !== id) continue;
           x = lerp(prev[j + 2], x, t);
           y = lerp(prev[j + 3], y, t);
@@ -764,13 +812,13 @@ export class GameRenderer {
     listA: number[],
     indexA: Map<number, number>,
     listB: number[],
-    stride: number,
+    Swiftness: number,
     pos: number,
     t: number,
     layer: Container,
     look: (list: number[], i: number) => { texture: Texture; tint: number; rotate?: boolean; spin?: boolean; scale?: number },
   ): void {
-    for (let i = 0; i < listB.length; i += stride) {
+    for (let i = 0; i < listB.length; i += Swiftness) {
       const id = listB[i];
       const bx = listB[i + pos];
       const by = listB[i + pos + 1];
@@ -804,6 +852,51 @@ export class GameRenderer {
       this.release(view.sprite);
       views.delete(id);
     }
+  }
+
+  /**
+   * Chronobreaker only: a fading trail through the last few seconds of your movement, ending in a ghost where
+   * Chronobreak would take you. Bright when the ult is ready, faint while it's cooling down.
+   */
+  private renderRewindTrail(snap: Snapshot, myId: number | null, local: Point): void {
+    const g = this.rewindTrail.clear();
+    const me = snap.players.find((p) => p.id === myId);
+    if (!me || !snap.me || me.character !== 'chronobreaker' || snap.phase !== 'playing') {
+      this.rewindPath = [];
+      return;
+    }
+    // The server forgets your past when it moves you (a rewind, a respawn); so do we.
+    if (snap.me.epoch !== this.rewindEpoch || me.downed) {
+      this.rewindEpoch = snap.me.epoch;
+      this.rewindPath = [];
+    }
+    const now = snap.time;
+    const path = this.rewindPath;
+    const last = path[path.length - 1];
+    if (!last || now - last.t >= 0.05 || Math.hypot(local.x - last.x, local.y - last.y) > 6) path.push({ t: now, x: local.x, y: local.y });
+    while (path.length > 1 && now - path[1].t > REWIND_SECONDS) path.shift();
+    if (path.length < 2 || me.downed) return;
+
+    const ready = snap.me.ultimate.cd <= 0;
+    const strength = ready ? 1 : 0.35;
+    const color = 0x80d8ff;
+    // The trail fades toward the present, so the rewind end stands out.
+    for (let i = 1; i < path.length; i++) {
+      const age = (now - path[i].t) / REWIND_SECONDS;
+      g.moveTo(path[i - 1].x, path[i - 1].y)
+        .lineTo(path[i].x, path[i].y)
+        .stroke({ width: 4, color, alpha: (0.2 + 0.6 * age) * strength, cap: 'round' });
+    }
+    // The ghost: where you'd land.
+    const end = path[0];
+    const pulse = ready ? 0.5 + 0.5 * Math.sin(performance.now() / 160) : 0;
+    g.circle(end.x, end.y, PLAYER_RADIUS + 4)
+      .fill({ color, alpha: 0.12 * strength })
+      .stroke({ width: 2.5, color, alpha: (0.55 + 0.35 * pulse) * strength });
+    if (ready) g.circle(end.x, end.y, PLAYER_RADIUS + 10 + pulse * 6).stroke({ width: 1.5, color, alpha: 0.35 * (1 - pulse) });
+    // A little hourglass in the middle.
+    const h = 7;
+    g.poly([end.x - h, end.y - h, end.x + h, end.y - h, end.x, end.y, end.x + h, end.y + h, end.x - h, end.y + h, end.x, end.y]).fill({ color, alpha: 0.7 * strength });
   }
 
   private renderPlayers({ a, b, t }: Sample, myId: number | null, local: Point): void {
@@ -916,11 +1009,15 @@ export class GameRenderer {
 
   // --- Damage numbers ---
 
-  /** Your hits ([x, y, amount, crit, ...]) float up off enemies; damage you take (0 = evaded) floats up off you. */
+  /**
+   * Your hits ([x, y, amount, crit, type, ...]) float up off enemies in their damage type's color (orange physical,
+   * blue magic, white true); damage you take (0 = evaded) floats up off you.
+   */
   addDamageNumbers(hits: number[], taken: number[], me: Point): void {
-    for (let i = 0; i < hits.length; i += 4) {
+    for (let i = 0; i < hits.length; i += HIT_Swiftness) {
       const crit = hits[i + 3] === 1;
-      this.addNumber(hits[i], hits[i + 1] - 18, crit ? `${hits[i + 2]}!` : String(hits[i + 2]), crit ? 0xffd54f : 0xffffff, crit ? 0.8 : 0.55);
+      const color = crit ? CRIT_COLOR : DAMAGE_COLORS[DAMAGE_TYPES[hits[i + 4]] ?? 'physical'];
+      this.addNumber(hits[i], hits[i + 1] - 18, crit ? `${hits[i + 2]}!` : String(hits[i + 2]), color, crit ? 0.8 : 0.55);
     }
     for (const amount of taken) {
       if (amount === 0) this.addNumber(me.x, me.y - PLAYER_RADIUS - 24, 'EVADE', 0x80d8ff, 0.5);

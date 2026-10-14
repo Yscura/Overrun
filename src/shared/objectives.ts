@@ -9,7 +9,7 @@ export const ShrineKind = { Forge: 0, Event: 1, Quest: 2, Sigil: 3 } as const;
 export const SHRINES = [
   { name: 'Forge', hint: 'Upgrade a weapon (evolves max-level weapons and abilities)', color: 0xffa726 },
   { name: 'Altar', hint: 'A powerful effect for the whole team', color: 0x26c6da },
-  { name: 'Beacon', hint: 'Starts a quest with a gem reward', color: 0xffee58 },
+  { name: 'Quest', hint: 'Starts a quest with a gem reward', color: 0xffee58 },
   // Only during a boss side mission.
   { name: 'Sigil', hint: 'Stand in it to break the boss shield', color: 0xe040fb },
 ];
@@ -21,7 +21,7 @@ export const SHRINE_SOLO_SHARE = 0.4;
 /** The first shrine appears this many seconds in, then one every SHRINE_INTERVAL while there's room. */
 export const SHRINE_FIRST = 30;
 export const SHRINE_INTERVAL = 40;
-/** Altars and Beacons stay until captured, but there are never more than this many at once. */
+/** Altars and Quests stay until captured, but there are never more than this many at once. */
 export const MAX_SHRINES = 2;
 /**
  * Forges don't come at random: one appears at each of these points of the way to the final boss, and they
@@ -46,7 +46,7 @@ export const EVENTS: Record<EventKind, { name: string; banner: string }> = {
 
 export const EVENT_KINDS = Object.keys(EVENTS) as EventKind[];
 
-// --- Quests (Beacon) ---
+// --- Quests (from Quest points) ---
 
 export type QuestKind = 'rally' | 'hunt';
 

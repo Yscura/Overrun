@@ -18,28 +18,32 @@ export interface EnemyDef {
   flying?: boolean;
   /** Shown individually on the minimap. */
   elite?: boolean;
+  /** Share of physical damage it shrugs off (thick hide, armor). */
+  armor?: number;
+  /** Share of magic damage it shrugs off. */
+  ward?: number;
 }
 
 /** Indexed by enemy type id, which is what goes over the network. */
 export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Grunt', radius: 14, speed: 85, hp: 12, damage: 10, xp: 1, color: 0xe57373, behavior: 'chase', spawnAfter: 0, weight: 10 },
   { name: 'Runner', radius: 10, speed: 145, hp: 8, damage: 8, xp: 1, color: 0xffd54f, behavior: 'chase', spawnAfter: 25, weight: 4 },
-  { name: 'Brute', radius: 24, speed: 60, hp: 70, damage: 20, xp: 5, color: 0xba68c8, behavior: 'chase', spawnAfter: 60, weight: 2, elite: true },
+  { name: 'Brute', radius: 24, speed: 60, hp: 70, damage: 20, xp: 5, color: 0xba68c8, behavior: 'chase', spawnAfter: 60, weight: 2, elite: true, armor: 0.3 },
   // Mini-boss every few minutes.
-  { name: 'Warlord', radius: 56, speed: 75, hp: 1200, damage: 40, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true },
+  { name: 'Warlord', radius: 56, speed: 75, hp: 1200, damage: 40, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.25, ward: 0.25 },
   { name: 'Spitter', radius: 13, speed: 80, hp: 16, damage: 6, xp: 2, color: 0x9ccc65, behavior: 'ranged', spawnAfter: 50, weight: 1.2 },
-  { name: 'Bombardier', radius: 17, speed: 55, hp: 30, damage: 8, xp: 3, color: 0x4db6ac, behavior: 'lobber', spawnAfter: 90, weight: 0.7, elite: true },
-  { name: 'Charger', radius: 18, speed: 75, hp: 45, damage: 12, xp: 3, color: 0x7986cb, behavior: 'charger', spawnAfter: 65, weight: 1.5, elite: true },
+  { name: 'Bombardier', radius: 17, speed: 55, hp: 30, damage: 8, xp: 3, color: 0x4db6ac, behavior: 'lobber', spawnAfter: 90, weight: 0.7, elite: true, ward: 0.3 },
+  { name: 'Charger', radius: 18, speed: 75, hp: 45, damage: 12, xp: 3, color: 0x7986cb, behavior: 'charger', spawnAfter: 65, weight: 1.5, elite: true, armor: 0.25 },
   // Only spawned by the hunt quest. Runs away; its reward comes from the quest.
   { name: 'Thief', radius: 15, speed: 190, hp: 160, damage: 0, xp: 0, color: 0xffd700, behavior: 'flee', spawnAfter: 0, weight: 0, elite: true },
-  { name: 'Wraith', radius: 12, speed: 115, hp: 14, damage: 8, xp: 2, color: 0xb39ddb, behavior: 'chase', spawnAfter: 40, weight: 1.5, flying: true },
+  { name: 'Wraith', radius: 12, speed: 115, hp: 14, damage: 8, xp: 2, color: 0xb39ddb, behavior: 'chase', spawnAfter: 40, weight: 1.5, flying: true, armor: 0.5 },
   // Named final bosses, one per map (see maps.ts).
   { name: 'Grimjaw', radius: 60, speed: 85, hp: 30000, damage: 45, xp: 0, color: 0xa1887f, behavior: 'named', spawnAfter: 0, weight: 0, elite: true },
-  { name: 'Rime', radius: 54, speed: 70, hp: 38000, damage: 40, xp: 0, color: 0x81d4fa, behavior: 'named', spawnAfter: 0, weight: 0, elite: true },
-  { name: 'Ashlord Vael', radius: 64, speed: 80, hp: 28000, damage: 50, xp: 0, color: 0xff5722, behavior: 'named', spawnAfter: 0, weight: 0, elite: true },
-  { name: 'Embra', radius: 52, speed: 95, hp: 24000, damage: 35, xp: 0, color: 0xffab40, behavior: 'named', spawnAfter: 0, weight: 0, elite: true },
+  { name: 'Rime', radius: 54, speed: 70, hp: 38000, damage: 40, xp: 0, color: 0x81d4fa, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, ward: 0.2 },
+  { name: 'Ashlord Vael', radius: 64, speed: 80, hp: 28000, damage: 50, xp: 0, color: 0xff5722, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, armor: 0.3 },
+  { name: 'Embra', radius: 52, speed: 95, hp: 24000, damage: 35, xp: 0, color: 0xffab40, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, ward: 0.3 },
   // Stationary totems that shield the boss during a side mission.
-  { name: 'Ward', radius: 26, speed: 0, hp: 160, damage: 0, xp: 0, color: 0x80deea, behavior: 'ward', spawnAfter: 0, weight: 0, elite: true },
+  { name: 'Ward', radius: 26, speed: 0, hp: 160, damage: 0, xp: 0, color: 0x80deea, behavior: 'ward', spawnAfter: 0, weight: 0, elite: true, ward: 0.5 },
 ];
 
 export const EnemyType = {
@@ -201,13 +205,15 @@ export const HORDE_DENSITY = 0.65;
  * with one affix, `hp` times the health, `damage` times the damage and `xp` times the XP.
  */
 export const CHAMPION = { from: 0.2, minChance: 0.02, maxChance: 0.08, hp: 4, damage: 1.5, xp: 5, size: 1.35 };
-export const Affix = { None: 0, Hasted: 1, Vampiric: 2, Volatile: 3, Splitting: 4 } as const;
+export const Affix = { None: 0, Hasted: 1, Vampiric: 2, Volatile: 3, Splitting: 4, Armored: 5, Warded: 6 } as const;
 export const AFFIXES = [
   { name: '', color: 0 },
   { name: 'Hasted', color: 0xffee58 },
   { name: 'Vampiric', color: 0xff1744 },
   { name: 'Volatile', color: 0xff9100 },
   { name: 'Splitting', color: 0x69f0ae },
+  { name: 'Armored', color: 0xb0bec5 },
+  { name: 'Warded', color: 0x448aff },
 ];
 /** Affix tuning: Hasted speed, Vampiric healing per damage dealt, Volatile death bomb, Splitting children. */
 export const AFFIX_TUNING = {
@@ -215,7 +221,12 @@ export const AFFIX_TUNING = {
   vampHeal: 10,
   volatile: { radius: 90, delay: 1.1, damage: 30 },
   splits: 3,
+  /** Armored and Warded champions shrug off this much more physical / magic damage. */
+  resist: 0.5,
 };
+
+/** Resistances never go above this. */
+export const MAX_RESIST = 0.8;
 
 /**
  * How tough the horde gets `progress` of the way to the final boss (0 at the start, 1 when it arrives):

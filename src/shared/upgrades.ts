@@ -34,8 +34,21 @@ export type PassiveId =
   | 'duration'
   | 'multishot'
   | 'evasion'
-  | 'wisdom';
+  | 'wisdom'
+  | 'arcana';
 export type UpgradeId = WeaponId | PassiveId;
+
+/** Offered on a level-up once there's nothing left to upgrade (or to fill up a short list of choices). */
+export type BonusId = 'bonusHeal' | 'bonusGold';
+export type ChoiceId = UpgradeId | BonusId;
+export const BONUS = { heal: 0.25, gold: 25 };
+export const BONUSES: Record<BonusId, { name: string; text: string }> = {
+  bonusHeal: { name: 'Second Wind', text: `Heal ${BONUS.heal * 100}% of your max HP.` },
+  bonusGold: { name: 'Spoils', text: `+${BONUS.gold} gold, kept between runs.` },
+};
+export function isBonus(id: string): id is BonusId {
+  return id in BONUSES;
+}
 /** Upgrade id -> level. Missing means not owned. */
 export type Upgrades = Partial<Record<UpgradeId, number>>;
 
@@ -50,6 +63,25 @@ export const PASSIVE_SLOTS = 5;
 
 /** Crits deal this many times normal damage. */
 export const CRIT_MULTIPLIER = 2;
+
+/**
+ * Every source of damage is physical (orange numbers), magic (blue) or true (white). Enemies can resist physical
+ * or magic, so a team wants a mix; true damage goes through every resistance, but it's rare.
+ */
+export type DamageType = 'physical' | 'magic' | 'true';
+/** Which kinds of damage can crit. Flip `magic` to true to let spells crit too. */
+export const CRIT_TYPES: Record<DamageType, boolean> = { physical: true, magic: false, true: false };
+/** Damage type ids as they go over the network, in this order. */
+export const DAMAGE_TYPES: DamageType[] = ['physical', 'magic', 'true'];
+export const DAMAGE_COLORS: Record<DamageType, number> = { physical: 0xffab40, magic: 0x64b5f6, true: 0xeceff1 };
+export const DAMAGE_NAMES: Record<DamageType, string> = { physical: 'Physical', magic: 'Magic', true: 'True' };
+/**
+ * Attunement: every weapon or ability you carry beyond the first of a damage type adds this much damage of that
+ * type. Magic attunes more strongly because it can't crit.
+ */
+export const ATTUNEMENT: Record<DamageType, number> = { physical: 0.06, magic: 0.1, true: 0.06 };
+/** Arcana, the magic counterpart to Crit: this much more magic damage per level. */
+export const ARCANA_PER_LEVEL = 0.08;
 
 // Weapon stats per level. Tweak these to balance the game.
 // Level 6 (evolved) keeps the level 5 numbers and adds the weapon's special effect.
@@ -269,7 +301,7 @@ export function wolvesStats(level: number) {
     count: 1 + Math.floor((n + 1) / 2) + (evolved ? 2 : 0),
     damage: 14 + 6 * n,
     biteCooldown: 0.6,
-    speed: 330,
+    speed: 480,
     /** They only chase enemies within this distance of you. */
     leash: 450,
     /** Evolved: each bite also hurts enemies around the target. */
@@ -411,6 +443,8 @@ interface UpgradeDef {
   describe: (level: number) => string;
   /** Weapons and hero abilities: the level 6 form unlocked at a Forge. */
   evolution?: { name: string; text: string };
+  /** Weapons and hero abilities: the kind of damage they deal. */
+  damage?: DamageType;
   /** Defaults to MAX_LEVEL. */
   maxLevel?: number;
 }
@@ -422,6 +456,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   bolt: {
     name: 'Arcane Bolt',
     kind: 'weapon',
+    damage: 'magic',
     role: 'ranged',
     describe: (level) => {
       const s = boltStats(level);
@@ -432,6 +467,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   knives: {
     name: 'Throwing Knives',
     kind: 'weapon',
+    damage: 'physical',
     role: 'ranged',
     describe: (level) => {
       const s = knivesStats(level);
@@ -442,6 +478,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   storm: {
     name: 'Lightning Storm',
     kind: 'weapon',
+    damage: 'magic',
     role: 'ranged',
     describe: (level) => {
       const s = stormStats(level);
@@ -453,6 +490,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   hex: {
     name: 'Seeker Hex',
     kind: 'weapon',
+    damage: 'magic',
     role: 'ranged',
     describe: (level) => {
       const s = hexStats(level);
@@ -463,6 +501,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   cleave: {
     name: 'Cleave',
     kind: 'weapon',
+    damage: 'physical',
     role: 'melee',
     describe: (level) => {
       const s = cleaveStats(level);
@@ -473,6 +512,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   slam: {
     name: 'Ground Slam',
     kind: 'weapon',
+    damage: 'physical',
     role: 'melee',
     describe: (level) => {
       const s = slamStats(level);
@@ -483,6 +523,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   venom: {
     name: 'Venom Trail',
     kind: 'weapon',
+    damage: 'magic',
     role: 'melee',
     describe: (level) => {
       const s = venomStats(level);
@@ -493,6 +534,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   field: {
     name: 'Radiant Field',
     kind: 'weapon',
+    damage: 'magic',
     describe: (level) => {
       const s = fieldStats(level);
       return `A searing aura around you deals ${s.damage} damage to every nearby enemy every ${s.interval}s.`;
@@ -502,6 +544,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   mines: {
     name: 'Mine Layer',
     kind: 'weapon',
+    damage: 'physical',
     describe: (level) => {
       const s = minesStats(level);
       return `Drops a mine every ${s.cooldown.toFixed(1)}s that explodes for ${s.damage} damage when an enemy comes near.`;
@@ -511,6 +554,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   orbit: {
     name: 'Spirit Blades',
     kind: 'weapon',
+    damage: 'physical',
     describe: (level) => {
       const s = orbitStats(level);
       return `${s.count} blades circle you, dealing ${s.damage} damage on contact.`;
@@ -520,6 +564,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   shuriken: {
     name: 'Shuriken',
     kind: 'weapon',
+    damage: 'physical',
     role: 'ranged',
     describe: (level) => {
       const s = shurikenStats(level);
@@ -530,6 +575,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   daggers: {
     name: 'Shadow Daggers',
     kind: 'weapon',
+    damage: 'physical',
     role: 'melee',
     describe: (level) => {
       const s = daggersStats(level);
@@ -540,6 +586,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   fireball: {
     name: 'Fireball',
     kind: 'weapon',
+    damage: 'magic',
     role: 'ranged',
     describe: (level) => {
       const s = fireballStats(level);
@@ -550,6 +597,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   arrows: {
     name: 'Longbow',
     kind: 'weapon',
+    damage: 'physical',
     role: 'ranged',
     describe: (level) => {
       const s = arrowsStats(level);
@@ -560,6 +608,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   wolves: {
     name: 'Wolf Pack',
     kind: 'weapon',
+    damage: 'physical',
     exclusive: 'druid',
     describe: (level) => {
       const s = wolvesStats(level);
@@ -570,6 +619,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   veil: {
     name: 'Shadow Veil',
     kind: 'weapon',
+    damage: 'physical',
     owner: 'assassin',
     describe: (level) => {
       const s = veilStats(level);
@@ -580,6 +630,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   flamenova: {
     name: 'Flame Nova',
     kind: 'weapon',
+    damage: 'magic',
     owner: 'pyro',
     describe: (level) => {
       const s = flamenovaStats(level);
@@ -590,6 +641,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   tumble: {
     name: 'Tumble',
     kind: 'weapon',
+    damage: 'physical',
     owner: 'ranger',
     describe: (level) => {
       const s = tumbleStats(level);
@@ -600,6 +652,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   treant: {
     name: 'Treant',
     kind: 'weapon',
+    damage: 'physical',
     owner: 'druid',
     describe: (level) => {
       const s = treantStats(level);
@@ -610,6 +663,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   timebomb: {
     name: 'Time Bomb',
     kind: 'weapon',
+    damage: 'true',
     owner: 'chronobreaker',
     describe: (level) => {
       const s = timebombStats(level);
@@ -620,6 +674,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   meteor: {
     name: 'Meteor',
     kind: 'weapon',
+    damage: 'magic',
     owner: 'mage',
     describe: (level) => {
       const s = meteorStats(level);
@@ -630,6 +685,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   leap: {
     name: 'Leap',
     kind: 'weapon',
+    damage: 'physical',
     owner: 'bruiser',
     describe: (level) => {
       const s = leapStats(level);
@@ -640,6 +696,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   warcry: {
     name: 'War Cry',
     kind: 'weapon',
+    damage: 'physical',
     owner: 'tank',
     describe: (level) => {
       const s = warcryStats(level);
@@ -653,18 +710,24 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   vitality: { name: 'Vitality', kind: 'passive', describe: () => '+20 max HP.' },
   magnet: { name: 'Magnet', kind: 'passive', describe: () => '+30% pickup radius.' },
   regen: { name: 'Regeneration', kind: 'passive', describe: () => '+0.5 HP per second.' },
-  armor: { name: 'Plating', kind: 'passive', describe: () => '-6% damage taken.' },
-  crit: { name: 'Crit', kind: 'passive', describe: () => `+6% chance to crit for ${CRIT_MULTIPLIER}x damage.` },
+  armor: { name: 'Armor', kind: 'passive', describe: () => '-6% damage taken.' },
+  crit: { name: 'Crit', kind: 'passive', describe: () => `+6% chance for physical damage to crit for ${CRIT_MULTIPLIER}x.` },
   lifesteal: { name: 'Vampirism', kind: 'passive', describe: (l) => `Heal for 0.5% of all damage you deal, up to ${l}% of your max HP per second.` },
   area: { name: 'Expanse', kind: 'passive', describe: () => '+10% size of areas, auras, blasts and orbits.' },
-  duration: { name: 'Persistence', kind: 'passive', describe: () => '+12% duration of stuns, taunts, buffs and puddles.' },
+  duration: { name: 'Duration', kind: 'passive', describe: () => '+12% duration of stuns, taunts, buffs and puddles.' },
   multishot: { name: 'Multishot', kind: 'passive', describe: () => '+1 projectile, blade or strike for your weapons.', maxLevel: 3 },
   evasion: { name: 'Evasion', kind: 'passive', describe: () => '+3% chance to dodge bullets, bombs and charges entirely.' },
   wisdom: { name: 'Wisdom', kind: 'passive', describe: () => '+10% XP from gems you pick up.' },
+  arcana: { name: 'Arcana', kind: 'passive', describe: () => `+${Math.round(ARCANA_PER_LEVEL * 100)}% magic damage.` },
 };
 
 export const ALL_UPGRADES = Object.keys(UPGRADES) as UpgradeId[];
 
 export function upgradeMax(id: UpgradeId): number {
   return UPGRADES[id].maxLevel ?? MAX_LEVEL;
+}
+
+/** The kind of damage a weapon or ability deals. */
+export function damageType(id: WeaponId): DamageType {
+  return UPGRADES[id].damage ?? 'physical';
 }

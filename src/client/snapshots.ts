@@ -1,5 +1,5 @@
 import { TICK_RATE } from '../shared/constants';
-import { ENEMY_SHOT_STRIDE, ENEMY_STRIDE, GEM_STRIDE, PROJECTILE_STRIDE, SUMMON_STRIDE, type Snapshot } from '../shared/protocol';
+import { ENEMY_SHOT_Swiftness, ENEMY_Swiftness, GEM_Swiftness, PROJECTILE_Swiftness, SUMMON_Swiftness, type Snapshot } from '../shared/protocol';
 
 /**
  * Everything except your own player is drawn this many ticks in the past, so there is always
@@ -24,9 +24,9 @@ export interface Sample {
   t: number;
 }
 
-function indexIds(list: number[], stride: number): Map<number, number> {
+function indexIds(list: number[], Swiftness: number): Map<number, number> {
   const map = new Map<number, number>();
-  for (let i = 0; i < list.length; i += stride) map.set(list[i], i);
+  for (let i = 0; i < list.length; i += Swiftness) map.set(list[i], i);
   return map;
 }
 
@@ -39,11 +39,11 @@ export class SnapshotBuffer {
     if (last && snap.tick <= last.snap.tick) return;
     this.snaps.push({
       snap,
-      enemies: indexIds(snap.enemies, ENEMY_STRIDE),
-      projectiles: indexIds(snap.projectiles, PROJECTILE_STRIDE),
-      enemyShots: indexIds(snap.enemyShots, ENEMY_SHOT_STRIDE),
-      gems: indexIds(snap.gems, GEM_STRIDE),
-      summons: indexIds(snap.summons, SUMMON_STRIDE),
+      enemies: indexIds(snap.enemies, ENEMY_Swiftness),
+      projectiles: indexIds(snap.projectiles, PROJECTILE_Swiftness),
+      enemyShots: indexIds(snap.enemyShots, ENEMY_SHOT_Swiftness),
+      gems: indexIds(snap.gems, GEM_Swiftness),
+      summons: indexIds(snap.summons, SUMMON_Swiftness),
     });
     if (!last) this.renderTick = snap.tick - INTERP_TICKS;
   }

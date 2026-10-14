@@ -54,6 +54,8 @@ async function main() {
   ui.onRespec = () => net.send({ t: 'respec' });
   ui.onUnlock = (character) => net.send({ t: 'unlock', character });
   ui.onDev = (action) => net.send({ t: 'dev', action });
+  ui.onReady = () => net.send({ t: 'ready' });
+  ui.onGiveUp = () => net.send({ t: 'giveup' });
 
   net.onWelcome = (id) => {
     myId = id;
@@ -109,6 +111,11 @@ async function main() {
     const wantsDodge = input.consumeDodge();
     const cast = input.consumeCast();
     const cheat = input.consumeDev();
+    // Esc / P: pause the game for everyone, or while it's paused, say you're ready to go on.
+    if (input.consumePause() && latest?.phase === 'playing') {
+      if (!latest.pause) net.send({ t: 'pause' });
+      else if (latest.pause.kind === 'menu') net.send({ t: 'ready' });
+    }
     if (cheat && me?.name.toLowerCase() === DEV_NAME && latest!.phase === 'playing') net.send({ t: 'dev', action: cheat });
     if (cast && canAct && latest!.phase === 'playing') {
       net.send({ t: 'cast', slot: cast, aim, dist: Math.round(input.aimDistance()) });
@@ -119,7 +126,9 @@ async function main() {
       if (wantsDodge && dodgeCooldown <= 0 && latest!.phase === 'playing') {
         dodgeTime = DODGE_DURATION;
         dashExtension = 0;
-        dodgeDir = { x: Math.cos(aim), y: Math.sin(aim) };
+        // Dash the way you're moving (so you can shoot behind you and dodge forward); standing still, toward the cursor.
+        const move = input.direction();
+        dodgeDir = move.x !== 0 || move.y !== 0 ? move : { x: Math.cos(aim), y: Math.sin(aim) };
         dodgeCooldown = meState!.dodgeCooldown;
         net.send({ t: 'dodge' }); // Before the moves it causes, so the server allows the longer steps.
         sound.play('dodge');

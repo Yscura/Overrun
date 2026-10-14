@@ -572,15 +572,30 @@ button.link:hover {
   height: 56px;
 }
 
-.portrait svg {
+/* Hero art, cropped to a square around the face, with a ring in the player's color. */
+.portrait img {
   display: block;
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px var(--ring, #2c313d);
+  user-select: none;
+}
+
+.portrait.large {
+  width: 72px;
+  height: 72px;
 }
 
 .portrait.tiny {
   width: 26px;
   height: 26px;
+}
+
+.portrait.tiny img {
+  border-radius: 6px;
 }
 
 .buttons {
@@ -791,12 +806,27 @@ button.secondary:hover {
 }
 
 /* Darkens the slot from the top while on cooldown. */
+/* Cooling down: the part still to recharge is grayed out, and color comes back clockwise from the top. */
 .ability-shade {
+  --done: 360deg;
   position: absolute;
-  inset: 0 0 auto 0;
-  height: 0;
-  background: rgba(0, 0, 0, 0.6);
+  inset: 0;
+  z-index: 1;
+  background: rgba(10, 12, 16, 0.35);
+  backdrop-filter: grayscale(1) brightness(0.55);
+  -webkit-backdrop-filter: grayscale(1) brightness(0.55);
+  -webkit-mask: conic-gradient(transparent 0deg var(--done), #000 var(--done) 360deg);
+  mask: conic-gradient(transparent 0deg var(--done), #000 var(--done) 360deg);
   pointer-events: none;
+}
+
+.ability:not(.cooling) .ability-shade {
+  display: none;
+}
+
+/* The countdown sits above the gray. */
+.ability-time {
+  z-index: 2;
 }
 
 .ability-key {
@@ -878,7 +908,7 @@ button.secondary:hover {
 }
 
 .scoreboard-panel {
-  width: 920px;
+  width: min(1010px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow-y: auto;
   text-align: left;
@@ -1000,25 +1030,242 @@ button.secondary:hover {
   }
 }
 
-/* --- Evolved weapons --- */
+/* --- Evolved: an icy diamond look with a light sheen sweeping across and a twinkle --- */
 
-.slot.weapon.evolved {
-  border-color: #ffd54f;
-  border-top-color: #ffd54f;
-  box-shadow: 0 0 12px rgba(255, 213, 79, 0.35);
+.shimmer {
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    0 0 10px rgba(178, 235, 242, 0.45),
+    inset 0 0 10px rgba(178, 235, 242, 0.18);
+  background-image: linear-gradient(135deg, rgba(178, 235, 242, 0.12), rgba(255, 255, 255, 0) 45%, rgba(225, 190, 231, 0.12));
 }
 
+.shimmer::after {
+  content: '';
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  left: -60%;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.5) 45%, rgba(178, 235, 242, 0.35) 55%, transparent);
+  transform: skewX(-20deg);
+  animation: sheen 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.shimmer::before {
+  content: '\2726';
+  position: absolute;
+  top: 2px;
+  right: 5px;
+  font-size: 10px;
+  color: #ffffff;
+  text-shadow: 0 0 6px #b2ebf2;
+  animation: twinkle 1.9s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes sheen {
+  0% {
+    left: -60%;
+  }
+  55%,
+  100% {
+    left: 130%;
+  }
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(0.6) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1) rotate(45deg);
+  }
+}
+
+@keyframes prism {
+  to {
+    background-position: 300% 0;
+  }
+}
+
+/* The diamond rim, keeping the damage type's color along the top so you can still tell them apart. */
+.shimmer,
+.slot.weapon.shimmer,
+.ability.shimmer,
+.card.shimmer,
+.score-chip.shimmer {
+  border-color: #e0f7fa;
+}
+
+.slot.weapon.physical.shimmer,
+.ability.physical.shimmer,
+.card.physical.shimmer {
+  border-top-color: #ffab40;
+}
+
+.slot.weapon.magic.shimmer,
+.ability.magic.shimmer,
+.card.magic.shimmer {
+  border-top-color: #64b5f6;
+}
+
+.slot.weapon.true.shimmer,
+.ability.true.shimmer,
+.card.true.shimmer {
+  border-top-color: #eceff1;
+}
+
+/* Evolved pips sparkle through icy colors. */
 .pips.evolved .pip.on {
-  background: #ffd54f;
-}
-
-.card.evolve {
-  border-color: #ffd54f;
-  box-shadow: 0 0 16px rgba(255, 213, 79, 0.3);
+  background: linear-gradient(90deg, #e0f7fa, #b2ebf2, #f8bbd0, #e1f5fe, #e0f7fa);
+  background-size: 300% 100%;
+  animation: prism 3s linear infinite;
 }
 
 .card.evolve .tag {
-  color: #ffd54f;
+  color: #e0f7fa;
+}
+
+.score-chip.evolved {
+  color: #e0f7fa;
+}
+
+/* --- Damage-type colors: orange physical, blue magic, white true --- */
+
+.slot.weapon.physical {
+  border-color: rgba(255, 171, 64, 0.45);
+  border-top-color: #ffab40;
+  background-image: linear-gradient(180deg, rgba(255, 171, 64, 0.1), transparent 70%);
+}
+
+.slot.weapon.magic {
+  border-color: rgba(100, 181, 246, 0.5);
+  border-top-color: #64b5f6;
+  background-image: linear-gradient(180deg, rgba(100, 181, 246, 0.14), transparent 70%);
+}
+
+.slot.weapon.true {
+  border-color: rgba(236, 239, 241, 0.45);
+  border-top-color: #eceff1;
+  background-image: linear-gradient(180deg, rgba(236, 239, 241, 0.1), transparent 70%);
+}
+
+.slot.weapon.magic .slot-name,
+.ability.magic .ability-name,
+.score-chip.magic {
+  color: #bbdefb;
+}
+
+.slot.weapon.magic .pips:not(.evolved) .pip.on,
+.ability.magic .pips:not(.evolved) .pip.on,
+.card.magic:not(.evolve) .pip.on {
+  background: #64b5f6;
+}
+
+.slot.weapon.true .pips:not(.evolved) .pip.on,
+.ability.true .pips:not(.evolved) .pip.on,
+.card.true:not(.evolve) .pip.on {
+  background: #eceff1;
+}
+
+.card.magic,
+.card.weapon.magic,
+.card.hero-ability.magic {
+  border-top-color: #64b5f6;
+}
+
+.card.true,
+.card.weapon.true,
+.card.hero-ability.true {
+  border-top-color: #eceff1;
+}
+
+.ability.physical.ready {
+  border-color: #ffab40;
+}
+
+.ability.magic.ready {
+  border-color: #64b5f6;
+  box-shadow: 0 0 12px rgba(100, 181, 246, 0.35);
+}
+
+.ability.true.ready {
+  border-color: #eceff1;
+  box-shadow: 0 0 12px rgba(236, 239, 241, 0.3);
+}
+
+.score-chip.chip-weapon.magic {
+  border-color: #64b5f6;
+}
+
+/* --- Hover tooltips --- */
+
+/* The HUD lets clicks through to the game; these parts take the mouse so they can show a tooltip. */
+.has-tip {
+  pointer-events: auto;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  max-width: 300px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: rgba(14, 16, 21, 0.97);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.tip-title {
+  font-weight: 800;
+}
+
+.tip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 5px 0 6px;
+}
+
+.tip-level,
+.tip-evolved {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: #1b1f27;
+  border-radius: 999px;
+}
+
+.tip-evolved {
+  color: #0d1b1f;
+  background: linear-gradient(90deg, #e0f7fa, #b2ebf2, #f8bbd0);
+}
+
+.tooltip p {
+  margin: 0 0 6px;
+}
+
+.tooltip p:last-child {
+  margin-bottom: 0;
+}
+
+.tip-muted {
+  color: var(--muted);
+}
+
+.tip-evo {
+  color: #b2ebf2;
 }
 
 /* --- Loadout bar --- */
@@ -1136,7 +1383,39 @@ button.secondary:hover {
 .slot.weapon {
   width: 120px;
   padding: 8px 10px;
-  border-top: 3px solid #ffb74d;
+  border-top: 3px solid #ffab40;
+}
+
+/* Weapon slots and cards in their damage type's color: orange physical, blue magic, white true. */
+.slot.weapon.magic {
+  border-top-color: #64b5f6;
+}
+
+.slot.weapon.true {
+  border-top-color: #eceff1;
+}
+
+.damage-tag {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  border-radius: 999px;
+}
+
+.damage-tag.physical {
+  color: #1a1407;
+  background: #ffab40;
+}
+
+.damage-tag.magic {
+  color: #06121f;
+  background: #64b5f6;
+}
+
+.damage-tag.true {
+  color: #111;
+  background: #eceff1;
 }
 
 .slot.weapon.empty {
@@ -1162,12 +1441,41 @@ button.secondary:hover {
 }
 
 .slot-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   margin-bottom: 5px;
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+/* Icons sit in front of names; the text gets the ellipsis when space runs out. */
+.icon-box {
+  display: inline-flex;
+  flex: none;
+}
+
+.icon-box .icon {
+  display: block;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+}
+
+.icon-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.ability-name,
+.tip-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.score-chip {
+  align-items: center;
 }
 
 .slot.passive .slot-name {
@@ -1203,6 +1511,94 @@ button.secondary:hover {
 
 #levelup {
   background: rgba(8, 9, 12, 0.6);
+  /* Clicks and hovers pass through the dimmed backdrop to your skills; the cards still take the mouse. */
+  pointer-events: none;
+}
+
+#levelup .levelup-box {
+  pointer-events: auto;
+}
+
+/* The pause screen: like the level-up screen, your skills stay hoverable around it. */
+#pausemenu {
+  z-index: 25; /* Under the skill bar, which stays bright and hoverable while paused. */
+  background: rgba(8, 9, 12, 0.6);
+  pointer-events: none;
+}
+
+.pause-box {
+  width: 340px;
+  pointer-events: auto;
+}
+
+.pause-box h1 {
+  margin-bottom: 4px;
+}
+
+.pause-by {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+#pause-players {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+#pause-players li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pause-state {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+#pause-players li.ready .pause-state {
+  color: #69f0ae;
+}
+
+#pause-ready.is-ready {
+  background: #69f0ae;
+}
+
+button.secondary.danger {
+  color: #ff8a80;
+  border-color: rgba(255, 82, 82, 0.5);
+}
+
+button.secondary.danger:hover {
+  border-color: var(--danger);
+}
+
+#dev-god.on {
+  border-color: #69f0ae;
+  color: #69f0ae;
+}
+
+/* While picking, your skill bar sits above the dimmed backdrop, so you can read it and hover for details. */
+body.paused #hud {
+  z-index: 30;
+}
+
+body.paused #hud > :not(#loadout) {
+  opacity: 0.35;
+}
+
+.card.bonus {
+  border-top-color: #69f0ae;
+}
+
+.card.bonus .tag {
+  color: #69f0ae;
 }
 
 .levelup-box {
@@ -1329,4 +1725,208 @@ button.secondary:hover {
   #maps {
     grid-template-columns: 1fr;
   }
+}
+
+/* --- Icons first: big icon, name under it (skill bar and level-up cards) --- */
+
+.slot.weapon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 104px;
+  padding: 8px 8px 7px;
+}
+
+.slot.passive {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 72px;
+  padding: 5px 4px 4px;
+}
+
+.slot.weapon .slot-name,
+.slot.passive .slot-name {
+  display: block;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot.weapon .slot-name {
+  font-size: 11px;
+}
+
+.slot.passive .slot-name {
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.slot.weapon .pips,
+.slot.passive .pips {
+  width: 100%;
+}
+
+/* Empty slots: a dashed placeholder where the icon would be. */
+.slot-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.slot.weapon .slot-empty {
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+}
+
+.slot.passive .slot-empty {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+}
+
+/* E and R: the key in the corner, the icon in the middle, the name under it. */
+.ability {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 92px;
+  padding: 6px 6px 7px;
+}
+
+.ability-key {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+}
+
+.ability-name {
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  margin-top: 0;
+  font-size: 11px;
+  text-align: center;
+}
+
+.ability-name .icon-label {
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.ability-level {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.card-header {
+  justify-content: space-between;
+}
+
+.card > .icon-box {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0 6px;
+}
+
+.card > .card-name {
+  font-size: 16px;
+  text-align: center;
+}
+
+.card .card-desc {
+  text-align: center;
+}
+
+.card .pips {
+  margin: 0 auto;
+}
+
+.card-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* --- Scoreboard build: icon tiles --- */
+
+.score-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.score-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 76px;
+  padding: 7px 4px 5px;
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-top: 3px solid #ffab40;
+  border-radius: 8px;
+}
+
+.score-tile.magic {
+  border-top-color: #64b5f6;
+}
+
+.score-tile.true {
+  border-top-color: #eceff1;
+}
+
+.score-tile.ult {
+  border-top-color: #ffd54f;
+}
+
+.score-tile.passive {
+  width: 66px;
+  padding: 5px 3px 4px;
+  border-top: 2px solid var(--accent);
+}
+
+.score-tile-name {
+  width: 100%;
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.score-tile.magic .score-tile-name {
+  color: #bbdefb;
+}
+
+.score-tile-level,
+.score-tile-key {
+  position: absolute;
+  top: 2px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.score-tile-level {
+  right: 5px;
+}
+
+.score-tile-key {
+  left: 5px;
+  color: var(--muted);
 }

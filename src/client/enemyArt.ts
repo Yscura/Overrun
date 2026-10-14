@@ -99,6 +99,11 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean): number {
   const r = def.radius;
   const pen: Pen = { g, flash, body: def.color, dark: shade(def.color, -0.55), light: shade(def.color, 0.6) };
   shadow(pen, r);
+  // Resistances show as a rim: steel for armor (resists physical), blue for a ward (resists magic).
+  detail(pen, (g) => {
+    if (def.armor) g.circle(0, 0, r * 1.12).stroke({ width: 3, color: 0xcfd8dc, alpha: 0.75 });
+    if (def.ward) g.circle(0, 0, r * (def.armor ? 1.22 : 1.12)).stroke({ width: 3, color: 0x448aff, alpha: 0.8 });
+  });
   switch (type) {
     case EnemyType.Grunt: {
       // A squat blob with little horns.

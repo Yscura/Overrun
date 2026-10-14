@@ -10,6 +10,10 @@ import {
   orbitStats,
   upgradeMax,
   type AbilityId,
+  type DamageType,
+  ATTUNEMENT,
+  ARCANA_PER_LEVEL,
+  damageType,
   type Role,
   type UpgradeId,
   type Upgrades,
@@ -24,6 +28,8 @@ export interface UltimateDef {
   name: string;
   text: string;
   cooldown: number;
+  /** The kind of damage it deals, if any. */
+  damage?: DamageType;
 }
 
 export interface CharacterDef {
@@ -57,7 +63,7 @@ export interface CharacterDef {
 
 export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   assassin: {
-    name: 'Katarina',
+    name: 'Kata',
     title: 'the Assassin',
     role: 'melee',
     maxHp: 70,
@@ -69,7 +75,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     dodgeCooldown: 1.6,
     startWeapon: 'daggers',
     ability: 'veil',
-    ultimate: { id: 'shadowstrike', name: 'Shadow Strike', text: 'Blink between up to 7 enemies nearby, striking each one hard. Untouchable while it lasts.', cooldown: 45 },
+    ultimate: { id: 'shadowstrike', damage: 'physical', name: 'Shadow Strike', text: 'Blink between up to 7 enemies nearby, striking each one hard. Untouchable while it lasts.', cooldown: 45 },
     trait: '+40% damage but 20% smaller areas. Fastest, and shadowsteps through any wall',
     phaseWalls: true,
   },
@@ -77,7 +83,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     name: 'Lyra',
     title: 'the Mage',
     role: 'ranged',
-    maxHp: 80,
+    maxHp: 95,
     speed: 215,
     armor: 0,
     regen: 0,
@@ -132,7 +138,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     dodgeCooldown: 3,
     startWeapon: 'fireball',
     ability: 'flamenova',
-    ultimate: { id: 'inferno', name: 'Inferno', text: 'For 3s, fireballs rain down all around you.', cooldown: 60 },
+    ultimate: { id: 'inferno', damage: 'magic', name: 'Inferno', text: 'For 3s, fireballs rain down all around you.', cooldown: 60 },
     trait: '+25% damage and 30% bigger areas, but fragile',
     unlockCost: 500,
   },
@@ -148,12 +154,12 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     dodgeCooldown: 1.4,
     startWeapon: 'arrows',
     ability: 'tumble',
-    ultimate: { id: 'arrowstorm', name: 'Arrow Storm', text: 'For 4s, fire a torrent of piercing arrows toward your cursor.', cooldown: 50 },
+    ultimate: { id: 'arrowstorm', damage: 'physical', name: 'Arrow Storm', text: 'For 4s, fire a torrent of piercing arrows toward your cursor.', cooldown: 50 },
     trait: '+15% damage, fast, and dodges more often than anyone',
     unlockCost: 500,
   },
   druid: {
-    name: 'Oakhart',
+    name: 'Oakenhart',
     title: 'the Druid',
     role: 'melee',
     maxHp: 200,
@@ -164,13 +170,13 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     dodgeCooldown: 3.5,
     startWeapon: 'wolves',
     ability: 'treant',
-    ultimate: { id: 'wildcall', name: 'Call of the Wild', text: 'Six more spirit wolves join the hunt for 15s.', cooldown: 70 },
+    ultimate: { id: 'wildcall', damage: 'physical', name: 'Call of the Wild', text: 'Six more spirit wolves join the hunt for 15s.', cooldown: 70 },
     trait: 'Toughest hero: regenerates and fights with a wolf pack',
     unlockCost: 500,
   },
   chronobreaker: {
-    name: 'Vex',
-    title: 'the Chronobreaker',
+    name: 'Chrono',
+    title: 'the Timebreaker',
     role: 'melee',
     maxHp: 120,
     speed: 225,
@@ -181,7 +187,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     startWeapon: 'orbit',
     ability: 'timebomb',
     ultimate: {
-      id: 'rewind',
+      id: 'rewind', damage: 'true',
       name: 'Chronobreak',
       text: 'Rewind to where you were 4s ago, restore the most HP you had since, and explode on arrival.',
       cooldown: 60,
@@ -192,6 +198,9 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
 };
 
 export const CHARACTER_IDS = Object.keys(CHARACTERS) as CharacterId[];
+
+/** Chronobreak takes you back to where you were this many seconds ago. */
+export const REWIND_SECONDS = 4;
 export const DEFAULT_CHARACTER: CharacterId = 'mage';
 
 export function isCharacterId(id: unknown): id is CharacterId {
@@ -247,7 +256,7 @@ export function playerStats(upgrades: Upgrades, character: CharacterId, prestige
   return {
     damageMult: c.damageMult * (1 + 0.1 * lv('might')) * (1 + rank('power')),
     cooldownMult: (1 - 0.08 * lv('haste')) / (1 + rank('fury')),
-    speed: c.speed * (1 + 0.08 * lv('swift')) * (1 + rank('stride')),
+    speed: c.speed * (1 + 0.08 * lv('swift')) * (1 + rank('Swiftness')),
     maxHp: Math.round((c.maxHp + 20 * lv('vitality')) * (1 + rank('fortitude'))),
     magnet: magnetRadius(upgrades),
     regen: c.regen + 0.5 * lv('regen'),
@@ -262,7 +271,47 @@ export function playerStats(upgrades: Upgrades, character: CharacterId, prestige
     projectiles: lv('multishot'),
     evasion: 0.03 * lv('evasion'),
     xpMult: 1 + 0.1 * lv('wisdom'),
+    /** Extra damage per damage type: attunement (more weapons of a type) and Arcana for magic. */
+    typeDamage: typeDamage(upgrades),
   };
+}
+
+/** How many of a player's weapons and abilities deal each damage type. */
+export function typeCounts(upgrades: Upgrades): Record<DamageType, number> {
+  const counts: Record<DamageType, number> = { physical: 0, magic: 0, true: 0 };
+  for (const id of Object.keys(upgrades) as UpgradeId[]) {
+    if ((upgrades[id] ?? 0) > 0 && UPGRADES[id].kind === 'weapon') counts[damageType(id as WeaponId)]++;
+  }
+  return counts;
+}
+
+function typeDamage(upgrades: Upgrades): Record<DamageType, number> {
+  const counts = typeCounts(upgrades);
+  const attune = (t: DamageType) => 1 + ATTUNEMENT[t] * Math.max(0, counts[t] - 1);
+  return {
+    physical: attune('physical'),
+    magic: attune('magic') * (1 + ARCANA_PER_LEVEL * (upgrades.arcana ?? 0)),
+    true: attune('true'),
+  };
+}
+
+/** A hero's own damage type: what their starting weapon deals. */
+export function heroDamageType(character: CharacterId): DamageType {
+  return damageType(CHARACTERS[character].startWeapon);
+}
+
+/**
+ * How likely an upgrade is to be offered to this hero, relative to 1: weapons of the hero's own damage type come up
+ * more often, and so does the passive that boosts it (Crit for physical, Arcana for magic).
+ */
+export const OFFER_WEIGHT = { ownType: 3, ownPassive: 2, otherPassive: 0.5 };
+export function offerWeight(id: UpgradeId, character: CharacterId): number {
+  const own = heroDamageType(character);
+  const def = UPGRADES[id];
+  if (def.kind === 'weapon') return !def.owner && damageType(id as WeaponId) === own ? OFFER_WEIGHT.ownType : 1;
+  if (id === 'crit') return own === 'physical' ? OFFER_WEIGHT.ownPassive : OFFER_WEIGHT.otherPassive;
+  if (id === 'arcana') return own === 'magic' ? OFFER_WEIGHT.ownPassive : OFFER_WEIGHT.otherPassive;
+  return 1;
 }
 
 export type PlayerStats = ReturnType<typeof playerStats>;

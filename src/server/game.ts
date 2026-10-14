@@ -2,10 +2,12 @@ import {
   CHARACTERS,
   CHARACTER_IDS,
   DEFAULT_CHARACTER,
+  REWIND_SECONDS,
   UPGRADE_PICKS,
   heroAvailable,
   isCharacterId,
   offerableUpgrades,
+  offerWeight,
   orbitLayout,
   ownedWeapons,
   playerStats,
@@ -35,6 +37,7 @@ import {
   PLAYER_RADIUS,
   PROJECTILE_RADIUS,
   SLOWMO,
+  BOSS_INTRO,
   REVIVE_RADIUS,
   REVIVE_TIME,
   SPAWN_DISTANCE,
@@ -56,8 +59,10 @@ import {
   BOSS_FIGHT_STAY,
   AFFIX_TUNING,
   Affix,
+  AFFIXES,
   CHAMPION,
   HORDE_DENSITY,
+  MAX_RESIST,
   BOSS_VENGEFUL,
   MISSION_KINDS,
   MISSIONS,
@@ -122,6 +127,11 @@ import {
 import {
   MAX_LEVEL,
   EVOLVED_LEVEL,
+  BONUS,
+  isBonus,
+  CRIT_TYPES,
+  DAMAGE_TYPES,
+  type DamageType,
   UPGRADES,
   upgradeMax,
   CRIT_MULTIPLIER,
@@ -149,6 +159,7 @@ import {
   warcryStats,
   xpToNext,
   type AbilityId,
+  type ChoiceId,
   type UpgradeId,
   type Upgrades,
   type WeaponId,
@@ -179,13 +190,27 @@ const STRIKE = { targets: 7, hop: 0.18, range: 650, damage: 120, perLevel: 8 };
 const INFERNO = { duration: 3, fireballs: 16, spread: 380, radius: 110, damage: 80, perLevel: 5 };
 const ARROW_STORM = { duration: 4, interval: 0.06, damage: 20, perLevel: 2, pierce: 3, jitter: 0.12 };
 const WILD_CALL = { wolves: 6, life: 15 };
-const REWIND = { seconds: 4, radius: 220, damage: 150, perLevel: 10 };
+const REWIND = { seconds: REWIND_SECONDS, radius: 220, damage: 150, perLevel: 10 };
 /** Chronobreak keeps this much of each player's past, sampled every HISTORY_STEP seconds. */
 const HISTORY_STEP = 0.1;
 /** Burning ground and venom puddles hurt every this many seconds. */
 const BURN_TICK = 0.5;
 /** Wolves: how close they get before biting, and how they spread around their druid when idle. */
-const WOLF = { radius: 12, reach: 10, followRadius: 55 };
+const WOLF = {
+  radius: 12,
+  reach: 10,
+  followRadius: 55,
+  /** Within this distance of their prey they lunge at `lunge` times their speed. */
+  lungeRange: 110,
+  lunge: 1.6,
+  /** Prey is kept until it's this much farther from the druid than the leash. */
+  keepSlack: 250,
+  /** Give up on prey that hasn't been bitten after this long, and leave it alone for `ignoreFor`. */
+  giveUp: 2.5,
+  ignoreFor: 3,
+  /** Extra distance counted for prey another wolf is already hunting, so the pack spreads out. */
+  crowding: 140,
+};
 const CHRONO = { radius: 900, stun: 4 };
 const RAGE = { duration: 8, damage: 1.6, cooldown: 0.7, regen: 0.04 };
 const RALLY = { radius: 700, heal: 0.4, guard: 6, reduction: 0.5 };
@@ -233,8 +258,8 @@ interface Player {
   hp: number;
   downed: boolean;
   revive: number;
-  /** Upgrade choices while a level-up pause is waiting on this player. */
-  options: UpgradeId[] | null;
+  /** Choices while a level-up pause is waiting on this player. */
+  options: ChoiceId[] | null;
   upgrades: Upgrades;
   cooldowns: Partial<Record<WeaponId, number>>;
   /** Seconds of dodge invulnerability left. */
@@ -273,7 +298,9 @@ interface Player {
   lastVenomY: number;
   // Damage numbers for this player's screen, collected until the next snapshot.
   /** Enemy id -> damage dealt to it this tick. */
-  hits: Map<number, { x: number; y: number; amount: number; crit: boolean }>;
+  hits: Map<number, { x: number; y: number; amount: number; crit: boolean; type: number }>;
+  /** Damage dealt by type (physical, magic, true), for the scoreboard. */
+  damageByType: [number, number, number];
   taken: number[];
   /** Small continuous damage (contact, zone) is added up and shown every DAMAGE_NUMBER_INTERVAL. */
   takenAcc: number;
@@ -284,6 +311,8 @@ interface Player {
   lifestealBudget: number;
   /** Their prestige (shared with `options.profiles`). */
   profile: Profile;
+  /** God mode: damage never takes them below 1 HP. On by default for "dev", who can toggle it. */
+  god: boolean;
 }
 
 /** Venom puddles and mines on the ground. */
@@ -301,6 +330,7 @@ interface Zone {
   life: number;
   /** Venom: seconds to the next damage tick. Mine: seconds until armed. */
   timer: number;
+  type: DamageType;
   dead: boolean;
 }
 
@@ -312,6 +342,7 @@ interface Blast {
   damage: number;
   owner: number;
   t: number;
+  type: DamageType;
   /** Stuns what it hits for this long. */
   stun?: number;
   color?: number;
@@ -330,6 +361,11 @@ interface Summon {
   timer: number;
   /** Wolf Pack wolves (kept in sync with the weapon's level) vs. temporary ones. */
   pack: boolean;
+  /** Wolves: what they're hunting, how long they've chased it without a bite, and prey they gave up on. */
+  prey: Enemy | null;
+  chase: number;
+  ignoreId: number;
+  ignoreUntil: number;
   /** Treants: slam stats, fixed when summoned. */
   damage: number;
   radius: number;
@@ -400,6 +436,7 @@ interface Projectile {
   pierce: number;
   life: number;
   hit: Set<number>;
+  type: DamageType;
   /** Arcane Barrage and Fireball: damage dealt around each hit. */
   explosion: { radius: number; damage: number; color?: number } | null;
   /** Pyroblast: leaves burning ground where it explodes. */
@@ -510,6 +547,14 @@ const round1 = (v: number) => Math.max(0, Math.round(v * 10) / 10);
 const round2 = (v: number) => Math.round(v * 100) / 100;
 const pick = <T>(list: readonly T[]): T => list[Math.floor(Math.random() * list.length)];
 
+/** The list in a random order where higher-weight items tend to come first (weighted sampling without replacement). */
+function weightedOrder<T>(list: T[], weight: (item: T) => number): T[] {
+  return list
+    .map((item) => ({ item, key: Math.random() ** (1 / Math.max(0.01, weight(item))) }))
+    .sort((a, b) => b.key - a.key)
+    .map((x) => x.item);
+}
+
 function shuffle<T>(list: T[]): T[] {
   for (let i = list.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -551,8 +596,9 @@ export class Game {
   private summons: Summon[] = [];
   /** Gold the team has picked up this run. */
   private runGold = 0;
-  /** Real seconds left of the slow-motion ease-in after a pause. */
+  /** Real seconds left of slow motion (after a pause, or a boss's entrance), and its shape. */
   private slowmo = 0;
+  private slowmoShape = { start: SLOWMO.start, hold: 0, ease: SLOWMO.duration };
   /** No bombardier may throw before this time (spaces their bombs out). */
   private nextLobAt = 0;
 
@@ -644,12 +690,14 @@ export class Game {
       lastVenomX: 0,
       lastVenomY: 0,
       hits: new Map(),
+      damageByType: [0, 0, 0],
       taken: [],
       takenAcc: 0,
       takenTimer: 0,
       sounds: [],
       lifestealBudget: 0,
       profile: this.profile(name),
+      god: name.toLowerCase() === DEV_NAME,
     };
     if (isCharacterId(character) && this.canPlay(player, character)) player.character = character;
     this.resetPlayer(player, this.players.size);
@@ -691,11 +739,13 @@ export class Game {
         if (this.phase !== 'playing') this.startGame();
         break;
       case 'lobby':
-        if (this.phase === 'gameover') {
-          this.phase = 'lobby';
-          this.clearWorld();
-          let slot = 0;
-          for (const other of this.players.values()) this.resetPlayer(other, slot++);
+        if (this.phase === 'gameover') this.backToLobby();
+        break;
+      case 'giveup':
+        // From the pause screen: the run ends as a defeat (prestige and gold earned so far still count).
+        if (this.phase === 'playing' && this.pause?.kind === 'menu') {
+          this.endGame(false);
+          this.backToLobby();
         }
         break;
       case 'move':
@@ -719,10 +769,32 @@ export class Game {
       case 'unlock':
         this.unlockHero(p, msg.character);
         break;
+      case 'pause':
+        // Anyone can pause, except in the middle of picking upgrades.
+        if (this.phase === 'playing' && !this.pause) {
+          this.pause = { kind: 'menu', by: p.name, ready: [] };
+          this.banner(`${p.name} paused the game`, 'good');
+        }
+        break;
+      case 'ready':
+        if (this.pause?.kind === 'menu') {
+          const ready = this.pause.ready;
+          const i = ready.indexOf(p.id);
+          if (i >= 0) ready.splice(i, 1);
+          else ready.push(p.id);
+        }
+        break;
       case 'dev':
         if (p.name.toLowerCase() === DEV_NAME && this.phase === 'playing') this.devCheat(p, msg.action);
         break;
     }
+  }
+
+  private backToLobby(): void {
+    this.phase = 'lobby';
+    this.clearWorld();
+    let slot = 0;
+    for (const other of this.players.values()) this.resetPlayer(other, slot++);
   }
 
   // --- God-mode cheats (player named "dev") ---
@@ -740,6 +812,10 @@ export class Game {
         break;
       case 'max':
         this.maxBuild(p);
+        break;
+      case 'god':
+        p.god = !p.god;
+        this.banner(`Dev: god mode ${p.god ? 'on' : 'off'}`, 'good');
         break;
     }
   }
@@ -787,8 +863,13 @@ export class Game {
     this.options.onProfiles?.();
   }
 
+  /** Every hero is open in testing setups and for the "dev" player; otherwise starting heroes plus bought ones. */
+  private allHeroes(p: Player): boolean {
+    return this.options.allHeroes === true || p.name.toLowerCase() === DEV_NAME;
+  }
+
   private canPlay(p: Player, character: CharacterId): boolean {
-    return this.options.allHeroes === true || heroAvailable(character, p.profile.heroes ?? []);
+    return this.allHeroes(p) || heroAvailable(character, p.profile.heroes ?? []);
   }
 
   /** Spend prestige on a hero. */
@@ -815,7 +896,14 @@ export class Game {
   tick(): void {
     this.tickCount++;
     if (this.phase === 'playing') {
-      if (this.pause) {
+      if (this.pause?.kind === 'menu') {
+        // Everyone (still here) is ready: carry on, easing in from slow motion like after a pick.
+        const ready = this.pause.ready;
+        if ([...this.players.values()].every((p) => ready.includes(p.id))) {
+          this.pause = null;
+          this.slowMotion(SLOWMO.start, 0, SLOWMO.duration);
+        }
+      } else if (this.pause) {
         this.updatePause(TICK_DT);
       } else {
         const scale = this.timeScale();
@@ -827,11 +915,20 @@ export class Game {
     this.fx = [];
   }
 
-  /** Game speed while easing back in after a pause: starts slow, smoothly reaching full speed. */
+  /** Starts a slow-motion stretch: `hold` seconds at `start` speed, then easing up to full speed over `ease`. */
+  private slowMotion(start: number, hold: number, ease: number): void {
+    this.slowmo = hold + ease;
+    this.slowmoShape = { start, hold, ease };
+  }
+
+  /** Game speed during slow motion (after a pause, or a boss's entrance): slow, then smoothly back to full speed. */
   private timeScale(): number {
     if (this.slowmo <= 0) return 1;
-    const t = 1 - this.slowmo / SLOWMO.duration;
-    return SLOWMO.start + (1 - SLOWMO.start) * t * t * (3 - 2 * t);
+    const { start, hold, ease } = this.slowmoShape;
+    const elapsed = hold + ease - this.slowmo;
+    if (elapsed < hold) return start;
+    const t = Math.min(1, (elapsed - hold) / ease);
+    return start + (1 - start) * t * t * (3 - 2 * t);
   }
 
   // --- Lifecycle ---
@@ -909,6 +1006,7 @@ export class Game {
     p.inferno = 0;
     p.history = [];
     p.damageDealt = 0;
+    p.damageByType = [0, 0, 0];
     p.damageTaken = 0;
     p.hp = this.stats(p).maxHp;
     p.downed = false;
@@ -988,7 +1086,8 @@ export class Game {
   // --- Level-up pause ---
 
   private updatePause(dt: number): void {
-    const pause = this.pause!;
+    const pause = this.pause;
+    if (pause?.kind !== 'choose') return;
     pause.timeLeft -= dt;
     const undecided = [...this.players.values()].filter((p) => p.options);
     if (pause.timeLeft <= 0) {
@@ -1003,7 +1102,7 @@ export class Game {
     } else {
       // Everyone has picked: straight back into the action, easing in from slow motion.
       this.pause = null;
-      this.slowmo = SLOWMO.duration;
+      this.slowMotion(SLOWMO.start, 0, SLOWMO.duration);
     }
   }
 
@@ -1024,7 +1123,7 @@ export class Game {
     }
   }
 
-  private rollOptions(p: Player, reason: ChoiceReason): UpgradeId[] | null {
+  private rollOptions(p: Player, reason: ChoiceReason): ChoiceId[] | null {
     // Anything owned and not maxed, plus new things while there are free slots.
     const offerable = offerableUpgrades(p.upgrades, p.character);
     if (reason === 'forge') {
@@ -1032,18 +1131,19 @@ export class Game {
       const evolve = shuffle(
         (Object.keys(p.upgrades) as UpgradeId[]).filter((id) => UPGRADES[id].kind === 'weapon' && p.upgrades[id] === MAX_LEVEL && UPGRADES[id].evolution),
       );
-      const improve = shuffle(offerable.filter((id) => UPGRADES[id].kind === 'weapon'));
+      const improve = weightedOrder(
+        offerable.filter((id) => UPGRADES[id].kind === 'weapon'),
+        (id) => offerWeight(id, p.character),
+      );
       const options = [...evolve, ...improve].slice(0, 3);
       if (options.length > 0) return options;
       // Every weapon is already evolved: fall back to a normal pick.
     }
-    const candidates = shuffle(offerable);
-    if (candidates.length === 0) {
-      // Everything is maxed; the pick becomes a full heal.
-      p.hp = this.stats(p).maxHp;
-      return null;
-    }
-    return candidates.slice(0, 3);
+    // Weapons of the hero's own damage type come up more often (see OFFER_WEIGHT).
+    const candidates: ChoiceId[] = weightedOrder(offerable, (id) => offerWeight(id, p.character)).slice(0, 3);
+    // Running out of things to upgrade: a heal or some gold fills the list.
+    for (const bonus of ['bonusHeal', 'bonusGold'] as const) if (candidates.length < 3) candidates.push(bonus);
+    return candidates;
   }
 
   private choose(p: Player, index: number): void {
@@ -1052,7 +1152,19 @@ export class Game {
     if (id) this.applyUpgrade(p, id);
   }
 
-  private applyUpgrade(p: Player, id: UpgradeId): void {
+  private applyUpgrade(p: Player, id: ChoiceId): void {
+    if (isBonus(id)) {
+      if (id === 'bonusHeal') {
+        const maxHp = this.stats(p).maxHp;
+        p.hp = Math.min(maxHp, p.hp + maxHp * BONUS.heal);
+        p.sounds.push('heal');
+      } else {
+        p.profile.gold = (p.profile.gold ?? 0) + BONUS.gold;
+        p.sounds.push('coin');
+      }
+      p.options = null;
+      return;
+    }
     p.upgrades[id] = (p.upgrades[id] ?? 0) + 1;
     if (id === 'vitality') p.hp += 20;
     p.options = null;
@@ -1198,7 +1310,7 @@ export class Game {
     const chance = progress < CHAMPION.from ? 0 : CHAMPION.minChance + (CHAMPION.maxChance - CHAMPION.minChance) * Math.min(1, (progress - CHAMPION.from) / (1 - CHAMPION.from));
     const champion = Math.random() < chance;
     const e = this.addEnemy(type, x, y, champion ? hp * CHAMPION.hp : hp);
-    if (champion) e.affix = 1 + Math.floor(Math.random() * 4);
+    if (champion) e.affix = 1 + Math.floor(Math.random() * (AFFIXES.length - 1));
     return e;
   }
 
@@ -1328,6 +1440,11 @@ export class Game {
       return boss;
     });
     this.banner(`${mapBossName(this.map)}!`, 'danger');
+    // The entrance: everything slows down while the camera shows the boss (or the middle of the twins).
+    const bx = this.bosses.reduce((s, b) => s + b.x, 0) / this.bosses.length;
+    const by = this.bosses.reduce((s, b) => s + b.y, 0) / this.bosses.length;
+    this.fx.push({ k: 'intro', x: Math.round(bx), y: Math.round(by) });
+    this.slowMotion(BOSS_INTRO.speed, BOSS_INTRO.hold, BOSS_INTRO.ease);
   }
 
   /** The berserk clock and side missions. */
@@ -1545,7 +1662,7 @@ export class Game {
       this.spawnShrine(alive, ShrineKind.Forge);
       this.banner(`A Forge has appeared (${this.forgesSpawned} of ${FORGE_SCHEDULE.length})`, 'good');
     }
-    // Altars and Beacons stay until captured; a new one comes SHRINE_INTERVAL after there's room for it.
+    // Altars and Quest points stay until captured; a new one comes SHRINE_INTERVAL after there's room for it.
     if (this.shrines.filter((s) => s.kind !== ShrineKind.Forge).length >= MAX_SHRINES) {
       this.shrineTimer = Math.max(this.shrineTimer, SHRINE_INTERVAL);
     } else {
@@ -1570,7 +1687,7 @@ export class Game {
     this.shrines = this.shrines.filter((s) => !s.captured);
   }
 
-  /** Spawns an upgrade point: the given kind, or else a random Altar or Beacon. */
+  /** Spawns an upgrade point: the given kind, or else a random Altar or Quest point. */
   private spawnShrine(alive: Player[], forced?: number): void {
     const questBusy = this.quest !== null || this.shrines.some((s) => s.kind === ShrineKind.Quest);
     const allowed = [ShrineKind.Event, ShrineKind.Quest].filter((kind) => !(kind === ShrineKind.Quest && questBusy));
@@ -1985,6 +2102,7 @@ export class Game {
     p.guard = Math.max(0, p.guard - dt);
     this.updateUltimates(p, dt);
     if (p.downed) {
+      p.history = []; // Chronobreak can't take you back to before you went down.
       this.updateRevive(p, dt);
       return;
     }
@@ -2029,8 +2147,8 @@ export class Game {
     if (continuous || taken < 1) p.takenAcc += taken;
     else p.taken.push(Math.round(taken));
     p.hurtUntil = this.time + 0.12;
-    // God mode for testing: a player named "dev" takes damage but never goes below 1 HP.
-    if (p.name.toLowerCase() === 'dev') p.hp = Math.max(1, p.hp);
+    // God mode for testing: damage lands, but never below 1 HP.
+    if (p.god) p.hp = Math.max(1, p.hp);
     if (p.hp <= 0) {
       p.hp = 0;
       p.downed = true;
@@ -2107,14 +2225,14 @@ export class Game {
       case 'bolt': {
         const s = boltStats(level);
         const explosion = s.explosion && { ...s.explosion, radius: s.explosion.radius * stats.area };
-        this.shootFan(p, ProjectileKind.Bolt, { ...s, count: s.count + stats.projectiles, explosion }, stats);
+        this.shootFan(p, ProjectileKind.Bolt, { ...s, count: s.count + stats.projectiles, explosion }, stats, 'magic');
         p.sounds.push('bolt');
         return s.cooldown;
       }
       case 'knives': {
         const s = knivesStats(level);
-        this.shootFan(p, ProjectileKind.Knife, { ...s, count: s.count + stats.projectiles }, stats);
-        for (let i = 0; i < s.ring; i++) this.shoot(p, ProjectileKind.Knife, p.aim + (i * Math.PI * 2) / s.ring, s, stats);
+        this.shootFan(p, ProjectileKind.Knife, { ...s, count: s.count + stats.projectiles }, stats, 'physical');
+        for (let i = 0; i < s.ring; i++) this.shoot(p, ProjectileKind.Knife, p.aim + (i * Math.PI * 2) / s.ring, s, stats, 'physical');
         p.sounds.push('knives');
         return s.cooldown;
       }
@@ -2122,7 +2240,7 @@ export class Game {
         // Hexes don't need aim: they fan out around your aim and then find their own targets.
         const s = hexStats(level);
         const count = s.count + stats.projectiles;
-        for (let i = 0; i < count; i++) this.shoot(p, ProjectileKind.Hex, p.aim + (i - (count - 1) / 2) * s.spread, s, stats, true);
+        for (let i = 0; i < count; i++) this.shoot(p, ProjectileKind.Hex, p.aim + (i - (count - 1) / 2) * s.spread, s, stats, 'magic', true);
         p.sounds.push('hex');
         return s.cooldown;
       }
@@ -2134,7 +2252,7 @@ export class Game {
         const count = s.count + stats.projectiles;
         for (let i = 0; i < count; i++) {
           const angle = p.aim + (i - (count - 1) / 2) * 0.3;
-          const pr = this.projectile(p, s.count > 1 ? ProjectileKind.BigShuriken : ProjectileKind.Shuriken, angle, s.speed, s.damage * stats.damageMult, 5);
+          const pr = this.projectile(p, s.count > 1 ? ProjectileKind.BigShuriken : ProjectileKind.Shuriken, angle, s.speed, s.damage * stats.damageMult, 5, 'physical');
           pr.pierce = Infinity;
           pr.radius = s.radius * stats.area;
           pr.phasing = true;
@@ -2150,7 +2268,7 @@ export class Game {
         const count = s.count + stats.projectiles;
         for (let i = 0; i < count; i++) {
           const angle = p.aim + (i - (count - 1) / 2) * s.spread;
-          const pr = this.projectile(p, ProjectileKind.Fireball, angle, s.speed, s.damage * stats.damageMult, s.range / s.speed);
+          const pr = this.projectile(p, ProjectileKind.Fireball, angle, s.speed, s.damage * stats.damageMult, s.range / s.speed, 'magic');
           pr.radius = 9;
           pr.explosion = { radius: s.explosion.radius * stats.area, damage: s.damage * stats.damageMult * s.explosion.damageShare, color: 0xff6d00 };
           if (s.burn) pr.burn = { damage: s.burn.damage * stats.damageMult, life: s.burn.life * stats.duration };
@@ -2160,7 +2278,7 @@ export class Game {
       }
       case 'arrows': {
         const s = arrowsStats(level);
-        this.shootFan(p, ProjectileKind.Arrow, { ...s, count: s.count + stats.projectiles }, stats);
+        this.shootFan(p, ProjectileKind.Arrow, { ...s, count: s.count + stats.projectiles }, stats, 'physical');
         p.sounds.push('arrow');
         return s.cooldown;
       }
@@ -2172,7 +2290,7 @@ export class Game {
         const s = fieldStats(level);
         const r = s.radius * stats.area;
         for (const e of this.grid.query(p.x, p.y, r + MAX_ENEMY_RADIUS, this.near)) {
-          if (!e.dead && dist2(e.x, e.y, p.x, p.y) < (r + ENEMY_TYPES[e.type].radius) ** 2) this.damageEnemy(e, s.damage * stats.damageMult, p);
+          if (!e.dead && dist2(e.x, e.y, p.x, p.y) < (r + ENEMY_TYPES[e.type].radius) ** 2) this.damageEnemy(e, s.damage * stats.damageMult, p, 'magic');
         }
         return s.interval;
       }
@@ -2182,7 +2300,7 @@ export class Game {
         if (dist2(p.x, p.y, p.lastVenomX, p.lastVenomY) >= s.spacing ** 2) {
           p.lastVenomX = p.x;
           p.lastVenomY = p.y;
-          this.addZone(p, ZoneKind.Venom, s.radius * stats.area, 0, s.damage * stats.damageMult, s.life * stats.duration, 0);
+          this.addZone(p, ZoneKind.Venom, s.radius * stats.area, 0, s.damage * stats.damageMult, s.life * stats.duration, 0, 'magic');
           const venom = this.zones.filter((z) => z.kind === ZoneKind.Venom && !z.dead);
           if (venom.length > MAX_VENOM) venom[0].dead = true;
         }
@@ -2192,7 +2310,7 @@ export class Game {
         const s = minesStats(level);
         const mine = this.zones.filter((z) => z.kind === ZoneKind.Mine && z.owner === p.id && !z.dead);
         if (mine.length >= s.max) mine[0].dead = true; // Replace the oldest.
-        this.addZone(p, ZoneKind.Mine, s.trigger, s.radius * stats.area, s.damage * stats.damageMult, 60, s.armTime);
+        this.addZone(p, ZoneKind.Mine, s.trigger, s.radius * stats.area, s.damage * stats.damageMult, 60, s.armTime, 'physical');
         p.sounds.push('mine');
         return s.cooldown;
       }
@@ -2201,13 +2319,13 @@ export class Game {
     }
   }
 
-  private addZone(p: Player, kind: number, r: number, blast: number, damage: number, life: number, timer: number): void {
-    this.zones.push({ id: this.nextId++, kind, owner: p.id, x: p.x, y: p.y, r, blast, damage, life, timer, dead: false });
+  private addZone(p: Player, kind: number, r: number, blast: number, damage: number, life: number, timer: number, type: DamageType): void {
+    this.zones.push({ id: this.nextId++, kind, owner: p.id, x: p.x, y: p.y, r, blast, damage, life, timer, type, dead: false });
   }
 
   /** Burning ground at (x, y). */
-  private addZoneAt(p: Player, kind: number, x: number, y: number, r: number, damage: number, life: number): void {
-    this.zones.push({ id: this.nextId++, kind, owner: p.id, x, y, r, blast: 0, damage, life, timer: 0, dead: false });
+  private addZoneAt(p: Player, kind: number, x: number, y: number, r: number, damage: number, life: number, type: DamageType): void {
+    this.zones.push({ id: this.nextId++, kind, owner: p.id, x, y, r, blast: 0, damage, life, timer: 0, type, dead: false });
     const fires = this.zones.filter((z) => z.kind === ZoneKind.Fire && !z.dead);
     if (fires.length > MAX_VENOM) fires[0].dead = true;
   }
@@ -2230,7 +2348,7 @@ export class Game {
         const hitsFlying = z.kind === ZoneKind.Fire;
         for (const e of this.grid.query(z.x, z.y, z.r + MAX_ENEMY_RADIUS, this.near)) {
           if (!e.dead && (hitsFlying || !ENEMY_TYPES[e.type].flying) && dist2(e.x, e.y, z.x, z.y) < (z.r + ENEMY_TYPES[e.type].radius) ** 2) {
-            this.damageEnemy(e, z.damage, owner);
+            this.damageEnemy(e, z.damage, owner, z.type);
           }
         }
       } else if (z.timer <= 0) {
@@ -2239,7 +2357,7 @@ export class Game {
           .some((e) => !e.dead && dist2(e.x, e.y, z.x, z.y) < (z.r + ENEMY_TYPES[e.type].radius) ** 2);
         if (!triggered) continue;
         z.dead = true;
-        this.splash(z.x, z.y, z.blast, z.damage, owner);
+        this.splash(z.x, z.y, z.blast, z.damage, owner, z.type);
         this.hitCratesAround(z.x, z.y, z.blast, z.damage);
         this.fx.push({ k: 'ring', x: Math.round(z.x), y: Math.round(z.y), r: z.blast, c: 0xffab40, snd: 'explode' });
       }
@@ -2248,7 +2366,7 @@ export class Game {
   }
 
   /** A plain projectile from the player (callers adjust the extras). */
-  private projectile(p: Player, kind: number, angle: number, speed: number, damage: number, life: number): Projectile {
+  private projectile(p: Player, kind: number, angle: number, speed: number, damage: number, life: number, type: DamageType): Projectile {
     const pr: Projectile = {
       id: this.nextId++,
       kind,
@@ -2258,6 +2376,7 @@ export class Game {
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
       damage,
+      type,
       pierce: 0,
       life,
       hit: new Set(),
@@ -2284,7 +2403,7 @@ export class Game {
     const targets = s.all ? inReach : inReach.slice(0, s.targets + stats.projectiles);
     for (const e of targets) {
       const a = Math.atan2(e.y - p.y, e.x - p.x);
-      this.damageEnemy(e, s.damage * stats.damageMult, p);
+      this.damageEnemy(e, s.damage * stats.damageMult, p, 'physical');
       this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: Math.round(Math.sqrt(dist2(e.x, e.y, p.x, p.y)) + 12), a: round2(a), arc: 0.5, c: p.color });
     }
     p.sounds.push('dagger');
@@ -2300,7 +2419,25 @@ export class Game {
   }
 
   private summon(p: Player, kind: number, x: number, y: number, life: number, pack = false): Summon {
-    const m: Summon = { id: this.nextId++, kind, owner: p.id, x, y, life, timer: 0, pack, damage: 0, radius: 0, root: 0, interval: 0, dead: false };
+    const m: Summon = {
+      id: this.nextId++,
+      kind,
+      owner: p.id,
+      x,
+      y,
+      life,
+      timer: 0,
+      pack,
+      prey: null,
+      chase: 0,
+      ignoreId: 0,
+      ignoreUntil: 0,
+      damage: 0,
+      radius: 0,
+      root: 0,
+      interval: 0,
+      dead: false,
+    };
     this.summons.push(m);
     return m;
   }
@@ -2319,7 +2456,7 @@ export class Game {
         m.timer = m.interval;
         for (const e of this.grid.query(m.x, m.y, m.radius + MAX_ENEMY_RADIUS, this.near)) {
           if (e.dead || dist2(e.x, e.y, m.x, m.y) >= (m.radius + ENEMY_TYPES[e.type].radius) ** 2) continue;
-          this.damageEnemy(e, m.damage, owner);
+          this.damageEnemy(e, m.damage, owner, 'physical');
           this.stun(e, m.root);
         }
         this.fx.push({ k: 'ring', x: Math.round(m.x), y: Math.round(m.y), r: m.radius, c: 0x8bc34a, snd: 'slam' });
@@ -2329,16 +2466,32 @@ export class Game {
       const level = owner.upgrades.wolves ?? 0;
       const s = wolvesStats(Math.max(1, level));
       const damage = (m.pack ? s.damage : 20 + 1.5 * this.level) * stats.damageMult;
-      let target: Enemy | null = null;
-      let best = Infinity;
-      for (const e of this.grid.query(owner.x, owner.y, s.leash, this.near)) {
-        if (e.dead || dist2(e.x, e.y, owner.x, owner.y) > s.leash ** 2) continue;
-        const d = dist2(e.x, e.y, m.x, m.y);
-        if (d < best) {
-          best = d;
-          target = e;
+      // Keep hunting the same prey until it dies or gets well away from the druid; chasing too long without a
+      // bite means it's out of reach for now.
+      let target = m.prey;
+      if (target && (target.dead || dist2(target.x, target.y, owner.x, owner.y) > (s.leash + WOLF.keepSlack) ** 2 || m.chase > WOLF.giveUp)) {
+        if (!target.dead && m.chase > WOLF.giveUp) {
+          m.ignoreId = target.id;
+          m.ignoreUntil = this.time + WOLF.ignoreFor;
+        }
+        target = null;
+      }
+      if (!target) {
+        m.chase = 0;
+        let best = Infinity;
+        for (const e of this.grid.query(owner.x, owner.y, s.leash, this.near)) {
+          if (e.dead || dist2(e.x, e.y, owner.x, owner.y) > s.leash ** 2) continue;
+          if (e.id === m.ignoreId && this.time < m.ignoreUntil) continue;
+          // Nearest, but spread over prey the rest of the pack isn't already on.
+          const hunters = this.summons.filter((o) => o !== m && o.prey === e).length;
+          const d = Math.sqrt(dist2(e.x, e.y, m.x, m.y)) + hunters * WOLF.crowding;
+          if (d < best) {
+            best = d;
+            target = e;
+          }
         }
       }
+      m.prey = target;
       let tx: number;
       let ty: number;
       if (target) {
@@ -2352,14 +2505,22 @@ export class Game {
       }
       const d = Math.hypot(tx - m.x, ty - m.y);
       const reach = target ? WOLF.radius + ENEMY_TYPES[target.type].radius + WOLF.reach : 4;
-      if (d > reach) {
-        const step = Math.min(d - reach + 1, s.speed * stats.speed / CHARACTERS[owner.character].speed * dt);
+      // Close in to well inside biting range (so prey that keeps walking doesn't slip out of it again)...
+      const close = target ? reach * 0.6 : reach;
+      if (d > close) {
+        const lunge = target && d < WOLF.lungeRange ? WOLF.lunge : 1;
+        const step = Math.min(d - close, ((s.speed * stats.speed) / CHARACTERS[owner.character].speed) * lunge * dt);
         m.x += ((tx - m.x) / d) * step;
         m.y += ((ty - m.y) / d) * step;
-      } else if (target && m.timer <= 0) {
+      }
+      // ...and bite as soon as it's in range, even on the same tick as moving.
+      const inRange = target !== null && dist2(m.x, m.y, target.x, target.y) <= reach * reach;
+      if (target && !inRange) m.chase += dt;
+      if (target && inRange && m.timer <= 0) {
+        m.chase = 0;
         m.timer = s.biteCooldown * stats.cooldownMult;
-        this.damageEnemy(target, damage, owner);
-        if (m.pack && s.splash > 0) this.splash(target.x, target.y, s.splash * stats.area, damage * 0.5, owner, target);
+        this.damageEnemy(target, damage, owner, 'physical');
+        if (m.pack && s.splash > 0) this.splash(target.x, target.y, s.splash * stats.area, damage * 0.5, owner, 'physical', target);
         owner.sounds.push('bite');
       }
       // Don't let a wolf get left behind on the other side of the map.
@@ -2372,11 +2533,11 @@ export class Game {
   }
 
   /** Projectiles fanned out around the aim direction. */
-  private shootFan(p: Player, kind: number, s: FanStats, stats: PlayerStats): void {
-    for (let i = 0; i < s.count; i++) this.shoot(p, kind, p.aim + (i - (s.count - 1) / 2) * s.spread, s, stats);
+  private shootFan(p: Player, kind: number, s: FanStats, stats: PlayerStats, type: DamageType): void {
+    for (let i = 0; i < s.count; i++) this.shoot(p, kind, p.aim + (i - (s.count - 1) / 2) * s.spread, s, stats, type);
   }
 
-  private shoot(p: Player, kind: number, angle: number, s: FanStats, stats: PlayerStats, homing = false): void {
+  private shoot(p: Player, kind: number, angle: number, s: FanStats, stats: PlayerStats, type: DamageType, homing = false): void {
     const damage = s.damage * stats.damageMult;
     this.projectiles.push({
       id: this.nextId++,
@@ -2387,6 +2548,7 @@ export class Game {
       vx: Math.cos(angle) * s.speed,
       vy: Math.sin(angle) * s.speed,
       damage,
+      type,
       pierce: s.pierce,
       life: s.range / s.speed,
       hit: new Set(),
@@ -2401,9 +2563,9 @@ export class Game {
   }
 
   /** Damages every enemy within `radius` of (x, y), except `skip`. Safe to call while iterating `this.near`. */
-  private splash(x: number, y: number, radius: number, damage: number, by: Player | undefined, skip?: Enemy): void {
+  private splash(x: number, y: number, radius: number, damage: number, by: Player | undefined, type: DamageType, skip?: Enemy): void {
     for (const e of this.grid.query(x, y, radius + MAX_ENEMY_RADIUS, this.splashNear)) {
-      if (e !== skip && dist2(e.x, e.y, x, y) < (radius + ENEMY_TYPES[e.type].radius) ** 2) this.damageEnemy(e, damage, by);
+      if (e !== skip && dist2(e.x, e.y, x, y) < (radius + ENEMY_TYPES[e.type].radius) ** 2) this.damageEnemy(e, damage, by, type);
     }
   }
 
@@ -2419,7 +2581,7 @@ export class Game {
         i--; // Already killed by an earlier strike's splash.
         continue;
       }
-      this.splash(target.x, target.y, s.splash * stats.area, s.damage * stats.damageMult, p);
+      this.splash(target.x, target.y, s.splash * stats.area, s.damage * stats.damageMult, p, 'magic');
       this.fx.push({ k: 'zap', x: Math.round(target.x), y: Math.round(target.y) });
     }
     return s.cooldown;
@@ -2431,7 +2593,7 @@ export class Game {
     const damage = s.damage * stats.damageMult;
     for (const e of this.grid.query(p.x, p.y, s.range + MAX_ENEMY_RADIUS, this.near)) {
       if (e.dead || !this.inSwing(p, e.x, e.y, ENEMY_TYPES[e.type].radius, s.range, s.arc)) continue;
-      this.damageEnemy(e, damage, p);
+      this.damageEnemy(e, damage, p, 'physical');
       this.knockback(e, p.x, p.y, s.knockback);
     }
     for (const c of this.pickups) {
@@ -2459,7 +2621,7 @@ export class Game {
     const damage = s.damage * stats.damageMult;
     for (const e of this.grid.query(p.x, p.y, s.radius + MAX_ENEMY_RADIUS, this.near)) {
       if (e.dead || dist2(e.x, e.y, p.x, p.y) >= (s.radius + ENEMY_TYPES[e.type].radius) ** 2) continue;
-      this.damageEnemy(e, damage, p);
+      this.damageEnemy(e, damage, p, 'physical');
       this.knockback(e, p.x, p.y, s.knockback);
       if (s.stun) this.stun(e, s.stun);
     }
@@ -2482,7 +2644,7 @@ export class Game {
         if (e.dead || e.orbitHitUntil > this.time) continue;
         if (dist2(e.x, e.y, bx, by) >= (s.bladeRadius + ENEMY_TYPES[e.type].radius) ** 2) continue;
         e.orbitHitUntil = this.time + s.hitCooldown;
-        this.damageEnemy(e, s.damage * stats.damageMult, p);
+        this.damageEnemy(e, s.damage * stats.damageMult, p, 'physical');
       }
     }
   }
@@ -2497,26 +2659,41 @@ export class Game {
   }
 
   /** Damage from a player rolls for a crit and feeds their lifesteal and damage stats. */
-  private damageEnemy(e: Enemy, amount: number, by: Player | undefined): void {
+  /** How much of a damage type an enemy shrugs off: its own armor or ward, plus a champion's. True damage ignores it all. */
+  private resistance(e: Enemy, type: DamageType): number {
+    if (type === 'true') return 0;
+    const def = ENEMY_TYPES[e.type];
+    let r = (type === 'physical' ? def.armor : def.ward) ?? 0;
+    if ((type === 'physical' && e.affix === Affix.Armored) || (type === 'magic' && e.affix === Affix.Warded)) r += AFFIX_TUNING.resist;
+    return Math.min(MAX_RESIST, r);
+  }
+
+  /** Damage from a player rolls for a crit (physical only) and feeds their lifesteal and damage stats. */
+  private damageEnemy(e: Enemy, amount: number, by: Player | undefined, type: DamageType): void {
     if (e.dead) return;
     // Shielded during a side mission.
     if (this.mission && this.bosses.includes(e)) return;
+    amount *= 1 - this.resistance(e, type);
     if (by) {
       const stats = this.stats(by);
-      const crit = stats.critChance > 0 && Math.random() < stats.critChance;
+      amount *= stats.typeDamage[type];
+      const crit = CRIT_TYPES[type] && stats.critChance > 0 && Math.random() < stats.critChance;
       if (crit) amount *= CRIT_MULTIPLIER;
-      // Add to this enemy's damage number for the tick.
-      const hit = by.hits.get(e.id);
+      // Add to this enemy's damage number for the tick (one number per damage type).
+      const typeId = DAMAGE_TYPES.indexOf(type);
+      const key = e.id * 4 + typeId;
+      const hit = by.hits.get(key);
       if (hit) {
         hit.amount += amount;
         hit.crit ||= crit;
         hit.x = e.x;
         hit.y = e.y;
       } else {
-        by.hits.set(e.id, { x: e.x, y: e.y, amount, crit });
+        by.hits.set(key, { x: e.x, y: e.y, amount, crit, type: typeId });
       }
       const dealt = Math.min(amount, e.hp);
       by.damageDealt += dealt;
+      by.damageByType[DAMAGE_TYPES.indexOf(type)] += dealt;
       if (stats.lifesteal > 0 && !by.downed) {
         // Capped per second, or it would scale with enemy health and outheal anything late in the run.
         const heal = Math.min(dealt * stats.lifesteal, by.lifestealBudget);
@@ -2561,12 +2738,12 @@ export class Game {
         if (e.dead || pr.hit.has(e.id)) continue;
         if (dist2(e.x, e.y, pr.x, pr.y) >= (pr.radius + ENEMY_TYPES[e.type].radius) ** 2) continue;
         pr.hit.add(e.id);
-        this.damageEnemy(e, pr.damage, owner);
+        this.damageEnemy(e, pr.damage, owner, pr.type);
         if (pr.explosion) {
-          this.splash(e.x, e.y, pr.explosion.radius, pr.explosion.damage, owner, e);
+          this.splash(e.x, e.y, pr.explosion.radius, pr.explosion.damage, owner, pr.type, e);
           const c = pr.explosion.color ?? 0xb3e5fc;
           this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: pr.explosion.radius, c, snd: c === 0xb3e5fc ? 'pop' : 'explode' });
-          if (pr.burn && owner) this.addZoneAt(owner, ZoneKind.Fire, e.x, e.y, pr.explosion.radius * 0.8, pr.burn.damage, pr.burn.life);
+          if (pr.burn && owner) this.addZoneAt(owner, ZoneKind.Fire, e.x, e.y, pr.explosion.radius * 0.8, pr.burn.damage, pr.burn.life, 'magic');
         }
         if (pr.pierce-- <= 0) {
           pr.dead = true;
@@ -2667,7 +2844,7 @@ export class Game {
         const x = clamp(p.x + dirX * d, 0, this.map.width);
         const y = clamp(p.y + dirY * d, 0, this.map.height);
         const r = s.radius * stats.area;
-        this.blasts.push({ x, y, r, damage: s.damage * stats.damageMult, owner: p.id, t: s.delay });
+        this.blasts.push({ x, y, r, damage: s.damage * stats.damageMult, owner: p.id, t: s.delay, type: 'magic' });
         this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0xff9100, t: s.delay });
         // Starfall: smaller meteors land around the first, one after another.
         for (let i = 0; i < s.shower; i++) {
@@ -2675,7 +2852,7 @@ export class Game {
           const sx = clamp(x + Math.cos(angle) * r * 1.3, 0, this.map.width);
           const sy = clamp(y + Math.sin(angle) * r * 1.3, 0, this.map.height);
           const t = s.delay + 0.15 * (i + 1);
-          this.blasts.push({ x: sx, y: sy, r: r * 0.6, damage: s.damage * s.showerDamage * stats.damageMult, owner: p.id, t });
+          this.blasts.push({ x: sx, y: sy, r: r * 0.6, damage: s.damage * s.showerDamage * stats.damageMult, owner: p.id, t, type: 'magic' });
           this.fx.push({ k: 'cast', x: Math.round(sx), y: Math.round(sy), r: r * 0.6, c: 0xff9100, t });
         }
         p.sounds.push('meteor');
@@ -2696,7 +2873,7 @@ export class Game {
         const damage = s.damage * stats.damageMult;
         for (const e of this.grid.query(p.x, p.y, s.radius + MAX_ENEMY_RADIUS, this.near)) {
           if (e.dead || dist2(e.x, e.y, p.x, p.y) >= (s.radius + ENEMY_TYPES[e.type].radius) ** 2) continue;
-          this.damageEnemy(e, damage, p);
+          this.damageEnemy(e, damage, p, 'physical');
           this.knockback(e, p.x, p.y, s.knockback);
           if (s.stun > 0) this.stun(e, s.stun * stats.duration);
         }
@@ -2711,7 +2888,7 @@ export class Game {
         const damage = s.damage * stats.damageMult;
         for (const e of this.grid.query(p.x, p.y, s.radius + MAX_ENEMY_RADIUS, this.near)) {
           if (e.dead || dist2(e.x, e.y, p.x, p.y) >= (s.radius + ENEMY_TYPES[e.type].radius) ** 2) continue;
-          this.damageEnemy(e, damage, p);
+          this.damageEnemy(e, damage, p, 'physical');
           e.tauntBy = p.id;
           e.tauntUntil = this.time + s.taunt;
         }
@@ -2737,12 +2914,12 @@ export class Game {
         const s = flamenovaStats(level);
         const r = s.radius * stats.area;
         const damage = s.damage * stats.damageMult;
-        this.splash(p.x, p.y, r, damage, p);
+        this.splash(p.x, p.y, r, damage, p, 'magic');
         this.hitCratesAround(p.x, p.y, r, damage);
-        this.addZoneAt(p, ZoneKind.Fire, p.x, p.y, r * 0.8, s.burn.damage * stats.damageMult, s.burn.life * stats.duration);
+        this.addZoneAt(p, ZoneKind.Fire, p.x, p.y, r * 0.8, s.burn.damage * stats.damageMult, s.burn.life * stats.duration, 'magic');
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0xff6d00, snd: 'explode' });
         // Supernova: more novas where you're standing now.
-        for (let i = 1; i <= s.echoes; i++) this.blasts.push({ x: p.x, y: p.y, r: r * (1 + 0.2 * i), damage, owner: p.id, t: 0.4 * i, color: 0xff6d00 });
+        for (let i = 1; i <= s.echoes; i++) this.blasts.push({ x: p.x, y: p.y, r: r * (1 + 0.2 * i), damage, owner: p.id, t: 0.4 * i, color: 0xff6d00, type: 'magic' });
         p.sounds.push('nova');
         return s.cooldown;
       }
@@ -2764,7 +2941,7 @@ export class Game {
         const volley = nearest ? Math.atan2(nearest.y - p.y, nearest.x - p.x) : p.aim;
         for (let i = 0; i < arrows; i++) {
           const angle = volley + (i - (arrows - 1) / 2) * (1.0 / Math.max(1, arrows - 1));
-          const pr = this.projectile(p, ProjectileKind.Arrow, angle, 820, s.damage * stats.damageMult, 0.75);
+          const pr = this.projectile(p, ProjectileKind.Arrow, angle, 820, s.damage * stats.damageMult, 0.75, 'physical');
           pr.pierce = s.pierce;
         }
         p.sounds.push('arrow');
@@ -2796,7 +2973,7 @@ export class Game {
         const r = s.radius * stats.area;
         for (let i = 0; i < s.repeats; i++) {
           const t = s.delay + i;
-          this.blasts.push({ x, y, r, damage: s.damage * stats.damageMult, owner: p.id, t, stun: s.stun * stats.duration, color: 0x80d8ff });
+          this.blasts.push({ x, y, r, damage: s.damage * stats.damageMult, owner: p.id, t, stun: s.stun * stats.duration, color: 0x80d8ff, type: 'true' });
           this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0x80d8ff, t });
         }
         p.sounds.push('mine');
@@ -2845,7 +3022,7 @@ export class Game {
         const r = REWIND.radius * stats.area;
         const damage = (REWIND.damage + REWIND.perLevel * this.level) * stats.damageMult;
         this.rebuildGrid();
-        this.splash(p.x, p.y, r, damage, p);
+        this.splash(p.x, p.y, r, damage, p, 'true');
         this.hitCratesAround(p.x, p.y, r, damage);
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0x80d8ff, snd: 'explode' });
         p.sounds.push('rewind');
@@ -2901,7 +3078,7 @@ export class Game {
         const damage = s.damage * stats.damageMult;
         for (const e of this.grid.query(p.x, p.y, r + MAX_ENEMY_RADIUS, this.near)) {
           if (e.dead || dist2(e.x, e.y, p.x, p.y) >= (r + ENEMY_TYPES[e.type].radius) ** 2) continue;
-          this.damageEnemy(e, damage, p);
+          this.damageEnemy(e, damage, p, 'physical');
           if (s.stun > 0) this.stun(e, s.stun * stats.duration);
         }
         this.hitCratesAround(p.x, p.y, r, damage);
@@ -2931,7 +3108,7 @@ export class Game {
           ({ x: p.x, y: p.y } = pushOut(this.walls, target.x + Math.cos(a) * r, target.y + Math.sin(a) * r, PLAYER_RADIUS));
           if (p.inArena) this.keepInArena(p, PLAYER_RADIUS);
           p.epoch++;
-          this.damageEnemy(target, (STRIKE.damage + STRIKE.perLevel * this.level) * stats.damageMult, p);
+          this.damageEnemy(target, (STRIKE.damage + STRIKE.perLevel * this.level) * stats.damageMult, p, 'physical');
           this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: r + 20, a: round2(Math.atan2(target.y - p.y, target.x - p.x)), arc: 1.4, c: AURA.strike });
           p.sounds.push('dagger');
         }
@@ -2946,7 +3123,7 @@ export class Game {
         const x = clamp(p.x + Math.cos(a) * d, 0, this.map.width);
         const y = clamp(p.y + Math.sin(a) * d, 0, this.map.height);
         const r = INFERNO.radius * stats.area;
-        this.blasts.push({ x, y, r, damage: (INFERNO.damage + INFERNO.perLevel * this.level) * stats.damageMult, owner: p.id, t: 0.5, color: 0xff6d00 });
+        this.blasts.push({ x, y, r, damage: (INFERNO.damage + INFERNO.perLevel * this.level) * stats.damageMult, owner: p.id, t: 0.5, color: 0xff6d00, type: 'magic' });
         this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0xff6d00, t: 0.5 });
       }
     }
@@ -2955,7 +3132,7 @@ export class Game {
       while (p.ultTimer <= 0) {
         p.ultTimer += ARROW_STORM.interval;
         const angle = p.aim + (Math.random() - 0.5) * 2 * ARROW_STORM.jitter;
-        const pr = this.projectile(p, ProjectileKind.Arrow, angle, 900, (ARROW_STORM.damage + ARROW_STORM.perLevel * this.level) * stats.damageMult, 0.85);
+        const pr = this.projectile(p, ProjectileKind.Arrow, angle, 900, (ARROW_STORM.damage + ARROW_STORM.perLevel * this.level) * stats.damageMult, 0.85, 'physical');
         pr.pierce = ARROW_STORM.pierce;
       }
       p.sounds.push('arrow');
@@ -2966,7 +3143,7 @@ export class Game {
     for (const b of this.blasts) {
       b.t -= dt;
       if (b.t > 0) continue;
-      this.splash(b.x, b.y, b.r, b.damage, this.players.get(b.owner));
+      this.splash(b.x, b.y, b.r, b.damage, this.players.get(b.owner), b.type);
       if (b.stun) {
         for (const e of this.grid.query(b.x, b.y, b.r + MAX_ENEMY_RADIUS, this.near)) {
           if (!e.dead && dist2(e.x, e.y, b.x, b.y) < (b.r + ENEMY_TYPES[e.type].radius) ** 2) this.stun(e, b.stun);
@@ -3043,7 +3220,7 @@ export class Game {
     this.rebuildGrid();
     for (const e of this.grid.query(b.x, b.y, BOMB.blast + MAX_ENEMY_RADIUS, this.splashNear)) {
       if (e.dead || dist2(e.x, e.y, b.x, b.y) >= (BOMB.blast + ENEMY_TYPES[e.type].radius) ** 2) continue;
-      this.damageEnemy(e, damage, by);
+      this.damageEnemy(e, damage, by, 'true');
       this.knockback(e, b.x, b.y, 40);
     }
     this.fx.push({ k: 'boom', x: Math.round(b.x), y: Math.round(b.y), r: BOMB.blast });
@@ -3176,6 +3353,7 @@ export class Game {
       upgrades: p.upgrades,
       prestige: p.profile.ranks,
       damageDealt: Math.round(p.damageDealt),
+      damageByType: p.damageByType.map(Math.round) as [number, number, number],
       damageTaken: Math.round(p.damageTaken),
       choosing: p.options !== null,
       invuln: p.invuln > 0,
@@ -3243,7 +3421,7 @@ export class Game {
               mission: this.mission && { kind: this.mission.kind, done: this.missionDone(this.mission), total: this.mission.total },
             }
           : null,
-      pause: this.pause && { ...this.pause, timeLeft: round1(this.pause.timeLeft) },
+      pause: this.pause && (this.pause.kind === 'choose' ? { ...this.pause, timeLeft: round1(this.pause.timeLeft) } : { ...this.pause, ready: [...this.pause.ready] }),
       timeScale: round2(this.pause ? 0 : this.timeScale()),
       time: Math.round(this.time * 1000) / 1000,
       level: this.level,
@@ -3291,8 +3469,9 @@ export class Game {
       sounds: [...new Set(p.sounds.splice(0))], // One of each per snapshot is plenty.
       epoch: p.epoch,
       prestigePoints: p.profile.points,
+      god: p.god,
       gold: p.profile.gold ?? 0,
-      heroes: this.options.allHeroes ? CHARACTER_IDS : (p.profile.heroes ?? []).filter(isCharacterId),
+      heroes: this.allHeroes(p) ? CHARACTER_IDS : (p.profile.heroes ?? []).filter(isCharacterId),
     };
   }
 
@@ -3301,7 +3480,7 @@ export class Game {
     const hits = [...p.hits.values()].filter((h) => h.amount >= 1).sort((a, b) => b.amount - a.amount);
     p.hits.clear();
     const out: number[] = [];
-    for (const h of hits.slice(0, MAX_DAMAGE_NUMBERS)) out.push(Math.round(h.x), Math.round(h.y), Math.round(h.amount), h.crit ? 1 : 0);
+    for (const h of hits.slice(0, MAX_DAMAGE_NUMBERS)) out.push(Math.round(h.x), Math.round(h.y), Math.round(h.amount), h.crit ? 1 : 0, h.type);
     return out;
   }
 

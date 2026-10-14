@@ -19,6 +19,7 @@
       <button data-dev="level" title="A free level-up pick">Level up <kbd>U</kbd></button>
       <button data-dev="forge" title="A free Forge pick (evolves max-level weapons)">Forge <kbd>F</kbd></button>
       <button data-dev="max" title="Fill every slot and max everything">Max build <kbd>B</kbd></button>
+      <button data-dev="god" id="dev-god" title="Take damage but never go below 1 HP">God mode <kbd>G</kbd></button>
     </div>
 
     <div id="hud" class="hidden">
@@ -72,6 +73,19 @@
       </div>
     </div>
 
+    <div id="pausemenu" class="overlay hidden">
+      <div class="panel pause-box">
+        <h1>PAUSED</h1>
+        <p id="pause-by" class="pause-by"></p>
+        <ul id="pause-players"></ul>
+        <div class="buttons">
+          <button id="pause-giveup" class="secondary danger">Give up</button>
+          <button id="pause-ready" class="primary">Ready</button>
+        </div>
+        <p class="hint">The game carries on once everyone is ready · Esc or P</p>
+      </div>
+    </div>
+
     <div id="scoreboard" class="overlay hidden">
       <div class="panel scoreboard-panel">
         <h2>Team</h2>
@@ -104,7 +118,7 @@
           <h2>Players</h2>
           <ul id="player-list"></ul>
           <button id="start" class="primary">Start game</button>
-          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge · E ability · R ultimate · hold Tab for the scoreboard · 1 / 2 / 3 to pick upgrades · shoot crates for health · stand next to a downed friend to revive them · red zones on the ground are about to hurt · stand in upgrade points (Forge, Altar, Beacon) together to capture them faster · dodge through fences · survive 9 minutes and beat the boss to unlock the next map</p>
+          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge the way you're moving · E ability · R ultimate · hold Tab for the scoreboard · 1 / 2 / 3 to pick upgrades · shoot crates for health · stand next to a downed friend to revive them · red zones on the ground are about to hurt · stand in upgrade points (Forge, Altar, Quest) together to capture them faster · dodge through fences · survive 9 minutes and beat the boss to unlock the next map</p>
         </div>
         <p id="error"></p>
       </div>

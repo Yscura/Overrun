@@ -63,7 +63,7 @@ All of this is tuned in `src/shared/enemies.ts` (`BOSS_BERSERK`, `BOSS_VENGEFUL`
 Unlocks are saved in `data/progress.json` on the server, so the whole group shares them.
 
 **Prestige.** Every run pays each player one prestige point per team level reached (times the map's multiplier above),
-win or lose. Spend them in the lobby on permanent upgrades: Power (+4% damage), Fury (+3% attack speed), Stride (+3%
+win or lose. Spend them in the lobby on permanent upgrades: Power (+4% damage), Fury (+3% attack speed), Swiftness (+3%
 movement speed), Fortitude (+6% max HP) and Resolve (2% less damage taken). Ranks cost 5, 10, 15, … points, and
 "Refund all" gives everything back for free. Prestige is saved per player name in `data/progress.json`, so use the same
 name every time. The later maps are tuned to need a few runs' worth of prestige.
@@ -71,7 +71,7 @@ name every time. The later maps are tuned to need a few runs' worth of prestige.
 **Walls:** thick walls (stone) block movement and all projectiles. Thin walls (fences) block movement but you can shoot
 over them and dodge through them. Kael's dodge goes through thick walls too. Wraiths fly over everything.
 
-**God mode:** join as `dev` and you take damage but never go down. A DEV panel (top left) has cheats for testing:
+**God mode:** join as `dev` and you take damage but never go down (toggle it with **G**), and every hero is unlocked. A DEV panel (top left) has cheats for testing:
 **T** jumps the clock a minute ahead (with the level-ups you'd have earned; during the boss fight it pushes toward
 berserk), **U** gives a free level-up pick, **F** a free Forge pick, and **B** fills your slots and maxes everything.
 
@@ -97,15 +97,28 @@ The first four heroes are free. Ignis, Sylva, Oakhart and Vex cost 500 gold each
 click their card in the lobby. `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.
 
 WASD / arrows to move. Aimed weapons (bolts, knives, cleave) go toward your mouse cursor; the rest work on their own.
-Space dodges toward the cursor: a quick dash during which nothing can hurt you. E casts your hero's ability, R their ultimate.
-Hold Tab for the scoreboard: everyone's HP, kills, damage dealt and taken, build and stats. M mutes sound (volume slider in
+Space dodges in the direction you're moving (toward the cursor when standing still): a quick dash during which nothing can hurt you, so you can keep shooting behind you while dashing away. E casts your hero's ability, R their ultimate.
+**Esc** or **P** pauses the game for everyone; it carries on once every player has pressed Ready. Hold Tab for the scoreboard: everyone's HP, kills, damage dealt and taken, build and stats. M mutes sound (volume slider in
 the top-left corner). All sound effects are synthesized in the browser (`src/client/audio.ts`), so there are no audio files.
+
+**Damage types.** Every weapon and ability deals **physical** (orange numbers), **magic** (blue) or **true** (white)
+damage; level-up cards and weapon slots show which. Only physical damage can crit. Some enemies resist a type, shown as a
+rim around them: steel for armor (Brutes, Chargers, Warlords, Wraiths, Grimjaw, Ashlord Vael), blue for a ward
+(Bombardiers, Warlords, Rime, Embra, the boss-fight wards), and champions can be **Armored** or **Warded** on top of that.
+True damage (crate bombs, Vex's Time Bomb and Chronobreak) goes through everything. The Twin Flames are the big test:
+Ashlord resists physical, Embra resists magic. Hold Tab to see each player's damage split.
+
+**Attunement.** Every extra weapon or ability of the same damage type makes that type stronger: +10% per extra magic
+one (magic can't crit, so it attunes more), +6% per extra physical or true one. A full magic build (four magic weapons
+plus Meteor) deals +40% magic damage. **Arcana** is the magic counterpart to Crit: +8% magic damage per level. Level-ups
+lean toward your hero's own damage type: matching weapons come up about three times as often, and Crit (physical
+heroes) or Arcana (magic heroes) twice as often.
 
 You carry up to **4 weapons** (plus your E ability) and **5 passives**. Once a slot type is full, level-ups only offer
 upgrades for what you already have. Weapons: Arcane Bolt, Throwing Knives, Lightning Storm, Seeker Hex, Shuriken, Fireball and Longbow (ranged),
 Cleave, Ground Slam, Venom Trail and Shadow Daggers (melee), Spirit Blades, Radiant Field and Mine Layer (anyone), and
 Wolf Pack (druid only). Passives: Might,
-Haste, Swiftness, Vitality, Magnet, Regeneration, Plating, Crit, Vampirism (lifesteal, capped per second), Expanse (area),
+Haste, Swiftness, Vitality, Magnet, Regeneration, Plating, Crit (physical only), Arcana (magic), Vampirism (lifesteal, capped per second), Expanse (area),
 Persistence (duration), Multishot, Evasion and Wisdom (XP).
 
 Red zones on the ground are attacks about to land: bomb circles fill up and then explode, and a red lane shows where a
@@ -121,7 +134,7 @@ nearby. **Gold** flies to you like gems and everyone on the team gets all of it.
 `data/progress.json`, by player name) and buys new heroes.
 
 **Upgrade points** appear on the map (arrows on the screen edge point to them). Stand inside one to fill it up; the more
-of the team stands inside, the faster it fills. Altars and Beacons show up every 40 seconds (at most two at a time);
+of the team stands inside, the faster it fills. Altars and Quest points show up every 40 seconds (at most two at a time);
 Forges come on a fixed schedule: 6 per run, at 2:15, 3:36, 4:57, 6:07, 7:12 and 8:06.
 
 - **Forge** (orange): everyone picks a weapon upgrade. A weapon or E ability at level 5 can **evolve** to level 6, which
@@ -130,7 +143,7 @@ Forges come on a fixed schedule: 6 per run, at 2:15, 3:36, 4:57, 6:07, 7:12 and 
   Dance, Starfall, Cataclysm, Unbreakable, Supernova, Hail of Arrows, Ancient Grove, Paradox). Evolving all four weapons and
   your ability takes 5 Forges, so a team that captures every Forge and plans its picks can max out everything.
 - **Altar** (cyan): a 20-second team-wide effect: Deep Freeze, Frenzy (double damage), Haste or Vacuum.
-- **Beacon** (yellow): starts a quest: get the whole team to a rally point, or chase down a gold thief. Success drops a pile of gems.
+- **Quest** (yellow): starts a quest: get the whole team to a rally point, or chase down a gold thief. Success drops a pile of gems.
 Stand next to a downed teammate to revive them. The run ends when everyone is down.
 
 ## Balance testing with bots
@@ -171,7 +184,7 @@ sent to the server (it only sanity-checks the distance), so moving always feels 
 - `enemies.ts`: enemy stats, when they start spawning and how often, and the special attacks' tuning.
 - `upgrades.ts`: weapons and passives (per-level stats, evolutions, card text, which role can get them) and the XP curve.
 - `prestige.ts`: the permanent upgrades bought between runs, their costs and the points a run pays.
-- `objectives.ts`: upgrade points, Altar events and Beacon quests (timings, sizes, rewards).
+- `objectives.ts`: upgrade points, Altar events and Quest quests (timings, sizes, rewards).
 - `maps.ts`: the maps (size, walls, theme, enemy mix, boss and arena) and the boss timing. Walls are built from small
   helpers like `room(...)` (a room with door gaps), `fenceH`/`fenceV` and `pillar`.
 
@@ -180,4 +193,4 @@ players per few ticks, which every enemy then follows. That scales to hundreds o
 
 A new enemy using an existing behavior is just a new `ENEMY_TYPES` entry. A new behavior goes in `Game.moveEnemies`.
 A new weapon needs an `UPGRADES` entry plus its firing logic in `Game.fire` (and drawing in the renderer if it's new
-kind of visual). Hero portraits are SVG in `src/client/portraits.ts`; body shapes are in `GameRenderer.bodyTextures`.
+kind of visual). Hero portraits are the images in `img/` (wired up in `src/client/portraits.ts`); body shapes are in `GameRenderer.bodyTextures`.

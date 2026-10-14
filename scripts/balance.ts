@@ -12,6 +12,7 @@
 //   --god             bots can't die (they take damage but stop at 1 HP), so every run reaches the boss;
 //                     "near-deaths" counts how often they'd have gone down
 //   --log             print the run's progress every minute
+//   --builds          print each bot's final upgrades and damage split
 //
 // The bots play decently but below a good human, so compare runs against each other (before/after a
 // change, hero vs hero) rather than reading the absolute survival times literally.
@@ -122,6 +123,14 @@ for (const map of maps) {
     }
 
     const result = g.result;
+    if (!result && g.bossPhase === 'fight') {
+      // Why didn't it end? Usually a side mission the bots can't finish.
+      const m = g.mission;
+      const targets = g.enemies.filter((e: any) => e.missionTarget && !e.dead).map((e: any) => `${Math.round(e.x)},${Math.round(e.y)} hp ${Math.round(e.hp)}`);
+      const sigils = g.shrines.filter((sh: any) => sh.kind === 3).map((sh: any) => `${Math.round(sh.x)},${Math.round(sh.y)} ${sh.progress.toFixed(2)}`);
+      const bots = [...g.players.values()].map((p: any) => `${Math.round(p.x)},${Math.round(p.y)}`);
+      console.log(`  stuck: mission ${m ? `${m.kind} ${g.missionDone(m)}/${m.total}` : 'none'}, bosses ${g.bosses.map((b: any) => `${Math.round(b.hp)}/${Math.round(b.maxHp)}`).join(' ')}, targets [${targets.join(' | ')}], sigils [${sigils.join(' | ')}], bots at ${bots.join(' ')}`);
+    }
     const victory = !!result?.victory;
     if (victory) wins++;
     const players = [...g.players.values()];
@@ -141,6 +150,10 @@ for (const map of maps) {
         `  ${`${hero.name} (${p.character})`.padEnd(26)} dmg ${k(p.damageDealt).padStart(6)} (${Math.round(share * 100).toString().padStart(2)}%)` +
           `  taken ${k(p.damageTaken).padStart(5)}  ${god ? 'near-deaths' : 'downs'} ${downs.get(p.id) ?? 0}  kills ${String(p.kills).padStart(5)}  evolved ${evolved}`,
       );
+      if (flag('builds')) {
+        const split = (p.damageByType as number[]).map((d) => Math.round((d / Math.max(1, p.damageDealt)) * 100));
+        console.log(`      ${Object.entries(p.upgrades).map(([id, l]) => `${id} ${l}`).join(', ')} | physical ${split[0]}% magic ${split[1]}% true ${split[2]}%`);
+      }
       const t = totals.get(p.character) ?? { runs: 0, damageShare: 0, downs: 0, taken: 0 };
       t.runs++;
       t.damageShare += share * players.length; // 1.0 = an even share of the team's damage.

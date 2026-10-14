@@ -7,7 +7,7 @@ export const MAX_PLAYERS = 4;
 export const PLAYER_RADIUS = 16;
 export const PICKUP_BASE_RADIUS = 90;
 
-// Dodge (spacebar): a quick dash toward the cursor with a moment of invulnerability.
+// Dodge (spacebar): a quick dash in your movement direction (toward the cursor when still) with a moment of invulnerability.
 export const DODGE_DISTANCE = 170;
 export const DODGE_DURATION = 0.18;
 export const DODGE_SPEED = DODGE_DISTANCE / DODGE_DURATION;
@@ -32,6 +32,11 @@ export const BOSS_INTERVAL = 120;
 export const CHOOSE_TIME = 15;
 /** Once everyone has picked, the game resumes at `start` speed and eases up to full speed over `duration` seconds. */
 export const SLOWMO = { start: 0.15, duration: 1.2 };
+/**
+ * A final boss's entrance: the game drops to `speed`, holds there for `hold` seconds while the camera shows the
+ * boss, then eases back to full speed over `ease` seconds as the camera returns. All in real seconds.
+ */
+export const BOSS_INTRO = { speed: 0.12, hold: 2.3, ease: 1, panIn: 0.5, panOut: 0.6 };
 
 // Health crates: shoot one to break it, then walk over the heart it drops.
 export const CRATE_RADIUS = 16;
