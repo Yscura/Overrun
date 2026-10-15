@@ -73,6 +73,12 @@
       </div>
     </div>
 
+    <div id="chat" class="hidden idle">
+      <div id="chat-log"></div>
+      <input id="chat-input" type="text" autocomplete="off" spellcheck="false" placeholder="Say something… (Enter to send, Esc to cancel)" />
+      <div class="chat-hint">Enter to chat · Shift+click to ping</div>
+    </div>
+
     <div id="spectate" class="hidden">
       <div class="spectate-title">You're down. Watch a teammate:</div>
       <div id="spectate-list"></div>
@@ -98,37 +104,145 @@
       </div>
     </div>
 
-    <div id="lobby" class="overlay">
-      <div class="panel lobby-panel">
-        <h1>OVERRUN</h1>
-        <div id="join-form">
-          <input id="name" maxlength="16" placeholder="Your name" autocomplete="off" />
-          <button id="join" class="primary">Join</button>
-        </div>
-        <div id="room" class="hidden">
-          <h2>Choose a map</h2>
-          <div id="maps"></div>
-          <div class="prestige-head">
-            <h2>Choose your hero</h2>
-            <span id="lobby-gold" class="gold-amount"></span>
+    <!-- The main menu: name, home (modes), multiplayer, profile and settings. Profile and settings also open on top of a lobby. -->
+    <div id="menu" class="overlay">
+      <!-- Top right on the home screens: who you are, and the way to your profile. -->
+      <button id="profile-card" class="profile-card hidden" title="Open your profile">
+        <span id="profile-card-portrait" class="portrait"></span>
+        <span class="profile-card-info">
+          <span id="profile-card-name" class="profile-card-name"></span>
+          <span id="profile-card-hero" class="profile-card-hero"></span>
+          <span id="profile-card-wallet" class="profile-card-wallet"></span>
+        </span>
+      </button>
+      <div class="panel menu-panel">
+        <section id="screen-name" class="screen hidden">
+          <h1>OVERRUN</h1>
+          <p class="menu-sub">Co-op horde survival</p>
+          <div class="name-row">
+            <input id="name" maxlength="16" placeholder="Your name" autocomplete="off" />
+            <button id="name-ok" class="primary">Continue</button>
           </div>
-          <div id="characters"></div>
+          <p class="hint">Your gold, prestige and heroes are saved under your name.</p>
+        </section>
+
+        <section id="screen-home" class="screen hidden">
+          <h1>OVERRUN</h1>
+          <p class="menu-sub">Co-op horde survival</p>
+          <div id="mode-list" class="menu-modes"></div>
+          <div class="menu-modes">
+            <button id="open-bestiary" class="mode-button">
+              <span class="mode-name">Bestiary</span>
+              <span class="mode-desc">Every enemy and boss you'll face, and what they can do.</span>
+            </button>
+            <button id="open-settings" class="mode-button">
+              <span class="mode-name">Settings</span>
+              <span class="mode-desc">Sound and volume.</span>
+            </button>
+          </div>
+        </section>
+
+        <section id="screen-bestiary" class="screen hidden">
+          <h2 class="screen-title">Bestiary</h2>
+          <div id="bestiary"></div>
+          <div class="menu-row"><button class="secondary" data-back>Back</button></div>
+        </section>
+
+        <section id="screen-multiplayer" class="screen hidden">
+          <h2 class="screen-title">Multiplayer</h2>
+          <button id="create-lobby" class="primary wide">Create a lobby</button>
+          <div class="join-code">
+            <input id="join-code" maxlength="4" placeholder="CODE" autocomplete="off" />
+            <button id="join-by-code" class="secondary">Join with code</button>
+          </div>
+          <h2>Open lobbies</h2>
+          <ul id="lobby-list"></ul>
+          <div class="menu-row"><button class="secondary" data-back>Back</button></div>
+        </section>
+
+        <section id="screen-profile" class="screen hidden">
+          <h2 class="screen-title">Profile · <span id="profile-name"></span></h2>
+          <div class="setting">
+            <label for="settings-name">Name</label>
+            <div class="name-row">
+              <input id="settings-name" maxlength="16" autocomplete="off" />
+              <button id="settings-name-save" class="secondary">Change</button>
+            </div>
+            <p class="hint">Progress is saved per name: a new name starts a fresh profile, and switching back gets your old one back.</p>
+          </div>
+          <div class="wallet">
+            <span id="profile-gold" class="gold-amount"></span>
+            <span id="prestige-points"></span>
+          </div>
           <div class="prestige-head">
             <h2>Prestige</h2>
-            <span id="prestige-points"></span>
             <button id="respec" class="link">Refund all</button>
           </div>
           <p class="prestige-hint">Permanent upgrades, kept between runs. Every team level you reach in a run earns a point (more on harder maps).</p>
           <div id="prestige"></div>
-          <div class="prestige-head">
+          <h2>Heroes</h2>
+          <p class="prestige-hint">New heroes are bought with gold from crates.</p>
+          <div id="hero-shop"></div>
+          <p id="profile-note" class="hint"></p>
+          <div class="menu-row"><button class="secondary" data-back>Back</button></div>
+        </section>
+
+        <section id="screen-settings" class="screen hidden">
+          <h2 class="screen-title">Settings</h2>
+          <div class="setting">
+            <label for="settings-volume">Volume</label>
+            <input id="settings-volume" type="range" min="0" max="100" />
+          </div>
+          <label class="setting checkbox"><input id="settings-mute" type="checkbox" /> Mute sound (M)</label>
+          <div class="menu-row"><button class="secondary" data-back>Back</button></div>
+        </section>
+
+        <p id="menu-status" class="menu-status"></p>
+      </div>
+    </div>
+
+    <div id="lobby" class="overlay hidden">
+      <div class="panel lobby-panel">
+        <!-- Left: the room and who's in it, with the chat underneath. -->
+        <aside class="lobby-side">
+          <div class="room-head">
+            <div id="room-mode" class="room-mode"></div>
+            <div id="room-code-row" class="room-code-row">Lobby code <b id="room-code"></b></div>
+            <div class="room-buttons">
+              <button id="room-profile" class="secondary">Profile</button>
+              <button id="room-leave" class="secondary danger">Leave</button>
+            </div>
+          </div>
+          <div class="lobby-section-head">
             <h2>Players</h2>
             <button id="add-bot" class="link" title="A bot teammate that plays alongside you">+ Add bot</button>
           </div>
           <ul id="player-list"></ul>
-          <button id="start" class="primary">Start game</button>
-          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge the way you're moving · E ability · R ultimate · hold Tab for the scoreboard · 1 / 2 / 3 to pick upgrades · shoot crates for health · stand next to a downed friend to revive them · red zones on the ground are about to hurt · stand in upgrade points (Forge, Altar, Quest) together to capture them faster · dodge through fences · survive 9 minutes and beat the boss to unlock the next map</p>
-        </div>
-        <p id="error"></p>
+          <div id="lobby-chat-dock" class="lobby-chat-dock"></div>
+        </aside>
+
+        <!-- Middle: pick a hero, then the map. -->
+        <main class="lobby-main">
+          <div class="lobby-section-head">
+            <h2>Choose your hero</h2>
+            <span id="lobby-gold" class="gold-amount"></span>
+          </div>
+          <div id="characters"></div>
+          <div class="lobby-section-head">
+            <h2>Map</h2>
+          </div>
+          <div id="maps"></div>
+          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge the way you're moving · E ability · R ultimate · hold Tab for the scoreboard · Esc / P to pause · 1 / 2 / 3 to pick upgrades · Enter to chat · Shift+click to ping</p>
+        </main>
+
+        <!-- Right: the selected hero up close, and lock in. -->
+        <section class="lobby-hero">
+          <div id="hero-detail" class="hero-detail"></div>
+          <div class="lock-in">
+            <button id="start" class="primary">Lock in</button>
+            <p id="start-note" class="start-note"></p>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -138,8 +252,7 @@
         <p id="survived"></p>
         <table id="results"></table>
         <div class="buttons">
-          <button id="change-hero" class="secondary">Back to lobby</button>
-          <button id="restart" class="primary">Play again</button>
+          <button id="change-hero" class="primary">Back to lobby</button>
         </div>
       </div>
     </div>

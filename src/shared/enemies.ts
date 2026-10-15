@@ -24,6 +24,12 @@ export interface EnemyDef {
   ward?: number;
 }
 
+/** Bosses (the Warlord and the named final bosses) stay hidden in the bestiary until you've reached them. */
+export function isBossType(type: number): boolean {
+  const behavior = ENEMY_TYPES[type]?.behavior;
+  return behavior === 'boss' || behavior === 'named';
+}
+
 /** Indexed by enemy type id, which is what goes over the network. */
 export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Grunt', radius: 14, speed: 85, hp: 12, damage: 10, xp: 1, color: 0xe57373, behavior: 'chase', spawnAfter: 0, weight: 10 },

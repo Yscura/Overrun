@@ -4,10 +4,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { TICK_RATE } from '../shared/constants';
-import type { ClientMessage } from '../shared/protocol';
+import { MODES, isModeId } from '../shared/modes';
+import { DEV_NAME, type ClientMessage, type ServerMessage } from '../shared/protocol';
 import { MAPS } from '../shared/maps';
 import { Game } from './game';
+import { buyHero, buyPrestige, getProfile, profileState, refundPrestige } from './profiles';
 import { loadProgress, saveProgress } from './progress';
+import { Rooms, type Room } from './rooms';
 
 const PORT = Number(process.env.PORT) || 3000;
 const STEP_MS = 1000 / TICK_RATE;
@@ -43,22 +46,71 @@ const server = http.createServer((req, res) => {
 // Testing switches: OVERRUN_BOSS_TIME=60 brings the final boss after a minute; OVERRUN_UNLOCK_ALL=1 opens every map.
 const bossTime = Number(process.env.OVERRUN_BOSS_TIME) || undefined;
 const progress = loadProgress();
-const game = new Game({
-  unlocked: process.env.OVERRUN_UNLOCK_ALL ? MAPS.length : progress.unlocked,
-  onUnlock: (unlocked) => {
-    progress.unlocked = Math.max(progress.unlocked, unlocked);
-    saveProgress(progress);
-    console.log(`Unlocked ${MAPS[unlocked - 1].name}`);
-  },
-  bossTime,
-  profiles: progress.profiles,
-  onProfiles: () => saveProgress(progress),
-  allHeroes: Boolean(process.env.OVERRUN_UNLOCK_ALL),
-});
+const unlockAll = Boolean(process.env.OVERRUN_UNLOCK_ALL);
+const save = () => saveProgress(progress);
+
+// Every lobby is a room with its own game. Map unlocks are shared by everyone on this server.
+const rooms = new Rooms(
+  (room) =>
+    new Game({
+      unlocked: unlockAll ? MAPS.length : progress.unlocked,
+      onUnlock: (unlocked) => {
+        progress.unlocked = Math.max(progress.unlocked, unlocked);
+        save();
+        for (const other of rooms.all()) other.game.setUnlocked(progress.unlocked);
+        console.log(`Unlocked ${MAPS[unlocked - 1].name}`);
+      },
+      bossTime,
+      profiles: progress.profiles,
+      onProfiles: save,
+      allHeroes: unlockAll,
+      room,
+      hostControls: true,
+    }),
+);
 const wss = new WebSocketServer({ server, path: '/ws', perMessageDeflate: { threshold: 1024 } });
 
+/** One connection: who they are, and which room they're in (if any). */
+interface Session {
+  name: string | null;
+  room: Room | null;
+  playerId: number | null;
+}
+
 wss.on('connection', (ws) => {
-  let playerId: number | null = null;
+  const session: Session = { name: null, room: null, playerId: null };
+  const send = (msg: ServerMessage) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  };
+  const allHeroes = () => unlockAll || session.name?.toLowerCase() === DEV_NAME;
+  const sendProfile = () => {
+    if (session.name) send({ t: 'profile', profile: profileState(session.name, getProfile(progress.profiles, session.name), allHeroes()) });
+  };
+
+  const leave = () => {
+    const room = session.room;
+    if (!room || session.playerId === null) return;
+    room.game.removePlayer(session.playerId);
+    console.log(`${session.name} left ${room.code}`);
+    rooms.removeIfEmpty(room);
+    session.room = null;
+    session.playerId = null;
+  };
+
+  const enter = (room: Room, character: unknown) => {
+    const id = room.game.addPlayer(session.name!, character, (text) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(text);
+    });
+    if (id === null) {
+      send({ t: 'error', message: 'That lobby is full.' });
+      rooms.removeIfEmpty(room);
+      return;
+    }
+    session.room = room;
+    session.playerId = id;
+    send({ t: 'welcome', id, room: { code: room.code, mode: room.mode } });
+    console.log(`${session.name} joined ${room.code} (${MODES[room.mode].name})`);
+  };
 
   ws.on('message', (data) => {
     let msg: ClientMessage;
@@ -67,27 +119,56 @@ wss.on('connection', (ws) => {
     } catch {
       return;
     }
-    if (msg.t === 'join') {
-      if (playerId !== null) return;
-      const name = String(msg.name ?? '').trim().slice(0, 16) || 'Player';
-      playerId = game.addPlayer(name, msg.character, (text) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(text);
-      });
-      if (playerId === null) {
-        ws.send(JSON.stringify({ t: 'full' }));
-        ws.close();
+    switch (msg.t) {
+      case 'hello':
+        // Names can't change mid-game: your progress is saved under it.
+        if (session.room) return;
+        session.name = String(msg.name ?? '').trim().slice(0, 16) || 'Player';
+        sendProfile();
+        return;
+      case 'profile':
+        sendProfile();
+        return;
+      case 'rooms':
+        send({ t: 'rooms', rooms: rooms.list() });
+        return;
+      case 'create':
+        if (!session.name || session.room || !isModeId(msg.mode)) return;
+        enter(rooms.create(msg.mode), msg.character);
+        return;
+      case 'join': {
+        if (!session.name || session.room) return;
+        const room = rooms.get(String(msg.code ?? ''));
+        const problem = rooms.joinProblem(room);
+        if (problem) send({ t: 'error', message: problem });
+        else enter(room!, msg.character);
         return;
       }
-      ws.send(JSON.stringify({ t: 'welcome', id: playerId }));
-      console.log(`${name} joined`);
-      return;
+      case 'leave':
+        leave();
+        send({ t: 'left' });
+        sendProfile(); // A run may have earned gold and prestige.
+        return;
+      case 'prestige':
+      case 'respec':
+      case 'unlock':
+        // In a room the game handles these (it also re-equips you); in the menu we do it here.
+        if (session.room && session.playerId !== null) {
+          session.room.game.handleMessage(session.playerId, msg);
+        } else if (session.name) {
+          const profile = getProfile(progress.profiles, session.name);
+          const changed =
+            msg.t === 'prestige' ? buyPrestige(profile, msg.id) : msg.t === 'unlock' ? buyHero(profile, msg.character, allHeroes()) : (refundPrestige(profile), true);
+          if (changed) save();
+        }
+        sendProfile();
+        return;
+      default:
+        if (session.room && session.playerId !== null) session.room.game.handleMessage(session.playerId, msg);
     }
-    if (playerId !== null) game.handleMessage(playerId, msg);
   });
 
-  ws.on('close', () => {
-    if (playerId !== null) game.removePlayer(playerId);
-  });
+  ws.on('close', leave);
 });
 
 // Fixed-step loop: timers are imprecise, so catch up on however many ticks are due.
@@ -99,7 +180,7 @@ setInterval(() => {
   last = now;
   let steps = 0;
   while (acc >= STEP_MS && steps < 5) {
-    game.tick();
+    rooms.tick();
     acc -= STEP_MS;
     steps++;
   }

@@ -1,6 +1,6 @@
 import { Application, BitmapFont, BitmapText, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { CHARACTER_IDS, type CharacterId, REWIND_SECONDS } from '../shared/characters';
-import { BOMB, BOSS_INTRO, COIN, CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS } from '../shared/constants';
+import { BOMB, BOSS_INTRO, COIN, CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
 import { DAMAGE_COLORS, DAMAGE_TYPES } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
 import { NO_ROTATE, drawEnemy } from './enemyArt';
@@ -55,6 +55,11 @@ interface DamageNumber {
 }
 /** Off-screen objective arrows stay this far inside the screen edge. */
 const POINTER_MARGIN = 28;
+/** Downed players: their red cross and revive zone, and their body grayed out. */
+const DOWNED_RED = 0xff1744;
+const DOWNED_TINT = 0x8a8f99;
+/** How long a ping stays on the map, in seconds. */
+const PING_LIFE = 4;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -108,6 +113,16 @@ interface ShrineView {
 }
 
 /** A short-lived drawing (slam ring, slash, lightning...). `draw` gets progress from 0 to 1. */
+interface Ping {
+  x: number;
+  y: number;
+  color: number;
+  /** performance.now() when it arrived. */
+  start: number;
+  root: Container;
+  marker: Graphics;
+}
+
 interface Effect {
   g: Graphics;
   life: number;
@@ -173,8 +188,11 @@ export class GameRenderer {
   private rewindEpoch = -1;
   /** Screen-space arrows pointing at off-screen shrines and quest targets. */
   private pointers = new Container();
+  /** Shift-click pings from the team: a marker with the pinger's name, for a few seconds. */
+  private pings: Ping[] = [];
 
   private frame = 0;
+  private artCache = new Map<number, string>();
   private shrineViews = new Map<number, ShrineView>();
   private spritePool: Sprite[] = [];
   private enemyViews = new Map<number, EnemyView>();
@@ -267,6 +285,17 @@ export class GameRenderer {
     this.background = new TilingSprite({ texture: Texture.EMPTY, width: 1, height: 1 });
     this.world.addChild(this.mapLayer, this.arenaRing, this.questMarker, this.rewindTrail, ...Object.values(this.layers), this.zone, this.aimArrow);
     this.app.stage.addChild(this.background, this.world, this.pointers, this.minimap.container);
+  }
+
+  /** An enemy's sprite as an image (for the bestiary), made once per type. */
+  enemyArt(type: number): string {
+    let url = this.artCache.get(type);
+    if (!url) {
+      const canvas = this.app.renderer.extract.canvas(this.tex.enemies[type]) as HTMLCanvasElement;
+      url = canvas.toDataURL();
+      this.artCache.set(type, url);
+    }
+    return url;
   }
 
   /** Floor, map edge and walls in the map's colors. */
@@ -362,6 +391,21 @@ export class GameRenderer {
 
   addFx(fx: Fx): void {
     switch (fx.k) {
+      case 'ping': {
+        const root = new Container();
+        const marker = new Graphics();
+        const label = new Text({
+          text: fx.name,
+          style: { fontFamily: 'system-ui, sans-serif', fontSize: 14, fontWeight: '700', fill: fx.color, stroke: { color: 0x000000, width: 4 } },
+        });
+        label.anchor.set(0.5, 1);
+        label.y = -34;
+        root.addChild(marker, label);
+        root.position.set(fx.x, fx.y);
+        this.layers.numbers.addChild(root);
+        this.pings.push({ x: fx.x, y: fx.y, color: fx.color, start: performance.now(), root, marker });
+        break;
+      }
       case 'intro': {
         this.intro = { x: fx.x, y: fx.y, start: performance.now() };
         // A shockwave from the boss as the camera arrives.
@@ -495,8 +539,9 @@ export class GameRenderer {
       this.aimArrow.position.set(local.x + Math.cos(aim) * r, local.y + Math.sin(aim) * r);
       this.aimArrow.rotation = aim;
     }
+    this.renderPings();
     this.renderPointers(b.snap, myId);
-    this.minimap.update(b.snap, myId, cam, { x: cam.x - width / 2, y: cam.y - height / 2, w: width, h: height }, width);
+    this.minimap.update(b.snap, myId, cam, { x: cam.x - width / 2, y: cam.y - height / 2, w: width, h: height }, width, this.pings);
     this.updateEffects(dt);
     this.updateDamageNumbers(realDt);
   }
@@ -577,6 +622,38 @@ export class GameRenderer {
       .fill(QUEST_COLOR);
   }
 
+  /** Pings: rings rippling out from a pin, fading at the end. */
+  private renderPings(): void {
+    const now = performance.now();
+    this.pings = this.pings.filter((ping) => {
+      const age = (now - ping.start) / 1000;
+      if (age >= PING_LIFE) {
+        ping.root.destroy({ children: true });
+        return false;
+      }
+      const fade = Math.min(1, (PING_LIFE - age) / 0.6);
+      ping.root.alpha = fade;
+      const g = ping.marker.clear();
+      for (let i = 0; i < 2; i++) {
+        const q = (age * 0.9 + i * 0.5) % 1;
+        g.circle(0, 0, 14 + 46 * q).stroke({ width: 3 * (1 - q) + 1, color: ping.color, alpha: 1 - q });
+      }
+      // A pin that drops in with a little bounce.
+      const drop = Math.max(0, 1 - age / 0.25);
+      const top = -26 - 30 * drop * drop;
+      g.ellipse(0, 0, 9, 4).fill({ color: 0x000000, alpha: 0.35 });
+      g.poly([0, 0, -9, top + 10, 9, top + 10]).fill(ping.color);
+      g.circle(0, top + 6, 10).fill(ping.color).stroke({ width: 2.5, color: 0xffffff });
+      g.circle(0, top + 6, 3.5).fill(0xffffff);
+      return true;
+    });
+  }
+
+  /** Screen point to world point. Points on the minimap give the map spot under them. */
+  screenToWorld(sx: number, sy: number): Point {
+    return this.minimap.toWorld(sx, sy) ?? { x: sx - this.world.x, y: sy - this.world.y };
+  }
+
   /** Arrows on the screen edge toward objectives you can't see. */
   private renderPointers(snap: Snapshot, myId: number | null): void {
     for (const child of [...this.pointers.children]) this.release(child as Sprite);
@@ -588,6 +665,9 @@ export class GameRenderer {
     if (snap.quest) targets.push({ x: snap.quest.x, y: snap.quest.y, color: QUEST_COLOR });
     const inArena = snap.players.find((p) => p.id === myId)?.inArena;
     if (snap.arena && snap.arena.state !== 'idle' && !inArena) targets.push({ x: snap.arena.x, y: snap.arena.y, color: DANGER });
+    // Downed teammates who need you.
+    for (const p of snap.players) if (p.downed && p.id !== myId) targets.push({ x: p.x, y: p.y, color: DOWNED_RED });
+    for (const ping of this.pings) targets.push(ping);
 
     const { width, height } = this.app.screen;
     const cx = width / 2;
@@ -935,8 +1015,8 @@ export class GameRenderer {
       const textures = this.tex.bodies[p.character];
       view.body.texture = textures.fill;
       view.outline.texture = textures.outline;
-      view.body.tint = p.hurt ? 0xffffff : p.color;
-      view.body.alpha = p.downed ? 0.35 : 1;
+      view.body.tint = p.hurt ? 0xffffff : p.downed ? DOWNED_TINT : p.color;
+      view.body.alpha = p.downed ? 0.7 : 1;
       // Shadow Veil: barely there (enemies can't see you at all).
       view.root.alpha = p.veiled ? 0.25 : p.invuln ? 0.5 : 1;
       this.drawBars(view.bars, p);
@@ -988,16 +1068,35 @@ export class GameRenderer {
     const ratio = Math.max(0, Math.min(1, p.hp / p.maxHp));
     g.rect(-width / 2, y, width, 5).fill({ color: 0x000000, alpha: 0.7 });
     if (ratio > 0) g.rect(-width / 2, y, width * ratio, 5).fill(ratio > 0.35 ? 0x66bb6a : 0xef5350);
-    if (p.downed) {
-      const r = PLAYER_RADIUS + 12;
-      const start = -Math.PI / 2;
-      g.circle(0, 0, r).stroke({ width: 3, color: 0xffffff, alpha: 0.2 });
-      if (p.revive > 0) {
-        g.moveTo(Math.cos(start) * r, Math.sin(start) * r)
-          .arc(0, 0, r, start, start + Math.PI * 2 * p.revive)
-          .stroke({ width: 4, color: 0xffffff });
-      }
+    if (p.downed) this.drawDowned(g, p);
+  }
+
+  /**
+   * A downed teammate: the revive zone (stand inside it to help), a ripple calling for help, the revive progress
+   * around the zone's edge, and a bobbing red cross above them that's easy to spot in a crowd.
+   */
+  private drawDowned(g: Graphics, p: PlayerState): void {
+    const now = performance.now();
+    const pulse = 0.5 + 0.5 * Math.sin(now / 200);
+    const r = REVIVE_RADIUS;
+    const start = -Math.PI / 2;
+    g.circle(0, 0, r)
+      .fill({ color: DOWNED_RED, alpha: 0.07 + 0.05 * pulse })
+      .stroke({ width: 3, color: DOWNED_RED, alpha: 0.45 + 0.35 * pulse });
+    // A ripple running inward toward them.
+    const q = (now / 1100) % 1;
+    g.circle(0, 0, r * (1 - q) + PLAYER_RADIUS * q).stroke({ width: 2, color: 0xffffff, alpha: 0.35 * (1 - q) });
+    if (p.revive > 0) {
+      g.moveTo(Math.cos(start) * r, Math.sin(start) * r)
+        .arc(0, 0, r, start, start + Math.PI * 2 * p.revive)
+        .stroke({ width: 7, color: HEALTH_GREEN });
     }
+    // The marker: a white disc with a red cross, bobbing above the name.
+    const y = -PLAYER_RADIUS - 44 + Math.sin(now / 260) * 4;
+    const s = 1 + 0.12 * pulse;
+    g.circle(0, y, 17 * s).fill({ color: DOWNED_RED, alpha: 0.3 * pulse });
+    g.circle(0, y, 13 * s).fill(0xffffff).stroke({ width: 2.5, color: DOWNED_RED });
+    g.rect(-3 * s, y - 8 * s, 6 * s, 16 * s).rect(-8 * s, y - 3 * s, 16 * s, 6 * s).fill(DOWNED_RED);
   }
 
   private updateBlades(view: PlayerView, p: PlayerState, time: number): void {

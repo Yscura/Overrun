@@ -1,5 +1,5 @@
 import { DEV_NAME } from '../shared/protocol';
-import { CHARACTERS } from '../shared/characters';
+import { CHARACTERS, DEFAULT_CHARACTER, isCharacterId } from '../shared/characters';
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, TICK_RATE } from '../shared/constants';
 import { MAPS } from '../shared/maps';
@@ -10,8 +10,19 @@ import { Connection } from './net';
 import { GameRenderer } from './renderer';
 import { SnapshotBuffer } from './snapshots';
 import { SoundCues } from './soundCues';
-import { UI } from './ui';
+import { Chat } from './chat';
+import { Menu } from './menu';
+import { UI, formatTime } from './ui';
 import './style.css';
+
+/** The hero you last picked (the lobby remembers it). */
+function loadHero(): string | null {
+  try {
+    return localStorage.getItem('overrun.character');
+  } catch {
+    return null;
+  }
+}
 
 /** A dash that ends inside a wall keeps going this much longer to come out the other side. */
 const MAX_DASH_EXTENSION = 0.15;
@@ -44,15 +55,55 @@ async function main() {
   let dodgeDir = { x: 0, y: 0 };
   let dodgeCooldown = 0;
 
-  ui.onJoin = (name, character) => net.connect(name, character);
+  // --- The main menu ---
+  const menu = new Menu();
+  menu.bindSound(sound);
+  menu.enemyArt = (type) => renderer.enemyArt(type);
+  const savedHero = () => {
+    const saved = loadHero();
+    return isCharacterId(saved) ? saved : DEFAULT_CHARACTER;
+  };
+  menu.onName = (name) => net.send({ t: 'hello', name });
+  menu.onPlay = (mode) => net.send({ t: 'create', mode, character: savedHero() });
+  menu.onCreateLobby = () => net.send({ t: 'create', mode: 'multi', character: savedHero() });
+  menu.onJoin = (code) => net.send({ t: 'join', code, character: savedHero() });
+  menu.onRefreshRooms = () => net.send({ t: 'rooms' });
+  menu.onOpenProfile = () => net.send({ t: 'profile' });
+  menu.onPrestige = (id) => net.send({ t: 'prestige', id });
+  menu.onRespec = () => net.send({ t: 'respec' });
+  menu.onUnlock = (character) => net.send({ t: 'unlock', character });
+
+  // --- Chat and event log ---
+  const chat = new Chat();
+  chat.onSend = (text) => net.send({ t: 'chat', text });
+  // Enter opens the chat (while you're in a room and no menu or text field has the keyboard).
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.repeat || myId === null || menu.isOpen || chat.typing) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    e.preventDefault(); // Don't also press a focused button.
+    input.release();
+    chat.open();
+  });
+  /** Run time during a run, otherwise the clock. */
+  const stamp = () =>
+    latest?.phase === 'playing' ? formatTime(latest.time) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  // Shift-click the map or the minimap: ping that spot for the whole team.
+  renderer.app.canvas.addEventListener('pointerdown', (e) => {
+    if (!e.shiftKey || e.button !== 0 || latest?.phase !== 'playing' || myId === null) return;
+    const at = renderer.screenToWorld(e.clientX, e.clientY);
+    net.send({ t: 'ping', x: Math.round(at.x), y: Math.round(at.y) });
+  });
+
+  // --- In a room ---
   ui.onPick = (character) => net.send({ t: 'pick', character });
   ui.onPickMap = (index) => net.send({ t: 'map', index });
   ui.onStart = () => net.send({ t: 'start' });
   ui.onLobby = () => net.send({ t: 'lobby' });
   ui.onChoose = (index) => net.send({ t: 'choose', index });
-  ui.onPrestige = (id) => net.send({ t: 'prestige', id });
-  ui.onRespec = () => net.send({ t: 'respec' });
-  ui.onUnlock = (character) => net.send({ t: 'unlock', character });
+  ui.onOpenProfile = () => menu.show('profile', true);
+  ui.onLeave = () => net.send({ t: 'leave' });
+  ui.onShare = (text) => net.send({ t: 'chat', text });
   ui.onDev = (action) => net.send({ t: 'dev', action });
   ui.onReady = () => net.send({ t: 'ready' });
   ui.onGiveUp = () => net.send({ t: 'giveup' });
@@ -60,20 +111,44 @@ async function main() {
   ui.onSpectate = (id) => renderer.spectate(id);
   ui.onRemoveBot = (id) => net.send({ t: 'removebot', id });
 
-  net.onWelcome = (id) => {
-    myId = id;
-    ui.showJoined();
-  };
-
-  net.onClosed = (reason) => {
+  /** Back to the menu: drop everything about the room we were in. */
+  const leftRoom = () => {
     myId = null;
     latest = null;
     epoch = -1;
     buffer.clear();
-    ui.showDisconnected(reason);
+    renderer.spectate(null);
+    ui.leaveRoom();
+    chat.dock(null);
+    chat.setVisible(false);
   };
 
+  net.onOpen = () => {
+    menu.setStatus('');
+    menu.start();
+  };
+  net.onWelcome = (id) => {
+    myId = id;
+    menu.hide();
+    chat.setVisible(true);
+  };
+  net.onLeft = () => {
+    leftRoom();
+    menu.show('home');
+  };
+  net.onProfile = (profile) => menu.setProfile(profile);
+  net.onRooms = (rooms) => menu.setRooms(rooms);
+  net.onError = (message) => menu.setStatus(message);
+  net.onClosed = () => {
+    leftRoom();
+    menu.show(menu.name ? 'home' : 'name');
+    menu.setStatus('Lost the connection to the server. Reconnecting…');
+  };
+  menu.setStatus('Connecting…');
+  net.connect();
+
   net.onSnapshot = (snap) => {
+    if (myId === null) return; // Left the room; a last snapshot or two can still be on the way.
     buffer.push(snap);
     cues.onSnapshot(latest, snap, local);
     latest = snap;
@@ -94,11 +169,20 @@ async function main() {
       dodgeCooldown = 0;
     }
     for (const fx of snap.fx) {
-      if (fx.k === 'banner') ui.showBanner(fx.text, fx.tone);
-      else renderer.addFx(fx);
+      if (fx.k === 'banner') {
+        ui.showBanner(fx.text, fx.tone);
+        chat.add(stamp(), fx.text, fx.tone);
+      } else if (fx.k === 'log') {
+        chat.add(stamp(), fx.text, fx.tone);
+      } else if (fx.k === 'chat') {
+        chat.add(stamp(), fx.text, 'chat', fx);
+      } else {
+        renderer.addFx(fx);
+      }
     }
     if (snap.me) renderer.addDamageNumbers(snap.me.hits, snap.me.taken, local);
     ui.update(snap, myId);
+    chat.dock(snap.phase === 'lobby' ? ui.lobbyChatDock : null);
   };
 
   renderer.app.ticker.add((ticker) => {

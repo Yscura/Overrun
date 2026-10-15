@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Profile } from './game';
+import type { Profile } from './profiles';
 
 const FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data/progress.json');
 

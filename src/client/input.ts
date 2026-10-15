@@ -38,6 +38,11 @@ export class Input {
     });
   }
 
+  /** Let go of every key (e.g. when the chat takes the keyboard, so you don't keep walking). */
+  release(): void {
+    this.keys.clear();
+  }
+
   /** Normalized movement direction, or (0, 0) when idle. */
   direction(): { x: number; y: number } {
     const held = (codes: string[]) => codes.some((c) => this.keys.has(c));

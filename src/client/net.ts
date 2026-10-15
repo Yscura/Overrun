@@ -1,29 +1,59 @@
-import type { CharacterId } from '../shared/characters';
-import type { ClientMessage, ServerMessage, Snapshot } from '../shared/protocol';
+import type { ClientMessage, ProfileState, RoomInfo, RoomRef, ServerMessage, Snapshot } from '../shared/protocol';
 
+/**
+ * The connection to the server. It's opened once at startup (the menu talks to the server too) and reconnects on
+ * its own if it drops.
+ */
 export class Connection {
-  onWelcome: (id: number) => void = () => {};
+  onOpen: () => void = () => {};
+  onWelcome: (id: number, room: RoomRef) => void = () => {};
+  onLeft: () => void = () => {};
+  onProfile: (profile: ProfileState) => void = () => {};
+  onRooms: (rooms: RoomInfo[]) => void = () => {};
+  onError: (message: string) => void = () => {};
   onSnapshot: (snap: Snapshot) => void = () => {};
-  onClosed: (reason: string) => void = () => {};
+  onClosed: () => void = () => {};
 
   private ws: WebSocket | null = null;
 
-  connect(name: string, character: CharacterId): void {
+  connect(): void {
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${protocol}://${location.host}/ws`);
-    let reason = 'Disconnected from the server.';
-    ws.onopen = () => this.send({ t: 'join', name, character });
+    ws.onopen = () => this.onOpen();
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data) as ServerMessage;
-      if (msg.t === 'snap') this.onSnapshot(msg);
-      else if (msg.t === 'welcome') this.onWelcome(msg.id);
-      else if (msg.t === 'full') reason = 'The game is full (4 players max).';
+      switch (msg.t) {
+        case 'snap':
+          this.onSnapshot(msg);
+          break;
+        case 'welcome':
+          this.onWelcome(msg.id, msg.room);
+          break;
+        case 'left':
+          this.onLeft();
+          break;
+        case 'profile':
+          this.onProfile(msg.profile);
+          break;
+        case 'rooms':
+          this.onRooms(msg.rooms);
+          break;
+        case 'error':
+          this.onError(msg.message);
+          break;
+      }
     };
     ws.onclose = () => {
-      if (this.ws === ws) this.ws = null;
-      this.onClosed(reason);
+      if (this.ws !== ws) return;
+      this.ws = null;
+      this.onClosed();
+      setTimeout(() => this.connect(), 2000); // Try again.
     };
     this.ws = ws;
+  }
+
+  get connected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
   }
 
   send(msg: ClientMessage): void {

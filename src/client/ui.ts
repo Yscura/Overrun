@@ -12,10 +12,10 @@ import {
   type UltimateId,
 } from '../shared/characters';
 import { MAX_PLAYERS } from '../shared/constants';
+import { MODES } from '../shared/modes';
 import { MISSIONS } from '../shared/enemies';
 import { MAPS, mapBossName } from '../shared/maps';
 import { EVENTS, QUESTS } from '../shared/objectives';
-import { PRESTIGE, PRESTIGE_IDS, prestigeCost, type PrestigeId, type PrestigeRanks } from '../shared/prestige';
 import { DEV_NAME, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot } from '../shared/protocol';
 import {
   EVOLVED_LEVEL,
@@ -73,6 +73,15 @@ function pips(level: number, max = MAX_LEVEL): HTMLElement {
   const row = el('div', level >= EVOLVED_LEVEL ? 'pips evolved' : 'pips');
   for (let i = 0; i < max; i++) row.append(el('span', i < level ? 'pip on' : 'pip'));
   return row;
+}
+
+/** An exact number for chat, with thousands separators. */
+const exact = (n: number) => Math.round(n).toLocaleString('en-US');
+
+/** A weapon or passive as it reads in chat: name and level. */
+function upgradeLine(id: UpgradeId, level: number): string {
+  const evolved = level >= EVOLVED_LEVEL && UPGRADES[id].evolution;
+  return `${upgradeName(id, level)} (${evolved ? 'evolved' : `level ${Math.max(1, level)}/${upgradeMax(id)}`})`;
 }
 
 /** The display name for an upgrade at a level (evolved weapons go by their evolution's name). */
@@ -149,15 +158,16 @@ export const formatTime = (seconds: number) =>
 
 /** The HTML overlays: lobby, HUD, loadout, level-up picks and game-over screen. */
 export class UI {
-  onJoin: (name: string, character: CharacterId) => void = () => {};
   onPick: (character: CharacterId) => void = () => {};
   onPickMap: (index: number) => void = () => {};
   onStart: () => void = () => {};
   onLobby: () => void = () => {};
   onChoose: (index: number) => void = () => {};
-  onPrestige: (id: PrestigeId) => void = () => {};
-  onRespec: () => void = () => {};
-  onUnlock: (character: CharacterId) => void = () => {};
+  /** Shift-clicked something shareable: say it in chat. */
+  onShare: (text: string) => void = () => {};
+  /** Open your profile (prestige and heroes) on top of the lobby. */
+  onOpenProfile: () => void = () => {};
+  onLeave: () => void = () => {};
   onDev: (action: DevAction) => void = () => {};
   onReady: () => void = () => {};
   onGiveUp: () => void = () => {};
@@ -168,15 +178,19 @@ export class UI {
   onRemoveBot: (id: number) => void = () => {};
 
   private lobby = $('lobby');
-  private joinForm = $('join-form');
-  private nameInput = $<HTMLInputElement>('name');
-  private room = $('room');
+  private roomMode = $('room-mode');
+  private roomCode = $('room-code');
+  private roomCodeRow = $('room-code-row');
+  private startButton = $<HTMLButtonElement>('start');
+  private startNote = $('start-note');
   private maps = $('maps');
   private characters = $('characters');
-  private prestige = $('prestige');
-  private prestigePoints = $('prestige-points');
+  private heroDetail = $('hero-detail');
+  /** The chat sits under the player list while you're in the lobby. */
+  readonly lobbyChatDock = $('lobby-chat-dock');
+  /** The hero shown in the detail panel: one you clicked (even if it's locked), else the one you play. */
+  private viewing: CharacterId | null = null;
   private playerList = $('player-list');
-  private error = $('error');
   private hud = $('hud');
   private xpFill = $('xp-fill');
   private level = $('level');
@@ -225,8 +239,13 @@ export class UI {
   /** The hover tooltip, and what each hoverable element shows in it. */
   private tooltip = el('div', 'tooltip hidden');
   private tips = new WeakMap<HTMLElement, () => Tip>();
+  /** Shift-click shares these in chat (the text is built at click time, so cooldowns are current). */
+  private shares = new WeakMap<HTMLElement, () => string>();
   private scoreboard = $('scoreboard');
   private scoreboardRows = $('scoreboard-rows');
+
+  /** You run the lobby. */
+  private amHost = false;
 
   /** Held Tab: the scoreboard. Rebuilt a few times a second while open (damage numbers change constantly). */
   private scoreboardOpen = false;
@@ -234,26 +253,15 @@ export class UI {
   private latest: { snap: Snapshot; myId: number | null } | null = null;
 
   // Only rebuild DOM when the content actually changed (snapshots arrive 30 times a second).
-  private shown = { spectate: '', pauseList: '', players: '', maps: '', prestige: '', characters: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
+  private shown = { spectate: '', pauseList: '', players: '', maps: '', characters: '', heroDetail: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
   private bannerTimer = 0;
 
   constructor() {
-    this.nameInput.value = load(NAME_KEY) ?? '';
-    const join = () => {
-      const name = this.nameInput.value.trim() || 'Player';
-      save(NAME_KEY, name);
-      this.error.textContent = '';
-      const saved = load(CHARACTER_KEY);
-      this.onJoin(name, isCharacterId(saved) ? saved : DEFAULT_CHARACTER);
-    };
-    $('join').addEventListener('click', join);
-    this.nameInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') join();
-    });
-    $('start').addEventListener('click', () => this.onStart());
-    $('restart').addEventListener('click', () => this.onStart());
+    // The host starts the game; everyone else says they're ready.
+    this.startButton.addEventListener('click', () => (this.amHost ? this.onStart() : this.onReady()));
     $('change-hero').addEventListener('click', () => this.onLobby());
-    $('respec').addEventListener('click', () => this.onRespec());
+    $('room-profile').addEventListener('click', () => this.onOpenProfile());
+    $('room-leave').addEventListener('click', () => this.onLeave());
     this.pauseReady.addEventListener('click', () => this.onReady());
     this.addBot.addEventListener('click', () => this.onAddBot());
     $('pause-giveup').addEventListener('click', () => {
@@ -268,6 +276,15 @@ export class UI {
       else this.tooltip.classList.add('hidden');
     });
     window.addEventListener('blur', () => this.tooltip.classList.add('hidden'));
+    // Shift+click shares in chat; on the Tab screen a plain click does.
+    document.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const target = e.target instanceof Element ? e.target.closest<HTMLElement>('.can-share') : null;
+      const build = target && this.shares.get(target);
+      if (!build || !(e.shiftKey || this.scoreboard.contains(target))) return;
+      e.preventDefault(); // No text selection.
+      this.onShare(build());
+    });
     for (const button of this.devPanel.querySelectorAll<HTMLButtonElement>('button[data-dev]')) {
       button.addEventListener('click', () => this.onDev(button.dataset.dev as DevAction));
     }
@@ -292,7 +309,6 @@ export class UI {
     document.addEventListener('click', (e) => {
       if (e.target instanceof HTMLElement) e.target.closest('button')?.blur();
     });
-    this.nameInput.focus();
   }
 
   /** The volume slider and mute button (also M). */
@@ -322,17 +338,15 @@ export class UI {
     refresh();
   }
 
-  showJoined(): void {
-    this.joinForm.classList.add('hidden');
-    this.room.classList.remove('hidden');
-  }
-
-  showDisconnected(reason: string): void {
-    this.lobby.classList.remove('hidden');
-    this.joinForm.classList.remove('hidden');
-    for (const panel of [this.room, this.hud, this.levelup, this.gameover]) panel.classList.add('hidden');
+  /** Out of the room (left it, or the connection dropped): hide everything that belongs to a game. */
+  leaveRoom(): void {
+    for (const panel of [this.lobby, this.hud, this.levelup, this.gameover, this.pauseMenu, this.spectateBar, this.devPanel, this.scoreboard]) {
+      panel.classList.add('hidden');
+    }
+    document.body.classList.remove('paused');
     this.cards.replaceChildren();
-    this.error.textContent = reason;
+    this.latest = null;
+    this.viewing = null;
     for (const key of Object.keys(this.shown) as (keyof typeof this.shown)[]) this.shown[key] = '';
   }
 
@@ -363,11 +377,16 @@ export class UI {
     this.devGod.classList.toggle('on', god);
     this.devGod.firstChild!.textContent = god ? 'God mode: on ' : 'God mode: off ';
 
+    this.amHost = !!me?.host;
     if (snap.phase === 'lobby') {
+      this.renderRoomHead(snap);
+      this.renderStart(snap, me);
       this.renderMaps(snap);
       this.renderPlayerList(snap);
-      if (me && snap.me) this.renderCharacters(me, snap.me.heroes, snap.me.gold);
-      if (me && snap.me) this.renderPrestige(me.prestige, snap.me.prestigePoints);
+      if (me && snap.me) {
+        this.renderCharacters(me, snap.me.heroes, snap.me.gold);
+        this.renderHeroDetail(me, snap.me.heroes, snap.me.gold);
+      }
     }
     this.renderBoss(snap, me);
     this.xpFill.style.width = `${Math.min(100, (snap.xp / snap.xpNext) * 100)}%`;
@@ -410,14 +429,15 @@ export class UI {
   // --- Lobby ---
 
   private renderMaps(snap: Snapshot): void {
-    const key = `${snap.map}|${snap.unlocked}`;
+    const key = `${snap.map}|${snap.unlocked}|${this.amHost}`;
     if (key === this.shown.maps) return;
     this.shown.maps = key;
     this.maps.replaceChildren(
       ...MAPS.map((map, i) => {
         const locked = i >= snap.unlocked;
-        const card = el('button', `map-card${i === snap.map ? ' selected' : ''}${locked ? ' locked' : ''}`) as HTMLButtonElement;
-        card.disabled = locked;
+        const card = el('button', `map-card${i === snap.map ? ' selected' : ''}${locked ? ' locked' : ''}${this.amHost ? '' : ' readonly'}`) as HTMLButtonElement;
+        card.disabled = locked || !this.amHost;
+        if (!this.amHost && !locked) card.title = 'The host picks the map';
         const title = el('div', 'map-card-title');
         title.append(el('span', 'map-card-name', map.name), el('span', 'map-card-tag', map.arena ? 'Boss arena' : 'Open field'));
         card.append(
@@ -432,77 +452,137 @@ export class UI {
     );
   }
 
+  /** The hero grid: portrait, name and title. Click one to see it in the detail panel (and play it, if you own it). */
   private renderCharacters(me: PlayerState, unlocked: CharacterId[], gold: number): void {
-    const key = `${me.character}|${me.color}|${unlocked.join(',')}|${gold}`;
+    const viewing = this.viewing ?? me.character;
+    const key = `${me.character}|${viewing}|${me.color}|${me.ready}|${unlocked.join(',')}`;
     this.lobbyGold.textContent = `${gold} gold`;
     if (key === this.shown.characters) return;
     this.shown.characters = key;
+    this.characters.classList.toggle('locked-in', !!me.ready && !me.host);
     this.characters.replaceChildren(
       ...CHARACTER_IDS.map((id) => {
         const c = CHARACTERS[id];
         const locked = !heroAvailable(id, unlocked);
-        const card = el('button', `hero-card${id === me.character ? ' selected' : ''}${locked ? ' locked' : ''}`);
-        const info = el('div', 'hero-card-info');
-        const title = el('div', 'hero-card-title');
-        title.append(el('span', 'hero-card-name', c.name), el('span', `role ${c.role}`, c.role === 'ranged' ? 'Ranged' : 'Melee'));
-        info.append(
-          title,
-          el('div', 'hero-card-sub', c.title),
-          el('div', 'hero-card-stats', `${c.maxHp} HP · ${c.speed} speed`),
-          el('div', 'hero-card-trait', c.trait),
-          el('div', 'hero-card-weapon', `Starts with ${UPGRADES[c.startWeapon].name}`),
-          el('div', 'hero-card-abilities', `E: ${UPGRADES[c.ability].name} · R: ${c.ultimate.name}`),
-        );
-        if (locked) info.append(el('div', 'hero-card-unlock', `Locked · buy for ${c.unlockCost} gold${gold < c.unlockCost! ? ` (you have ${gold})` : ''}`));
-        card.append(portrait(id, me.color, 'portrait large'), info);
+        const card = el('button', `hero-tile${id === me.character ? ' selected' : ''}${id === viewing ? ' viewing' : ''}${locked ? ' locked' : ''}`) as HTMLButtonElement;
+        card.append(portrait(id, me.color, 'portrait hero-tile-portrait'), el('div', 'hero-tile-name', c.name), el('div', 'hero-tile-title', c.title));
+        if (locked) card.append(el('span', 'hero-tile-lock', `${c.unlockCost} gold`));
         card.addEventListener('click', () => {
-          if (locked) {
-            if (gold >= c.unlockCost! && window.confirm(`Buy ${c.name}, ${c.title} for ${c.unlockCost} gold?`)) this.onUnlock(id);
-            return;
+          this.viewing = id;
+          // Locked in: you can look, but not swap until you unlock.
+          if (!locked && !(me.ready && !me.host)) {
+            save(CHARACTER_KEY, id);
+            this.onPick(id);
           }
-          save(CHARACTER_KEY, id);
-          this.onPick(id);
+          this.shown.characters = '';
+          this.shown.heroDetail = '';
+          if (this.latest) this.update(this.latest.snap, this.latest.myId);
         });
         return card;
       }),
     );
   }
 
-  /** The prestige shop: your unspent points and a row per upgrade with its rank and a buy button. */
-  private renderPrestige(ranks: PrestigeRanks, points: number): void {
-    const key = `${points}|${JSON.stringify(ranks)}`;
-    if (key === this.shown.prestige) return;
-    this.shown.prestige = key;
-    this.prestigePoints.textContent = `${points} point${points === 1 ? '' : 's'}`;
-    this.prestige.replaceChildren(
-      ...PRESTIGE_IDS.map((id) => {
-        const def = PRESTIGE[id];
-        const rank = ranks[id] ?? 0;
-        const maxed = rank >= def.maxRank;
-        const cost = prestigeCost(rank);
-        const row = el('div', 'prestige-row');
-        const info = el('div', 'prestige-info');
-        info.append(el('div', 'prestige-name', def.name), el('div', 'prestige-desc', rank > 0 ? def.describe(rank) : `${def.describe(1)} per rank`));
-        const buy = el('button', 'prestige-buy', maxed ? 'Max' : `+1 · ${cost}`) as HTMLButtonElement;
-        buy.disabled = maxed || points < cost;
-        buy.title = maxed ? '' : `Rank ${rank + 1}: ${def.describe(rank + 1)}`;
-        buy.addEventListener('click', () => this.onPrestige(id));
-        row.append(info, pips(rank, def.maxRank), buy);
-        return row;
-      }),
-    );
+  /** The selected hero up close: art, role, stats, trait, and the starting weapon and abilities with their icons. */
+  private renderHeroDetail(me: PlayerState, unlocked: CharacterId[], gold: number): void {
+    const id = this.viewing ?? me.character;
+    const key = `${id}|${me.color}|${unlocked.join(',')}|${gold}`;
+    if (key === this.shown.heroDetail) return;
+    this.shown.heroDetail = key;
+    const c = CHARACTERS[id];
+    const locked = !heroAvailable(id, unlocked);
+
+    const head = el('div', 'hero-detail-head');
+    const names = el('div', 'hero-detail-names');
+    const title = el('div', 'hero-detail-name');
+    title.append(el('span', '', c.name), el('span', `role ${c.role}`, c.role === 'ranged' ? 'Ranged' : 'Melee'));
+    names.append(title, el('div', 'hero-detail-title', c.title), el('div', 'hero-detail-trait', c.trait));
+    head.append(portrait(id, me.color, 'portrait hero-detail-portrait'), names);
+
+    const stats = el('div', 'hero-stats');
+    const stat = (label: string, value: string) => {
+      const cell = el('div', 'hero-stat');
+      cell.append(el('div', 'hero-stat-value', value), el('div', 'hero-stat-label', label));
+      stats.append(cell);
+    };
+    stat('Health', String(c.maxHp));
+    stat('Speed', String(c.speed));
+    stat('Armor', `${Math.round(c.armor * 100)}%`);
+    stat('Dodge', `${c.dodgeCooldown}s`);
+
+    const kit = el('div', 'hero-kit');
+    const row = (icon: HTMLElement | SVGElement, key: string, name: string, text: string, extra?: string) => {
+      const r = el('div', 'kit-row');
+      const iconBox = el('div', 'kit-icon');
+      iconBox.append(icon);
+      const body = el('div', 'kit-body');
+      const top = el('div', 'kit-top');
+      top.append(el('span', 'kit-key', key), el('span', 'kit-name', name));
+      if (extra) top.append(el('span', 'kit-extra', extra));
+      body.append(top, el('p', 'kit-text', text));
+      r.append(iconBox, body);
+      kit.append(r);
+    };
+    const strip = (text: string) => text.replace(/^\[E\] /, '');
+    row(iconEl(c.startWeapon, 40), 'Weapon', UPGRADES[c.startWeapon].name, strip(UPGRADES[c.startWeapon].describe(1)), DAMAGE_NAMES[typeOf(c.startWeapon)]);
+    row(iconEl(c.ability, 40), 'E', UPGRADES[c.ability].name, strip(UPGRADES[c.ability].describe(1)), DAMAGE_NAMES[typeOf(c.ability)]);
+    row(ultIconEl(c.ultimate.id, 40), 'R', c.ultimate.name, c.ultimate.text, `${c.ultimate.cooldown}s`);
+
+    this.heroDetail.replaceChildren(head, stats, kit);
+    if (locked) {
+      const unlock = el('button', 'secondary hero-unlock', `Unlock for ${c.unlockCost} gold${gold < c.unlockCost! ? ` (you have ${gold})` : ''}`) as HTMLButtonElement;
+      unlock.addEventListener('click', () => this.onOpenProfile());
+      this.heroDetail.append(unlock);
+    }
+  }
+
+  /** The lobby's header: the mode, and the code to share (for modes friends can join). */
+  private renderRoomHead(snap: Snapshot): void {
+    const room = snap.room;
+    this.roomMode.textContent = room ? MODES[room.mode].name : '';
+    this.roomCodeRow.classList.toggle('hidden', !room || !MODES[room.mode].joinable);
+    this.roomCode.textContent = room?.code ?? '';
+  }
+
+  /** The host gets Start (once everyone is ready); everyone else gets Ready. */
+  private renderStart(snap: Snapshot, me: PlayerState | undefined): void {
+    const waiting = snap.players.filter((p) => !p.host && !p.ready);
+    // Looking at a hero you don't own: you can't lock that in.
+    const viewingLocked = !!(this.viewing && me && snap.me && this.viewing !== me.character && !heroAvailable(this.viewing, snap.me.heroes));
+    if (me?.host) {
+      this.startButton.textContent = 'Start game';
+      this.startButton.disabled = waiting.length > 0;
+      this.startButton.classList.remove('is-ready');
+      this.startNote.textContent =
+        waiting.length > 0 ? `Waiting for ${waiting.map((p) => p.name).join(', ')} to lock in.` : 'Everyone is locked in.';
+    } else {
+      const host = snap.players.find((p) => p.host);
+      this.startButton.disabled = viewingLocked && !me?.ready;
+      this.startButton.textContent = me?.ready ? 'Locked in ✓' : 'Lock in';
+      this.startButton.classList.toggle('is-ready', !!me?.ready);
+      this.startNote.textContent = me?.ready
+        ? `Waiting for ${host?.name ?? 'the host'} to start. Click again to change hero.`
+        : `Pick your hero and lock in. ${host?.name ?? 'The host'} picks the map and starts.`;
+    }
   }
 
   private renderPlayerList(snap: Snapshot): void {
-    const key = snap.players.map((p) => `${p.id}:${p.name}:${p.character}:${p.bot}`).join('|');
+    const key = `${this.amHost}|${snap.players.map((p) => `${p.id}:${p.name}:${p.character}:${p.bot}:${p.host}:${p.ready}`).join('|')}`;
     if (key === this.shown.players) return;
     this.shown.players = key;
+    this.addBot.classList.toggle('hidden', !this.amHost);
     this.addBot.disabled = snap.players.length >= MAX_PLAYERS;
     this.playerList.replaceChildren(
       ...snap.players.map((p) => {
         const li = el('li', p.bot ? 'is-bot' : '');
-        li.append(portrait(p.character, p.color, 'portrait tiny'), el('span', 'player-name', p.name), el('span', 'player-hero', CHARACTERS[p.character].name));
-        if (p.bot) {
+        const who = el('div', 'player-who');
+        const top = el('div', 'player-top');
+        top.append(el('span', 'player-name', p.name));
+        if (p.host) top.append(el('span', 'player-tag host', 'Host'));
+        who.append(top, el('span', 'player-hero', `${CHARACTERS[p.character].name}, ${CHARACTERS[p.character].title}`));
+        li.append(portrait(p.character, p.color, 'portrait small'), who);
+        if (!p.host) li.append(el('span', `player-tag${p.ready ? ' ready' : ''}`, p.bot ? 'Bot' : p.ready ? 'Locked in' : 'Picking…'));
+        if (p.bot && this.amHost) {
           const remove = el('button', 'remove-bot', '×') as HTMLButtonElement;
           remove.title = 'Remove this bot';
           remove.addEventListener('click', () => this.onRemoveBot(p.id));
@@ -600,6 +680,15 @@ export class UI {
       }
       this.abilityE.classList.toggle('shimmer', level >= EVOLVED_LEVEL);
       this.tip(this.abilityE, () => weaponTip(hero.ability, level));
+      this.share(this.abilityE, () => {
+        const cd = this.latest?.snap.me?.ability.cd ?? 0;
+        return `${upgradeLine(hero.ability, level)} · ${cd > 0 ? `${Math.ceil(cd)}s cooldown` : 'ready'}`;
+      });
+      this.share(this.abilityR, () => {
+        const ult = this.latest?.snap.me?.ultimate;
+        const state = !ult ? '' : ult.active > 0 ? `active for ${Math.ceil(ult.active)}s` : ult.cd > 0 ? `${Math.ceil(ult.cd)}s cooldown` : 'ready';
+        return `${hero.ultimate.name} (ultimate) · ${state}`;
+      });
       this.abilityR.querySelector('.ability-name')!.replaceChildren(ultIconEl(hero.ultimate.id, 34), el('span', 'icon-label', hero.ultimate.name));
       this.tip(this.abilityR, () => ({
         title: hero.ultimate.name,
@@ -642,6 +731,7 @@ export class UI {
         const level = upgrades[id]!;
         chip.append(iconEl(id, 28), el('div', 'slot-name', UPGRADES[id].name), pips(level, upgradeMax(id)));
         this.tip(chip, () => passiveTip(id, level));
+        this.share(chip, () => upgradeLine(id, level));
       } else {
         chip.append(el('div', 'slot-empty', '?'));
         chip.title = 'Empty passive slot';
@@ -666,6 +756,7 @@ export class UI {
       const card = el('div', `slot weapon ${typeOf(id)}${evolved ? ' evolved shimmer' : ''}`);
       card.append(iconEl(id, 44), el('div', 'slot-name', upgradeName(id, level)), pips(level));
       this.tip(card, () => weaponTip(id, level));
+      this.share(card, () => upgradeLine(id, level));
       weapons.append(card);
     }
     this.slots.replaceChildren(passives, weapons);
@@ -680,6 +771,12 @@ export class UI {
     this.tips.set(target, build);
   }
 
+  /** Makes an element shareable in chat with Shift+click (a plain click on the Tab screen). */
+  private share(target: HTMLElement, build: () => string): void {
+    target.classList.add('can-share');
+    this.shares.set(target, build);
+  }
+
   private showTip(target: HTMLElement, tip: Tip): void {
     const box = this.tooltip;
     let title = tip.icon ? iconName(tip.icon, tip.title, 24, 'tip-title') : el('div', 'tip-title', tip.title);
@@ -690,6 +787,7 @@ export class UI {
     const tags = el('div', 'tip-tags');
     tags.append(...tip.tags.map((t) => el('span', t.cls, t.text)));
     box.replaceChildren(title, tags, ...tip.lines.map((l) => el('p', l.cls ?? '', l.text)));
+    if (this.shares.has(target)) box.append(el('p', 'tip-share', `${this.scoreboard.contains(target) ? 'Click' : 'Shift+click'} to share in chat`));
     box.classList.remove('hidden');
     // Above the element, centered, kept on screen.
     const r = target.getBoundingClientRect();
@@ -732,15 +830,17 @@ export class UI {
     hp.append(fill, el('span', '', p.downed ? 'DOWN' : `${p.hp} / ${p.maxHp}`));
     names.append(hp);
     who.append(portrait(p.character, p.color), names);
+    this.share(who, () => `(${p.name}) ${hero.name}, ${hero.title} · ${p.downed ? 'down' : `${p.hp}/${p.maxHp} HP`}`);
 
     const numbers = el('div', 'score-numbers');
-    for (const [label, value] of [
-      ['Kills', compact(p.kills)],
-      ['Damage', compact(p.damageDealt)],
-      ['Taken', compact(p.damageTaken)],
-    ]) {
+    for (const [label, value, said] of [
+      ['Kills', p.kills, 'kills'],
+      ['Damage', p.damageDealt, 'damage'],
+      ['Taken', p.damageTaken, 'damage taken'],
+    ] as const) {
       const cell = el('div', 'score-number');
-      cell.append(el('div', 'score-value', value), el('div', 'score-label', label));
+      cell.append(el('div', 'score-value', compact(value)), el('div', 'score-label', label));
+      this.share(cell, () => `(${p.name}) ${exact(value)} ${said}`);
       numbers.append(cell);
     }
     // Their ultimate's charge: a ring that fills up, green when it's ready.
@@ -759,6 +859,7 @@ export class UI {
     }));
     const ultCell = el('div', 'score-number');
     ultCell.append(ring, el('div', 'score-label', 'Ult'));
+    this.share(ultCell, () => `(${p.name}) ${hero.ultimate.name} ${ready ? 'ready' : `${Math.round(p.ult * 100)}% charged`}`);
     numbers.append(ultCell);
 
     // Their build as icon tiles: weapons (big), then passives. Hero abilities are the same for everyone, so they're left out.
@@ -770,6 +871,7 @@ export class UI {
       t.append(iconEl(id, kind === 'passive' ? 26 : 38), el('div', 'score-tile-name', upgradeName(id, level)));
       if (!evolved) t.append(el('span', 'score-tile-level', String(level)));
       this.tip(t, () => (kind === 'passive' ? passiveTip(id, level) : weaponTip(id, level)));
+      this.share(t, () => `(${p.name}) ${upgradeLine(id, level)}`);
       return t;
     };
     const weapons = el('div', 'score-tiles');

@@ -164,11 +164,6 @@ h2 {
   letter-spacing: 0.1em;
 }
 
-#join-form {
-  display: flex;
-  gap: 8px;
-}
-
 input {
   flex: 1;
   min-width: 0;
@@ -201,8 +196,11 @@ button.primary:hover {
 }
 
 #player-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   list-style: none;
-  margin: 0 0 20px;
+  margin: 0 0 14px;
   padding: 0;
   text-align: left;
 }
@@ -211,8 +209,10 @@ button.primary:hover {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
+  padding: 8px;
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
 
 .player-name {
@@ -226,10 +226,61 @@ button.primary:hover {
 
 /* --- Hero select --- */
 
+/* Three columns: players and chat | hero grid and maps | the selected hero and lock in. */
 .lobby-panel {
-  width: 660px;
-  max-height: calc(100vh - 32px);
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr) 330px;
+  gap: 24px;
+  width: min(1320px, 100%);
+  height: min(820px, calc(100vh - 32px));
+  padding: 22px 24px;
+  text-align: left;
+}
+
+.lobby-side,
+.lobby-main,
+.lobby-hero {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lobby-main {
   overflow-y: auto;
+  padding-right: 4px;
+}
+
+.lobby-main .hint {
+  margin-top: auto;
+  font-size: 12px;
+}
+
+.lobby-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.lobby-section-head h2 {
+  margin: 0;
+}
+
+.lobby-section-head .link {
+  margin-left: auto;
+}
+
+/* Narrow screens: stack the columns and scroll. */
+@media (max-width: 1000px) {
+  .lobby-panel {
+    grid-template-columns: 1fr;
+    height: auto;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+  }
+  .lobby-main {
+    overflow: visible;
+  }
 }
 
 /* --- Map select --- */
@@ -494,9 +545,9 @@ button.link:hover {
 
 #characters {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
   gap: 10px;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
 .hero-card {
@@ -632,15 +683,6 @@ button.secondary:hover {
   font-size: 13px;
   line-height: 1.5;
   color: var(--muted);
-}
-
-#error {
-  margin: 12px 0 0;
-  color: var(--danger);
-}
-
-#error:empty {
-  display: none;
 }
 
 #survived {
@@ -2076,4 +2118,1045 @@ body.paused #hud > :not(#loadout) {
   color: #0b1f14;
   background: #69f0ae;
   border-radius: 999px;
+}
+
+/* --- Main menu --- */
+
+#menu {
+  z-index: 50; /* Profile and settings open on top of a lobby. */
+}
+
+#menu.over-room {
+  background: rgba(8, 9, 12, 0.75);
+}
+
+.menu-panel {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.menu-panel h1 {
+  margin-bottom: 4px;
+  font-size: 44px;
+  letter-spacing: 0.12em;
+}
+
+.menu-sub {
+  margin: 0 0 22px;
+  color: var(--muted);
+}
+
+.screen-title {
+  margin-bottom: 16px;
+  font-size: 18px;
+  color: var(--text);
+  letter-spacing: 0.06em;
+}
+
+.name-row,
+.join-code {
+  display: flex;
+  gap: 8px;
+}
+
+.name-row input,
+.join-code input {
+  flex: 1;
+}
+
+.join-code {
+  margin: 12px 0 20px;
+}
+
+#join-code {
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+.menu-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.mode-button {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 14px 18px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: #0f1115;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.12s, transform 0.12s;
+}
+
+.mode-button:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.mode-name {
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.mode-desc {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.menu-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+button.wide {
+  width: 100%;
+}
+
+.menu-status {
+  min-height: 1.2em;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: #ff8a80;
+}
+
+.setting {
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.setting label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.setting.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+#settings-volume {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+/* The lobby browser. */
+#lobby-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.lobby-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.lobby-code {
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+}
+
+.lobby-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.lobby-host {
+  font-weight: 700;
+}
+
+.lobby-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.lobby-empty {
+  padding: 10px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Profile: wallet and the hero shop. */
+.wallet {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin-bottom: 16px;
+  font-weight: 800;
+}
+
+#hero-shop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.shop-hero {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  text-align: left;
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.shop-hero .portrait {
+  width: 44px;
+  height: 44px;
+}
+
+.shop-hero-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.shop-hero-name {
+  font-weight: 800;
+}
+
+.shop-hero-trait {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.shop-owned {
+  font-size: 12px;
+  font-weight: 800;
+  color: #69f0ae;
+}
+
+/* --- The lobby (a room) --- */
+
+.room-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  text-align: left;
+}
+
+.room-mode {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.room-code-row {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+#room-code {
+  margin: 0 2px;
+  font-size: 18px;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  user-select: all;
+}
+
+.hint-inline {
+  font-size: 12px;
+}
+
+.room-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.map-card.readonly:not(.selected) {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.map-card.readonly.selected {
+  cursor: default;
+}
+
+.player-tag {
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: #1b1f27;
+  border-radius: 999px;
+}
+
+.player-tag.host {
+  color: #1a1407;
+  background: #ffd54f;
+}
+
+.player-tag.ready {
+  color: #0b1f14;
+  background: #69f0ae;
+}
+
+#start.is-ready {
+  background: #69f0ae;
+}
+
+#start:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.start-note {
+  min-height: 1.2em;
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* --- Chat and event log --- */
+
+#chat {
+  position: fixed;
+  left: 12px;
+  bottom: 170px; /* Above the skill bar, which can reach this far left on smaller screens. */
+  z-index: 35; /* Over the pause and level-up screens, under the menu. */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(340px, calc(100vw - 24px));
+  pointer-events: none; /* Clicks go through to the game unless you're typing. */
+  transition: opacity 0.4s;
+}
+
+#chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 180px;
+  overflow-y: hidden;
+  padding: 6px 8px;
+  font-size: 13px;
+  line-height: 1.35;
+  background: rgba(8, 9, 12, 0.4);
+  border-radius: 8px;
+  transition: background 0.4s;
+}
+
+#chat-log:empty {
+  display: none;
+}
+
+#chat.idle {
+  opacity: 0.45;
+}
+
+#chat.idle #chat-log {
+  background: transparent;
+}
+
+#chat.typing {
+  pointer-events: auto;
+}
+
+#chat.typing #chat-log {
+  overflow-y: auto;
+  background: rgba(8, 9, 12, 0.65);
+}
+
+.chat-line {
+  color: var(--text);
+  text-shadow: 0 1px 2px #000;
+  overflow-wrap: anywhere;
+}
+
+.chat-line.info {
+  color: #b0bec5;
+}
+
+.chat-line.good {
+  color: #9be7a6;
+}
+
+.chat-line.danger {
+  color: #ff8a80;
+}
+
+.chat-time {
+  margin-right: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.chat-name {
+  font-weight: 700;
+}
+
+#chat-input {
+  display: none;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(8, 9, 12, 0.75);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  outline: none;
+}
+
+#chat.typing #chat-input {
+  display: block;
+}
+
+.chat-hint {
+  padding-left: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  text-shadow: 0 1px 2px #000;
+}
+
+#chat.typing .chat-hint {
+  display: none;
+}
+
+/* --- Shift+click to share in chat --- */
+
+/* The scoreboard lets the mouse through; shareable parts take it. */
+.can-share {
+  pointer-events: auto;
+}
+
+.tooltip .tip-share {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* --- Lobby: hero grid, hero detail, players, docked chat --- */
+
+.hero-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 8px 10px;
+  font: inherit;
+  color: var(--text);
+  background: #0f1115;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.hero-tile:hover {
+  border-color: #4a5263;
+  transform: translateY(-2px);
+}
+
+.hero-tile.viewing {
+  border-color: #7d8799;
+}
+
+.hero-tile.selected {
+  border-color: var(--accent);
+  background: #13202a;
+}
+
+.hero-tile-portrait {
+  width: 76px;
+  height: 76px;
+  margin-bottom: 6px;
+}
+
+.hero-tile-name {
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.hero-tile-title {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hero-tile.locked .hero-tile-portrait {
+  filter: grayscale(1) brightness(0.6);
+}
+
+.hero-tile-lock {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #2a2000;
+  background: #ffd54f;
+  border-radius: 4px;
+}
+
+/* Locked in: the grid is for looking only. */
+#characters.locked-in .hero-tile:not(.selected) {
+  opacity: 0.5;
+}
+
+.lobby-hero {
+  padding: 18px;
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.hero-detail {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.hero-detail-head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.hero-detail-portrait {
+  width: 120px;
+  height: 120px;
+}
+
+.hero-detail-portrait img {
+  border-radius: 14px;
+  box-shadow: 0 0 0 3px var(--ring, #2c313d);
+}
+
+.hero-detail-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 24px;
+  font-weight: 900;
+}
+
+.hero-detail-title {
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+
+.hero-detail-trait {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.hero-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.hero-stat {
+  padding: 6px 4px;
+  text-align: center;
+  background: #161a21;
+  border-radius: 8px;
+}
+
+.hero-stat-value {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-stat-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.hero-kit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kit-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.kit-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  background: #161a21;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.kit-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.kit-key {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.kit-name {
+  font-weight: 800;
+}
+
+.kit-extra {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.kit-text {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: #c5cad3;
+}
+
+.hero-unlock {
+  width: 100%;
+  margin-top: 14px;
+  color: #ffd54f;
+  border-color: #ffd54f;
+}
+
+.lock-in {
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.lock-in #start {
+  width: 100%;
+  padding: 14px;
+  font-size: 18px;
+  letter-spacing: 0.06em;
+}
+
+.lobby-side .room-head {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.lobby-side .room-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.lobby-side .room-buttons button {
+  flex: 1;
+}
+
+.portrait.small {
+  width: 40px;
+  height: 40px;
+}
+
+.player-who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.player-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#player-list .player-name {
+  flex: none;
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#player-list .player-hero {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The chat fills the rest of the left column while in the lobby. */
+.lobby-chat-dock {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 140px;
+}
+
+#chat.docked {
+  position: static;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  justify-content: flex-end;
+  pointer-events: auto;
+  opacity: 1;
+}
+
+#chat.docked #chat-log {
+  display: flex;
+  flex: 1;
+  max-height: none;
+  overflow-y: auto;
+  background: #0b0d11;
+  border: 1px solid var(--border);
+}
+
+#chat.docked #chat-log:empty {
+  display: flex;
+}
+
+/* The lobby fills the screen; its volume lives in Settings, so the corner slider steps aside. */
+body:has(#lobby:not(.hidden)) #sound-control {
+  display: none;
+}
+
+/* --- Home: profile card, bestiary --- */
+
+.profile-card {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 250px;
+  padding: 10px 16px 10px 10px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.profile-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.profile-card .portrait {
+  width: 60px;
+  height: 60px;
+}
+
+.profile-card-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--muted);
+  background: #0f1115;
+  border-radius: 10px;
+  box-shadow: 0 0 0 2px var(--border);
+}
+
+.profile-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.profile-card-name {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.profile-card-hero {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.profile-card-wallet {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffd54f;
+}
+
+.menu-panel.wide {
+  width: min(1120px, calc(100vw - 32px));
+}
+
+.bestiary {
+  text-align: left;
+}
+
+.bestiary-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 800px) {
+  .bestiary-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bestiary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+/* A card: the picture and the name. */
+.beast {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  font: inherit;
+  color: var(--text);
+  background: #0f1115;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.beast:hover {
+  border-color: #4a5263;
+  transform: translateY(-2px);
+}
+
+.beast.boss {
+  border-color: #5c2b2b;
+}
+
+.beast.selected {
+  border-color: var(--accent);
+  background: #13202a;
+}
+
+.beast-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  background: radial-gradient(circle, #1f2530, #12151b 70%);
+  border-radius: 10px;
+}
+
+.beast-art img {
+  max-width: 64px;
+  max-height: 64px;
+}
+
+.beast-name {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* Bosses you haven't reached: a black silhouette. */
+.hidden-entry .beast-art img,
+.hidden-entry .beast-detail-art img {
+  filter: brightness(0);
+  opacity: 0.85;
+}
+
+.hidden-entry .beast-name,
+.hidden-entry .beast-detail-name {
+  color: var(--muted);
+}
+
+/* The selected enemy up close. */
+.bestiary-side {
+  position: sticky;
+  top: 0;
+  padding: 18px;
+  text-align: left;
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.beast-detail-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 170px;
+  margin-bottom: 14px;
+  background: radial-gradient(circle, #232a36, #12151b 70%);
+  border-radius: 12px;
+}
+
+/* Small sprites are blown up; the bosses already fill the box. */
+.beast-detail-art img {
+  width: 130px;
+  height: 130px;
+  object-fit: contain;
+}
+
+.beast-detail-name {
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.beast-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.beast-tag {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  border-radius: 4px;
+  color: #0f1115;
+  background: #b0bec5;
+}
+
+.beast-tag.boss {
+  background: #ff5252;
+}
+
+.beast-tag.elite {
+  background: #ce93d8;
+}
+
+.beast-tag.flying {
+  background: #80deea;
+}
+
+.beast-when {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.beast-lore {
+  margin: 10px 0 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #c5cad3;
+}
+
+.beast-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.beast-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 7px 4px;
+  background: #161a21;
+  border-radius: 8px;
+}
+
+.beast-stat-value {
+  font-weight: 800;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.beast-stat-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.beast-stat.physical .beast-stat-value {
+  color: #ffb74d;
+}
+
+.beast-stat.magic .beast-stat-value {
+  color: #64b5f6;
+}
+
+.bestiary-affixes {
+  text-align: left;
+}
+
+.affix-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 6px 16px;
+}
+
+.affix-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.affix-row span:last-child {
+  color: #c5cad3;
+}
+
+.affix-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 3px solid;
+  border-radius: 50%;
+}
+
+.bestiary > .prestige-hint {
+  margin-top: 18px;
 }

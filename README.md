@@ -9,7 +9,16 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. Every tab you open is another player, which is handy for testing co-op alone.
+Open http://localhost:5173. The main menu has **Singleplayer** (a private game, with bot teammates if you like),
+**Multiplayer** (create a lobby and share its 4-letter code, or join one from the list of open lobbies), the
+**Bestiary** (every enemy with its stats; bosses unlock once you've reached them in a run, win or lose) and **Settings**
+(volume). The card in the top right shows your name and most-played hero and opens your **Profile** (name, prestige
+shop and hero unlocks, also reachable from the lobby). Every tab
+you open is another player, which is handy for testing co-op alone.
+
+In a lobby the **host** (whoever created it, or the next player if they leave) picks the map, adds bots and starts the
+game, once everyone else has pressed **Ready**. The server can run any number of lobbies at once; unlocked maps are
+shared by everyone on it. Modes are defined in `src/shared/modes.ts`, so adding one later is a new entry there.
 No friends online? **+ Add bot** in the lobby adds a bot teammate (up to a team of four) with a random hero. Bots
 play on the server: they fight, dodge, use E and R, pick upgrades, revive you and do the boss missions. They don't save
 any progress, the pause screen doesn't wait for them, and they leave when the last person does.
@@ -22,7 +31,7 @@ npm run build   # build the client into dist/
 npm start       # game server + client on http://localhost:3000
 ```
 
-Then give your friends a URL to that port:
+Then give your friends a URL to that port, create a Multiplayer lobby and tell them its code:
 
 - **Same network:** `http://<your-local-ip>:3000` (allow Node through the Windows firewall).
 - **Over the internet, quickest:** install [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
@@ -104,6 +113,14 @@ Space dodges in the direction you're moving (toward the cursor when standing sti
 **Esc** or **P** pauses the game for everyone; it carries on once every player has pressed Ready. Hold Tab for the scoreboard: everyone's HP, kills, damage dealt and taken, build and stats. M mutes sound (volume slider in
 the top-left corner). All sound effects are synthesized in the browser (`src/client/audio.ts`), so there are no audio files.
 
+**Chat and pings.** The box in the bottom-left corner is both the chat and the event log: players joining and leaving,
+upgrade points and quests appearing, boss arrivals, players going down and getting back up, each with a timestamp (run
+time during a run, the clock in the lobby). Press **Enter** to type, **Enter** again to send (Esc cancels).
+**Shift+click** the map or the minimap to ping a spot: everyone hears it and sees a marker with your name for a few
+seconds, plus an arrow at the screen edge if it's out of view. **Shift+click** your weapons, passives and E/R slots to
+share them in chat (with the current cooldown for E and R). On the Tab screen a plain click shares: a teammate's kills, damage,
+damage taken, ult charge, HP or one of their weapons, e.g. "(Bo) 3,214 damage" or "(Bo) Whirlwind (level 3/5)".
+
 **Damage types.** Every weapon and ability deals **physical** (orange numbers), **magic** (blue) or **true** (white)
 damage; level-up cards and weapon slots show which. Only physical damage can crit. Some enemies resist a type, shown as a
 rim around them: steel for armor (Brutes, Chargers, Warlords, Wraiths, Grimjaw, Ashlord Vael), blue for a ward
@@ -147,7 +164,8 @@ Forges come on a fixed schedule: 6 per run, at 2:15, 3:36, 4:57, 6:07, 7:12 and 
   your ability takes 5 Forges, so a team that captures every Forge and plans its picks can max out everything.
 - **Altar** (cyan): a 20-second team-wide effect: Deep Freeze, Frenzy (double damage), Haste or Vacuum.
 - **Quest** (yellow): starts a quest: get the whole team to a rally point, or chase down a gold thief. Success drops a pile of gems.
-Stand next to a downed teammate to revive them. The run ends when everyone is down.
+Stand inside a downed teammate's red circle to revive them (a green arc fills around its edge). Downed teammates get a
+red cross above them, on the minimap and as an arrow at the screen edge when they're out of view. The run ends when everyone is down.
 
 ## Balance testing with bots
 

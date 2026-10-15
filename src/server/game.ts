@@ -42,6 +42,7 @@ import {
   REVIVE_TIME,
   SPAWN_DISTANCE,
   TICK_DT,
+  TICK_RATE,
 } from '../shared/constants';
 import {
   BOMBARDIER,
@@ -76,6 +77,7 @@ import {
   hordeScaling,
   type ChargeConfig,
   type MissionKind,
+  isBossType,
 } from '../shared/enemies';
 import { isPrestigeId, prestigeCost, prestigeReward, prestigeSpent, PRESTIGE, type PrestigeRanks } from '../shared/prestige';
 import { BOSS_TIME, MAPS, mapBossName, ZONE_DAMAGE, ZONE_SWEEP_TIME, type MapDef } from '../shared/maps';
@@ -122,7 +124,10 @@ import {
   type Pause,
   type Phase,
   type PlayerState,
+  type RoomRef,
   type Snapshot,
+  type LogTone,
+  CHAT_MAX,
 } from '../shared/protocol';
 import {
   MAX_LEVEL,
@@ -166,9 +171,13 @@ import {
 } from '../shared/upgrades';
 import { Bot } from './bot';
 import { FlowField } from './navigation';
+import { buyHero, buyPrestige, getProfile, noteBoss, notePlayed, refundPrestige, type Profile } from './profiles';
 import { SpatialGrid } from './spatialGrid';
 
 const SEPARATION_SPEED = 150;
+/** Pings: at most this many per player within this many seconds. */
+const PING_LIMIT = 10;
+const PING_WINDOW = 5;
 /** Names for bot teammates. */
 const BOT_NAMES = ['Rook (bot)', 'Mira (bot)', 'Bram (bot)', 'Juno (bot)', 'Wren (bot)', 'Pike (bot)'];
 const GEM_ACCEL = 1500;
@@ -235,18 +244,16 @@ export interface GameOptions {
   onProfiles?: () => void;
   /** Every hero is available without unlocking (for testing). */
   allHeroes?: boolean;
+  /** The room this game runs in (shown to players so they can share the code). */
+  room?: RoomRef;
+  /**
+   * Lobby rules for real rooms: only the host picks the map, manages bots and starts, and only once everyone else
+   * is ready. Off for tests and the balance tool, which drive the game directly.
+   */
+  hostControls?: boolean;
 }
 
-/** A player's prestige, kept between runs. */
-export interface Profile {
-  /** Unspent points. */
-  points: number;
-  /** Gold from crates, spent on heroes. */
-  gold?: number;
-  ranks: PrestigeRanks;
-  /** Heroes unlocked with prestige. */
-  heroes?: string[];
-}
+export type { Profile } from './profiles';
 
 interface Player {
   id: number;
@@ -318,6 +325,10 @@ interface Player {
   god: boolean;
   /** A bot teammate: the server plays it through the same messages a client sends. */
   bot: Bot | null;
+  /** Tick of their last chat message (to keep spam down). */
+  lastChat: number;
+  /** Ticks of their recent pings (to keep spam down). */
+  pings: number[];
 }
 
 /** Venom puddles and mines on the ground. */
@@ -631,6 +642,9 @@ export class Game {
 
   private readonly profiles: Record<string, Profile>;
 
+  /** Players who've said they're ready in the lobby. Cleared when the map changes or a run starts. */
+  private lobbyReady = new Set<number>();
+
   private grid = new SpatialGrid<Enemy>(64);
   /** Reused query buffers; never nest two grid queries that share one. */
   private near: Enemy[] = [];
@@ -645,11 +659,52 @@ export class Game {
 
   /** The prestige saved under this name, created on first sight. */
   private profile(name: string): Profile {
-    const key = name.toLowerCase();
-    const profile = (this.profiles[key] ??= { points: 0, ranks: {} });
-    profile.ranks ??= {};
-    profile.points = Math.max(0, Number(profile.points) || 0);
-    return profile;
+    return getProfile(this.profiles, name);
+  }
+
+  // --- For the room manager ---
+
+  /** People in the game (bots don't count). */
+  get humanCount(): number {
+    return this.humans().length;
+  }
+
+  get playerCount(): number {
+    return this.players.size;
+  }
+
+  get currentPhase(): Phase {
+    return this.phase;
+  }
+
+  get currentMap(): number {
+    return this.mapIndex;
+  }
+
+  /** The first person in the game. */
+  get hostName(): string {
+    return this.host()?.name ?? '';
+  }
+
+  /** Who runs the lobby: the first person still here (bots never host). */
+  private host(): Player | undefined {
+    return this.humans()[0];
+  }
+
+  /** Can this player change lobby settings? Everyone can when host controls are off. */
+  private canRunLobby(p: Player): boolean {
+    return !this.options.hostControls || this.host() === p;
+  }
+
+  /** Everyone but the host has said they're ready (bots always are). */
+  private everyoneReady(): boolean {
+    const host = this.host();
+    return this.humans().every((p) => p === host || this.lobbyReady.has(p.id));
+  }
+
+  /** Another room won a map: this one can play it too (unlocks are shared by everyone on the server). */
+  setUnlocked(unlocked: number): void {
+    this.unlocked = Math.max(this.unlocked, clamp(unlocked, 1, MAPS.length));
   }
 
   addPlayer(name: string, character: unknown, send: (text: string) => void, isBot = false): number | null {
@@ -705,6 +760,8 @@ export class Game {
       profile: isBot ? { points: 0, ranks: {}, gold: 0, heroes: [...CHARACTER_IDS] } : this.profile(name),
       god: name.toLowerCase() === DEV_NAME,
       bot: null,
+      lastChat: -1e9,
+      pings: [],
     };
     if (isCharacterId(character) && (isBot || this.canPlay(player, character))) player.character = character;
     this.resetPlayer(player, this.players.size);
@@ -713,6 +770,7 @@ export class Game {
     if (buddy) ({ x: player.x, y: player.y } = pushOut(this.walls, buddy.x + 40, buddy.y, PLAYER_RADIUS));
     if (this.pause?.kind === 'choose') player.options = this.rollOptions(player, this.pause.reason);
     this.players.set(player.id, player);
+    this.log(`${name} joined`);
     return player.id;
   }
 
@@ -737,7 +795,10 @@ export class Game {
   }
 
   removePlayer(id: number): void {
+    const leaving = this.players.get(id);
+    if (leaving) this.log(`${leaving.name} left`);
     this.players.delete(id);
+    this.lobbyReady.delete(id);
     // Bots don't play on their own: once the last person leaves, they go too.
     if (this.humans().length === 0) for (const p of [...this.players.values()]) this.players.delete(p.id);
     this.summons = this.summons.filter((m) => m.owner !== id);
@@ -752,30 +813,55 @@ export class Game {
     if (!p) return;
     switch (msg.t) {
       case 'pick':
-        if (this.phase !== 'playing' && isCharacterId(msg.character) && this.canPlay(p, msg.character)) {
+        if (this.phase !== 'playing' && !this.lobbyReady.has(p.id) && isCharacterId(msg.character) && this.canPlay(p, msg.character)) {
           p.character = msg.character;
           this.equip(p);
         }
         break;
       case 'map':
-        if (this.phase === 'lobby' && Number.isInteger(msg.index) && msg.index >= 0 && msg.index < this.unlocked) {
+        if (this.phase === 'lobby' && this.canRunLobby(p) && Number.isInteger(msg.index) && msg.index >= 0 && msg.index < this.unlocked) {
           this.loadMap(msg.index);
+          this.lobbyReady.clear(); // A new map: everyone confirms again.
           let slot = 0;
           for (const other of this.players.values()) this.resetPlayer(other, slot++);
         }
         break;
       case 'start':
-        if (this.phase !== 'playing') this.startGame();
+        if (this.options.hostControls) {
+          // The host starts from the lobby, once everyone is ready.
+          if (this.phase === 'lobby' && this.canRunLobby(p) && this.everyoneReady()) this.startGame();
+        } else if (this.phase !== 'playing') {
+          this.startGame();
+        }
         break;
       case 'lobby':
         if (this.phase === 'gameover') this.backToLobby();
         break;
       case 'addbot':
-        if (this.phase === 'lobby' && !p.bot) this.addBot();
+        if (this.phase === 'lobby' && !p.bot && this.canRunLobby(p)) this.addBot();
         break;
       case 'removebot': {
         const target = this.players.get(msg.id);
-        if (this.phase === 'lobby' && target?.bot) this.removePlayer(target.id);
+        if (this.phase === 'lobby' && target?.bot && this.canRunLobby(p)) this.removePlayer(target.id);
+        break;
+      }
+      case 'chat': {
+        const text = String(msg.text ?? '').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX);
+        // At most a couple of messages a second.
+        if (!text || p.bot || this.tickCount - p.lastChat < TICK_RATE / 2) break;
+        p.lastChat = this.tickCount;
+        this.fx.push({ k: 'chat', name: p.name, color: p.color, text });
+        break;
+      }
+      case 'ping': {
+        if (this.phase !== 'playing' || typeof msg.x !== 'number' || typeof msg.y !== 'number') break;
+        // At most PING_LIMIT pings in any PING_WINDOW seconds.
+        p.pings = p.pings.filter((tick) => this.tickCount - tick < PING_WINDOW * TICK_RATE);
+        if (p.pings.length >= PING_LIMIT) break;
+        p.pings.push(this.tickCount);
+        const x = Math.round(clamp(msg.x, 0, this.map.width));
+        const y = Math.round(clamp(msg.y, 0, this.map.height));
+        this.fx.push({ k: 'ping', x, y, color: p.color, name: p.name });
         break;
       }
       case 'giveup':
@@ -814,7 +900,10 @@ export class Game {
         }
         break;
       case 'ready':
-        if (this.pause?.kind === 'menu') {
+        if (this.phase === 'lobby') {
+          if (this.lobbyReady.has(p.id)) this.lobbyReady.delete(p.id);
+          else this.lobbyReady.add(p.id);
+        } else if (this.pause?.kind === 'menu') {
           const ready = this.pause.ready;
           const i = ready.indexOf(p.id);
           if (i >= 0) ready.splice(i, 1);
@@ -829,6 +918,7 @@ export class Game {
 
   private backToLobby(): void {
     this.phase = 'lobby';
+    this.lobbyReady.clear();
     this.clearWorld();
     let slot = 0;
     for (const other of this.players.values()) this.resetPlayer(other, slot++);
@@ -890,12 +980,7 @@ export class Game {
   // --- Prestige (between runs only) ---
 
   private buyPrestige(p: Player, id: unknown): void {
-    if (this.phase === 'playing' || !isPrestigeId(id)) return;
-    const rank = p.profile.ranks[id] ?? 0;
-    const cost = prestigeCost(rank);
-    if (rank >= PRESTIGE[id].maxRank || p.profile.points < cost) return;
-    p.profile.points -= cost;
-    p.profile.ranks[id] = rank + 1;
+    if (this.phase === 'playing' || !buyPrestige(p.profile, id)) return;
     p.hp = this.stats(p).maxHp;
     this.options.onProfiles?.();
   }
@@ -909,25 +994,25 @@ export class Game {
     return this.allHeroes(p) || heroAvailable(character, p.profile.heroes ?? []);
   }
 
-  /** Spend prestige on a hero. */
+  /** Buy a hero with gold, and play it right away. */
   private unlockHero(p: Player, character: unknown): void {
-    if (this.phase === 'playing' || !isCharacterId(character)) return;
-    const cost = CHARACTERS[character].unlockCost;
-    if (cost === undefined || this.canPlay(p, character) || (p.profile.gold ?? 0) < cost) return;
-    p.profile.gold = (p.profile.gold ?? 0) - cost;
-    p.profile.heroes = [...(p.profile.heroes ?? []), character];
+    if (this.phase === 'playing' || !buyHero(p.profile, character, this.allHeroes(p)) || !isCharacterId(character)) return;
     p.character = character;
     this.equip(p);
     this.options.onProfiles?.();
   }
 
-  /** Refund every rank, for free (unlocked heroes stay unlocked). */
+  /** Refund every rank, for free (bought heroes stay bought). */
   private respec(p: Player): void {
     if (this.phase === 'playing') return;
-    for (const rank of Object.values(p.profile.ranks)) p.profile.points += prestigeSpent(rank ?? 0);
-    p.profile.ranks = {};
+    refundPrestige(p.profile);
     p.hp = this.stats(p).maxHp;
     this.options.onProfiles?.();
+  }
+
+  /** Every hero is open in testing setups and for "dev". Public so the room manager can say the same in profiles. */
+  allHeroesFor(name: string): boolean {
+    return this.options.allHeroes === true || name.toLowerCase() === DEV_NAME;
   }
 
   tick(): void {
@@ -980,9 +1065,13 @@ export class Game {
 
   private startGame(): void {
     this.phase = 'playing';
+    this.lobbyReady.clear();
     this.clearWorld();
     let slot = 0;
     for (const p of this.players.values()) this.resetPlayer(p, slot++);
+    // Count the run for each person's hero (their profile card shows the one they play most).
+    for (const p of this.humans()) notePlayed(p.profile, p.character);
+    this.options.onProfiles?.();
   }
 
   private clearWorld(): void {
@@ -1060,6 +1149,7 @@ export class Game {
 
   private endGame(victory: boolean, unlockedMap: string | null = null): void {
     if (this.phase !== 'playing') return;
+    this.log(victory ? `Victory over ${mapBossName(this.map)}!` : 'The team was overrun', victory ? 'good' : 'danger');
     this.phase = 'gameover';
     this.pause = null;
     const prestige = prestigeReward(this.level, this.map.prestigeReward);
@@ -1119,6 +1209,11 @@ export class Game {
 
   private banner(text: string, tone: 'danger' | 'good'): void {
     this.fx.push({ k: 'banner', text, tone });
+  }
+
+  /** A line in everyone's event log (without a banner). */
+  private log(text: string, tone: LogTone = 'info'): void {
+    this.fx.push({ k: 'log', text, tone });
   }
 
   // --- Level-up pause ---
@@ -1372,6 +1467,12 @@ export class Game {
   }
 
   private addEnemy(type: number, x: number, y: number, hp: number): Enemy {
+    // Reaching a boss unlocks its bestiary entry for everyone here, win or lose.
+    if (isBossType(type)) {
+      let changed = false;
+      for (const p of this.humans()) changed = noteBoss(p.profile, ENEMY_TYPES[type].name) || changed;
+      if (changed) this.options.onProfiles?.();
+    }
     const enemy: Enemy = {
       id: this.nextId++,
       type,
@@ -1738,6 +1839,7 @@ export class Game {
       spot = this.pointNear(alive, 500, 1000, 50);
     }
     this.shrines.push({ id: this.nextId++, kind, x: spot.x, y: spot.y, progress: 0, captured: false });
+    if (kind !== ShrineKind.Forge) this.log(`${kind === ShrineKind.Event ? 'An' : 'A'} ${SHRINES[kind].name} appeared`);
   }
 
   private activateShrine(s: Shrine): void {
@@ -2190,6 +2292,7 @@ export class Game {
     if (p.hp <= 0) {
       p.hp = 0;
       p.downed = true;
+      this.log(`${p.name} is down!`, 'danger');
       p.revive = 0;
       p.epoch++; // Pin the client to where the server says they went down.
     }
@@ -2200,6 +2303,7 @@ export class Game {
     const helped = this.alivePlayers().some((o) => dist2(o.x, o.y, p.x, p.y) < REVIVE_RADIUS ** 2);
     p.revive = helped ? p.revive + dt / REVIVE_TIME : Math.max(0, p.revive - dt / REVIVE_TIME);
     if (p.revive >= 1) {
+      this.log(`${p.name} is back up`, 'good');
       p.downed = false;
       p.revive = 0;
       p.hp = this.stats(p).maxHp * 0.5;
@@ -3085,6 +3189,7 @@ export class Game {
           if (dist2(ally.x, ally.y, p.x, p.y) >= RALLY.radius ** 2) continue;
           const maxHp = this.stats(ally).maxHp;
           if (ally.downed) {
+            this.log(`${ally.name} was revived by ${p.name}'s Rally`, 'good');
             ally.downed = false;
             ally.revive = 0;
             ally.hp = maxHp * RALLY.heal;
@@ -3376,6 +3481,7 @@ export class Game {
   private broadcast(): void {
     if (this.players.size === 0) return;
 
+    const host = this.host();
     const players: PlayerState[] = [...this.players.values()].map((p) => ({
       id: p.id,
       name: p.name,
@@ -3399,6 +3505,8 @@ export class Game {
       inArena: p.inArena,
       bot: p.bot !== null,
       ult: round2(1 - p.ultCd / CHARACTERS[p.character].ultimate.cooldown),
+      host: !p.bot && p === host,
+      ready: p.bot !== null || this.lobbyReady.has(p.id),
       veiled: p.veil > 0,
       aura:
         p.strikes > 0 ? AURA.strike : p.arrowStorm > 0 ? AURA.storm : p.inferno > 0 ? AURA.inferno : p.rage > 0 ? AURA.rage : p.guard > 0 ? AURA.guard : 0,
@@ -3437,6 +3545,7 @@ export class Game {
     const shared: Omit<Snapshot, 'me'> = {
       t: 'snap',
       tick: this.tickCount,
+      room: this.options.room ?? null,
       phase: this.phase,
       map: this.mapIndex,
       unlocked: this.unlocked,

@@ -15,7 +15,7 @@ export const DODGE_IFRAMES = 0.35;
 export const PLAYER_COLORS = [0x4fc3f7, 0x81c784, 0xffb74d, 0xf06292];
 
 /** Stand this close to a downed teammate for REVIVE_TIME seconds to bring them back. */
-export const REVIVE_RADIUS = 70;
+export const REVIVE_RADIUS = 120;
 export const REVIVE_TIME = 3;
 
 export const PROJECTILE_RADIUS = 6;

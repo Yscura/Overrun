@@ -1,10 +1,13 @@
 import { Container, Graphics } from 'pixi.js';
 import { ENEMY_TYPES } from '../shared/enemies';
 import { MAPS } from '../shared/maps';
-import { SHRINES } from '../shared/objectives';
+import { SHRINES, ShrineKind } from '../shared/objectives';
 import { AFFIX_SHIFT, ENEMY_Swiftness, PICKUP_Swiftness, PickupKind, SHRINE_Swiftness, type Snapshot } from '../shared/protocol';
 
 const HEALTH_GREEN = 0x00e676;
+const DOWNED_RED = 0xff1744;
+/** Icon badges: a dark disc with a colored rim, so the glyph reads on any part of the map. */
+const BADGE = 0x14161b;
 
 const SIZE = 180;
 const SMALL_SIZE = 130;
@@ -28,7 +31,14 @@ export class Minimap {
     this.container.addChild(this.base, this.dots);
   }
 
-  update(snap: Snapshot, myId: number | null, local: { x: number; y: number }, view: { x: number; y: number; w: number; h: number }, screenWidth: number): void {
+  update(
+    snap: Snapshot,
+    myId: number | null,
+    local: { x: number; y: number },
+    view: { x: number; y: number; w: number; h: number },
+    screenWidth: number,
+    pings: readonly { x: number; y: number; color: number }[],
+  ): void {
     const size = screenWidth < 700 ? SMALL_SIZE : SIZE;
     if (snap.map !== this.mapIndex || size !== this.size) {
       this.mapIndex = snap.map;
@@ -37,7 +47,16 @@ export class Minimap {
     }
     const map = MAPS[snap.map];
     this.container.position.set(screenWidth - map.width * this.scale - MARGIN, TOP);
-    if (this.frame++ % REDRAW_EVERY === 0) this.drawDots(snap, myId, local, view);
+    if (this.frame++ % REDRAW_EVERY === 0) this.drawDots(snap, myId, local, view, pings);
+  }
+
+  /** The map spot under a screen point, or null if it's not on the minimap. */
+  toWorld(sx: number, sy: number): { x: number; y: number } | null {
+    if (this.mapIndex < 0 || !this.container.visible) return null;
+    const map = MAPS[this.mapIndex];
+    const x = (sx - this.container.x) / this.scale;
+    const y = (sy - this.container.y) / this.scale;
+    return x >= 0 && y >= 0 && x <= map.width && y <= map.height ? { x, y } : null;
   }
 
   /** The parts that only change with the map: background, walls, arena. */
@@ -54,7 +73,13 @@ export class Minimap {
     if (map.arena) g.circle(map.arena.x * s, map.arena.y * s, map.arena.r * s).stroke({ width: 1.5, color: 0xff1744, alpha: 0.8 });
   }
 
-  private drawDots(snap: Snapshot, myId: number | null, local: { x: number; y: number }, view: { x: number; y: number; w: number; h: number }): void {
+  private drawDots(
+    snap: Snapshot,
+    myId: number | null,
+    local: { x: number; y: number },
+    view: { x: number; y: number; w: number; h: number },
+    pings: readonly { x: number; y: number; color: number }[],
+  ): void {
     const s = this.scale;
     const g = this.dots.clear();
 
@@ -77,7 +102,10 @@ export class Minimap {
     }
     for (const i of elites) {
       const def = ENEMY_TYPES[snap.enemies[i + 1]];
-      g.circle(snap.enemies[i + 2] * s, snap.enemies[i + 3] * s, def.radius >= 50 ? 5 : 2.5).fill(def.color);
+      const x = snap.enemies[i + 2] * s;
+      const y = snap.enemies[i + 3] * s;
+      if (def.radius >= 50) skull(g, x, y, def.color);
+      else g.circle(x, y, 2.5).fill(def.color);
     }
 
     // Crates as small wooden boxes, hearts as green plus signs.
@@ -92,17 +120,19 @@ export class Minimap {
     // Upgrade points and the quest target, with a pulsing halo so they stand out.
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
     for (let i = 0; i < snap.shrines.length; i += SHRINE_Swiftness) {
+      const kind = snap.shrines[i + 1];
       const x = snap.shrines[i + 2] * s;
       const y = snap.shrines[i + 3] * s;
-      const color = SHRINES[snap.shrines[i + 1]].color;
-      g.circle(x, y, 8 + 3 * pulse).stroke({ width: 1.5, color, alpha: 0.6 - 0.4 * pulse });
-      g.circle(x, y, 6).fill(color).stroke({ width: 1.5, color: 0xffffff });
+      const color = SHRINES[kind].color;
+      g.circle(x, y, 10 + 3 * pulse).stroke({ width: 1.5, color, alpha: 0.6 - 0.4 * pulse });
+      g.circle(x, y, 7.5).fill(BADGE).stroke({ width: 1.5, color });
+      shrineGlyph(g, kind, x, y, color);
     }
     if (snap.quest) {
       const x = snap.quest.x * s;
       const y = snap.quest.y * s;
-      g.circle(x, y, 9 + 3 * pulse).stroke({ width: 1.5, color: 0xffee58, alpha: 0.6 - 0.4 * pulse });
-      g.poly([x, y - 7, x + 7, y, x, y + 7, x - 7, y]).fill(0xffee58).stroke({ width: 1.5, color: 0xffffff });
+      g.circle(x, y, 10 + 3 * pulse).stroke({ width: 1.5, color: 0xffee58, alpha: 0.6 - 0.4 * pulse });
+      flag(g, x, y, 0xffee58);
     }
 
     // The burning zone closing in on the arena.
@@ -110,15 +140,72 @@ export class Minimap {
       g.circle(snap.arena.x * s, snap.arena.y * s, snap.arena.safeR * s).stroke({ width: 2, color: 0xff3d00, alpha: 0.9 });
     }
 
+    // Pings: a ring pulsing in the pinger's color.
+    for (const ping of pings) {
+      const x = ping.x * s;
+      const y = ping.y * s;
+      g.circle(x, y, 7 + 5 * pulse).stroke({ width: 2, color: ping.color, alpha: 1 - 0.6 * pulse });
+      pin(g, x, y, ping.color);
+    }
+
     // What you can see right now.
     g.rect(view.x * s, view.y * s, view.w * s, view.h * s).stroke({ width: 1, color: 0xffffff, alpha: 0.35 });
 
-    for (const p of snap.players) {
+    // Players on top. Downed teammates get a pulsing red cross; you get a white halo.
+    const players = [...snap.players].sort((a, b) => Number(b.downed) - Number(a.downed)); // Standing players on top.
+    for (const p of players) {
       const x = (p.id === myId ? local.x : p.x) * s;
       const y = (p.id === myId ? local.y : p.y) * s;
-      g.circle(x, y, p.id === myId ? 4.5 : 3.5)
-        .fill({ color: p.color, alpha: p.downed ? 0.4 : 1 })
-        .stroke({ width: 1.5, color: 0xffffff });
+      if (p.downed) {
+        g.circle(x, y, 9 + 4 * pulse).stroke({ width: 2, color: DOWNED_RED, alpha: 0.9 - 0.6 * pulse });
+        g.circle(x, y, 6.5).fill(0xffffff).stroke({ width: 1.5, color: DOWNED_RED });
+        g.rect(x - 1.5, y - 4.5, 3, 9).rect(x - 4.5, y - 1.5, 9, 3).fill(DOWNED_RED);
+        continue;
+      }
+      if (p.id === myId) g.circle(x, y, 8).fill({ color: 0xffffff, alpha: 0.25 });
+      g.circle(x, y, p.id === myId ? 5 : 4).fill(p.color).stroke({ width: 1.5, color: 0xffffff });
     }
   }
+}
+
+/** The glyph inside an upgrade point's badge. */
+function shrineGlyph(g: Graphics, kind: number, x: number, y: number, color: number): void {
+  switch (kind) {
+    case ShrineKind.Forge:
+      // An anvil.
+      g.poly([x - 5, y - 3, x + 5, y - 3, x + 3, y, x + 1.5, y, x + 2.5, y + 3.5, x - 2.5, y + 3.5, x - 1.5, y, x - 3, y]).fill(color);
+      break;
+    case ShrineKind.Event:
+      // A four-pointed sparkle.
+      g.poly([x, y - 5.5, x + 1.5, y - 1.5, x + 5.5, y, x + 1.5, y + 1.5, x, y + 5.5, x - 1.5, y + 1.5, x - 5.5, y, x - 1.5, y - 1.5]).fill(color);
+      break;
+    case ShrineKind.Quest:
+      // An exclamation mark.
+      g.roundRect(x - 1.3, y - 5, 2.6, 6.5, 1).circle(x, y + 3.8, 1.4).fill(color);
+      break;
+    default:
+      // A rune: a diamond with a hole.
+      g.poly([x, y - 5, x + 4, y, x, y + 5, x - 4, y]).fill(color).circle(x, y, 1.6).fill(BADGE);
+  }
+}
+
+/** The quest target: a flag on a pole. */
+function flag(g: Graphics, x: number, y: number, color: number): void {
+  g.circle(x, y + 5, 3).fill({ color: 0x000000, alpha: 0.4 });
+  g.rect(x - 4, y - 7, 1.8, 13).fill(0xffffff);
+  g.poly([x - 2.2, y - 7, x + 6, y - 4, x - 2.2, y - 1]).fill(color).stroke({ width: 1, color: 0xffffff });
+}
+
+/** A boss: a skull in its own color. */
+function skull(g: Graphics, x: number, y: number, color: number): void {
+  g.circle(x, y - 1, 6).rect(x - 3.5, y + 2, 7, 4).fill(color).stroke({ width: 1, color: 0x000000 });
+  g.circle(x - 2.2, y - 1, 1.6).circle(x + 2.2, y - 1, 1.6).fill(0x000000);
+  g.rect(x - 0.5, y + 3, 1, 3).fill(0x000000);
+}
+
+/** A ping: a map pin in the pinger's color. */
+function pin(g: Graphics, x: number, y: number, color: number): void {
+  g.poly([x, y, x - 3.5, y - 6, x + 3.5, y - 6]).fill(color);
+  g.circle(x, y - 7.5, 4).fill(color).stroke({ width: 1, color: 0xffffff });
+  g.circle(x, y - 7.5, 1.5).fill(0xffffff);
 }

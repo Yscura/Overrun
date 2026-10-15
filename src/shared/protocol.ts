@@ -3,13 +3,27 @@
 import type { CharacterId } from './characters';
 import type { MissionKind } from './enemies';
 import type { EventKind, QuestKind } from './objectives';
+import type { ModeId } from './modes';
 import type { PrestigeId, PrestigeRanks } from './prestige';
 import type { ChoiceId, UpgradeId, Upgrades } from './upgrades';
 
 export type Phase = 'lobby' | 'playing' | 'gameover';
 
 export type ClientMessage =
-  | { t: 'join'; name: string; character: CharacterId }
+  // --- Outside a room (the main menu) ---
+  /** First thing after connecting (and after a name change): who you are. Answered with your profile. */
+  | { t: 'hello'; name: string }
+  /** Start a new room in a mode and join it. */
+  | { t: 'create'; mode: ModeId; character: CharacterId }
+  /** Join a room by its code. */
+  | { t: 'join'; code: string; character: CharacterId }
+  /** Leave the room you're in, back to the menu. */
+  | { t: 'leave' }
+  /** The open multiplayer lobbies. */
+  | { t: 'rooms' }
+  /** Your profile (prestige, gold, heroes). */
+  | { t: 'profile' }
+  // --- In a room ---
   | { t: 'pick'; character: CharacterId }
   /** Choose the map (in the lobby). Must be unlocked. */
   | { t: 'map'; index: number }
@@ -36,10 +50,14 @@ export type ClientMessage =
   | { t: 'dev'; action: DevAction }
   /** Pause the game for everyone. */
   | { t: 'pause' }
-  /** While paused: toggle being ready to carry on. */
+  /** In the lobby: toggle being ready to start. While paused: toggle being ready to carry on. */
   | { t: 'ready' }
   /** While paused: end the run for everyone (a defeat) and go back to the lobby. */
   | { t: 'giveup' }
+  /** Say something in the chat. */
+  | { t: 'chat'; text: string }
+  /** Ping a spot on the map. */
+  | { t: 'ping'; x: number; y: number }
   /** In the lobby: add a bot teammate, or remove one. */
   | { t: 'addbot' }
   | { t: 'removebot'; id: number };
@@ -51,7 +69,48 @@ export type ClientMessage =
 export type DevAction = 'skip' | 'level' | 'forge' | 'max' | 'god';
 export const DEV_NAME = 'dev';
 
-export type ServerMessage = { t: 'welcome'; id: number } | { t: 'full' } | Snapshot;
+export type ServerMessage =
+  /** You're in a room now, as player `id`. */
+  | { t: 'welcome'; id: number; room: RoomRef }
+  /** You left your room. */
+  | { t: 'left' }
+  | { t: 'profile'; profile: ProfileState }
+  | { t: 'rooms'; rooms: RoomInfo[] }
+  | { t: 'error'; message: string }
+  | Snapshot;
+
+/** A room on the server: its code (to share with friends) and mode. */
+export interface RoomRef {
+  code: string;
+  mode: ModeId;
+}
+
+/** An open lobby, for the multiplayer browser. */
+export interface RoomInfo extends RoomRef {
+  /** The first person in the room. */
+  host: string;
+  players: number;
+  humans: number;
+  maxHumans: number;
+  phase: Phase;
+  map: number;
+}
+
+/** Your progress between runs, for the profile page. */
+export interface ProfileState {
+  name: string;
+  points: number;
+  ranks: PrestigeRanks;
+  gold: number;
+  /** Heroes you've bought (or all of them, for dev and testing setups). */
+  heroes: CharacterId[];
+  /** The hero you've started the most runs with (ties go to the latest), or null before your first run. */
+  favorite: CharacterId | null;
+  /** Runs started. */
+  runs: number;
+  /** Bosses you've reached at least once, by name: their bestiary entries are unlocked. */
+  bosses: string[];
+}
 
 export interface PlayerState {
   id: number;
@@ -78,6 +137,10 @@ export interface PlayerState {
   bot: boolean;
   /** How charged their ultimate is, 0 (just used) to 1 (ready). */
   ult: number;
+  /** Runs the lobby: picks the map, adds bots and starts the game. */
+  host: boolean;
+  /** In the lobby: ready to start. */
+  ready: boolean;
   /** Hidden by Shadow Veil (drawn faintly). */
   veiled: boolean;
   /** Color of an active buff's glow (Bloodrage, guard, Death Lotus), or 0. */
@@ -188,8 +251,18 @@ export type Fx =
   | { k: 'intro'; x: number; y: number }
   /** A friendly area that fills up over `t` seconds before it hits (Meteor). */
   | { k: 'cast'; x: number; y: number; r: number; c: number; t: number }
-  /** Big announcement text. */
-  | { k: 'banner'; text: string; tone: 'danger' | 'good' };
+  /** Big announcement text (also goes in the event log). */
+  | { k: 'banner'; text: string; tone: 'danger' | 'good' }
+  /** A line in the event log only. */
+  | { k: 'log'; text: string; tone: LogTone }
+  /** A chat message. */
+  | { k: 'chat'; name: string; color: number; text: string }
+  /** Someone shift-clicked a spot: everyone sees and hears it. */
+  | { k: 'ping'; x: number; y: number; color: number; name: string };
+
+export type LogTone = 'danger' | 'good' | 'info';
+/** Longest chat message. */
+export const CHAT_MAX = 140;
 
 export interface GameResult {
   victory: boolean;
@@ -278,6 +351,8 @@ export const SUMMON_Swiftness = 4;
 export interface Snapshot {
   t: 'snap';
   tick: number;
+  /** The room this game runs in. */
+  room: RoomRef | null;
   phase: Phase;
   /** Index into MAPS. */
   map: number;

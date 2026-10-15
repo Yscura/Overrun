@@ -24,7 +24,9 @@ export type SoundName =
   | 'defeat'
   | 'chargeWarn'
   | 'bombWarn'
-  | 'resume';
+  | 'resume'
+  | 'ping'
+  | 'message';
 
 const VOLUME_KEY = 'overrun.volume';
 const MUTED_KEY = 'overrun.muted';
@@ -291,6 +293,18 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
     },
     max: 1,
   },
+  // Someone pinged the map: a bright two-note blip.
+  ping: {
+    play: (v) => {
+      v.tone({ type: 'sine', from: 880, duration: 0.12, volume: 0.09 });
+      v.tone({ type: 'sine', from: 1320, duration: 0.25, volume: 0.08, delay: 0.1 });
+      v.tone({ type: 'triangle', from: 1760, duration: 0.15, volume: 0.02, delay: 0.1 });
+    },
+    max: 2,
+    gap: 0.1,
+  },
+  // A chat message: a soft, short tick.
+  message: { play: (v) => v.tone({ type: 'sine', from: 660, to: 700, duration: 0.07, volume: 0.04 }), max: 1, gap: 0.1 },
   roar: {
     // A deep, rising-then-falling growl with a rumble underneath.
     play: (v) => {
