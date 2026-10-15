@@ -80,7 +80,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     phaseWalls: true,
   },
   mage: {
-    name: 'Lyra',
+    name: 'Eldrin',
     title: 'the Mage',
     role: 'ranged',
     maxHp: 95,
@@ -95,8 +95,8 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     trait: '+15% damage',
   },
   bruiser: {
-    name: 'Brakka',
-    title: 'the Bruiser',
+    name: 'Thorik',
+    title: 'the Barbarian',
     role: 'melee',
     maxHp: 130,
     speed: 215,
@@ -143,7 +143,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     unlockCost: 500,
   },
   ranger: {
-    name: 'Sylva',
+    name: 'Gale',
     title: 'the Ranger',
     role: 'ranged',
     maxHp: 90,
@@ -175,8 +175,8 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     unlockCost: 500,
   },
   chronobreaker: {
-    name: 'Chrono',
-    title: 'the Timebreaker',
+    name: 'Helix',
+    title: 'the Chronomancer',
     role: 'melee',
     maxHp: 120,
     speed: 225,
