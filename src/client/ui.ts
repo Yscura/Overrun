@@ -36,6 +36,7 @@ import {
 } from '../shared/upgrades';
 import type { Sound } from './audio';
 import { iconEl, ultIconEl } from './icons';
+import { heroDetail } from './heroView';
 import { portraitHtml } from './portraits';
 
 const SPEAKER =
@@ -506,43 +507,7 @@ export class UI {
     const c = CHARACTERS[id];
     const locked = !heroAvailable(id, unlocked);
 
-    const head = el('div', 'hero-detail-head');
-    const names = el('div', 'hero-detail-names');
-    const title = el('div', 'hero-detail-name');
-    title.append(el('span', '', c.name), el('span', `role ${c.role}`, c.role === 'ranged' ? 'Ranged' : 'Melee'));
-    names.append(title, el('div', 'hero-detail-title', c.title), el('div', 'hero-detail-trait', c.trait));
-    head.append(portrait(id, me.color, 'portrait hero-detail-portrait'), names);
-
-    const stats = el('div', 'hero-stats');
-    const stat = (label: string, value: string) => {
-      const cell = el('div', 'hero-stat');
-      cell.append(el('div', 'hero-stat-value', value), el('div', 'hero-stat-label', label));
-      stats.append(cell);
-    };
-    stat('Health', String(c.maxHp));
-    stat('Speed', String(c.speed));
-    stat('Armor', `${Math.round(c.armor * 100)}%`);
-    stat('Dodge', `${c.dodgeCooldown}s`);
-
-    const kit = el('div', 'hero-kit');
-    const row = (icon: HTMLElement | SVGElement, key: string, name: string, text: string, extra?: string) => {
-      const r = el('div', 'kit-row');
-      const iconBox = el('div', 'kit-icon');
-      iconBox.append(icon);
-      const body = el('div', 'kit-body');
-      const top = el('div', 'kit-top');
-      top.append(el('span', 'kit-key', key), el('span', 'kit-name', name));
-      if (extra) top.append(el('span', 'kit-extra', extra));
-      body.append(top, el('p', 'kit-text', text));
-      r.append(iconBox, body);
-      kit.append(r);
-    };
-    const strip = (text: string) => text.replace(/^\[E\] /, '');
-    row(iconEl(c.startWeapon, 40), 'Weapon', UPGRADES[c.startWeapon].name, strip(UPGRADES[c.startWeapon].describe(1)), DAMAGE_NAMES[typeOf(c.startWeapon)]);
-    row(iconEl(c.ability, 40), 'E', UPGRADES[c.ability].name, strip(UPGRADES[c.ability].describe(1)), DAMAGE_NAMES[typeOf(c.ability)]);
-    row(ultIconEl(c.ultimate.id, 40), 'R', c.ultimate.name, c.ultimate.text, `${c.ultimate.cooldown}s`);
-
-    this.heroDetail.replaceChildren(head, stats, kit);
+    this.heroDetail.replaceChildren(...heroDetail(id, me.color));
     if (locked) {
       const unlock = el('button', 'secondary hero-unlock', `Unlock for ${c.unlockCost} gold${gold < c.unlockCost! ? ` (you have ${gold})` : ''}`) as HTMLButtonElement;
       unlock.addEventListener('click', () => this.onOpenProfile());

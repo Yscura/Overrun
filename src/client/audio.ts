@@ -172,6 +172,39 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
     max: 2,
     gap: 0.06,
   },
+  // Alchemist: a glassy clink and a fizz.
+  flask: {
+    play: (v) => {
+      v.tone({ type: 'sine', from: 1900, to: 1700, duration: 0.08, volume: 0.05 });
+      v.noise({ filter: 'highpass', from: 3000, to: 5000, duration: 0.25, volume: 0.04, delay: 0.05 });
+    },
+    max: 2,
+    gap: 0.06,
+  },
+  // Paladin: a heavy hit with a bright ring to it.
+  hammer: {
+    play: (v) => {
+      v.noise({ filter: 'lowpass', from: 700, to: 150, duration: 0.15, volume: 0.15 });
+      v.tone({ type: 'triangle', from: 660, duration: 0.3, volume: 0.05, delay: 0.02 });
+    },
+    max: 2,
+  },
+  // Cleric: a soft bell.
+  smite: {
+    play: (v) => {
+      v.tone({ type: 'sine', from: 988, duration: 0.25, volume: 0.04 });
+      v.tone({ type: 'sine', from: 1480, duration: 0.2, volume: 0.02, delay: 0.03 });
+    },
+    max: 2,
+    gap: 0.08,
+  },
+  // Holy light (Consecration, Prayer): a shimmering major chord.
+  holy: {
+    play: (v) => {
+      for (const [i, f] of [523, 659, 784, 1047].entries()) v.tone({ type: 'sine', from: f, duration: 0.7, volume: 0.05, attack: 0.05, delay: i * 0.04 });
+    },
+    max: 1,
+  },
   heal: {
     play: (v) => {
       v.tone({ type: 'sine', from: 220, duration: 0.35, volume: 0.09, attack: 0.04 });

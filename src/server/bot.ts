@@ -61,7 +61,7 @@ const PASSIVE_PRIORITY: Partial<Record<UpgradeId, number>> = {
 };
 
 /** Which E abilities are aimed at a spot (and how far they reach). */
-const TARGETED_E: Partial<Record<string, number>> = { meteor: 650, timebomb: 600, treant: 450, leap: 340 };
+const TARGETED_E: Partial<Record<string, number>> = { meteor: 650, timebomb: 600, treant: 450, leap: 340, toxicpool: 550 };
 
 export class Bot {
   private snap: Snapshot | null = null;
@@ -274,7 +274,9 @@ export class Bot {
                 ? near(170) >= 4 || !!(boss && boss.d < 200)
                 : hero.ability === 'tumble'
                   ? threatened
-                  : near(200) >= 3;
+                  : hero.ability === 'prayer'
+                    ? hpShare < 0.6 || snap.players.some((q) => q.id !== me.id && !q.downed && q.hp / q.maxHp < 0.6 && Math.hypot(q.x - this.local.x, q.y - this.local.y) < 250) || near(200) >= 5
+                    : near(200) >= 3;
         if (use) {
           // Tumble away from the crowd; everything else uses the current aim.
           const angle = hero.ability === 'tumble' && enemies[0] ? Math.atan2(this.local.y - enemies[0].y, this.local.x - enemies[0].x) : aim.angle;
@@ -293,6 +295,9 @@ export class Bot {
         arrowstorm: near(600) >= 10 || !!boss,
         wildcall: near(450) >= 10 || !!boss,
         rewind: hpShare < 0.35,
+        elixir: near(400) >= 10 || !!boss || hpShare < 0.5,
+        wrath: near(350) >= 8 || !!(boss && boss.d < 400),
+        intervention: snap.players.some((q) => q.downed) || (allyHurt && hpShare < 0.5),
       };
       if (use[hero.ultimate.id]) return cast('r', aim.angle, aim.dist);
     }

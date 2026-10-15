@@ -8,6 +8,7 @@ import { PRESTIGE, PRESTIGE_IDS, prestigeCost, type PrestigeId } from '../shared
 import type { ProfileState, RoomInfo } from '../shared/protocol';
 import type { Sound } from './audio';
 import { renderBestiary } from './bestiary';
+import { heroDetail, heroPortrait, statGrid } from './heroView';
 import { portraitHtml } from './portraits';
 
 export type Screen = 'name' | 'home' | 'multiplayer' | 'profile' | 'settings' | 'bestiary';
@@ -62,6 +63,8 @@ export class Menu {
     bestiary: $('screen-bestiary'),
   };
   private profile: ProfileState | null = null;
+  /** The hero shown on the profile page (your favorite until you pick another). */
+  private profileHero: CharacterId | null = null;
   /** An enemy's picture, from the game's sprites (set by main once the renderer is up). */
   enemyArt: (type: number) => string = () => '';
   /** Opened on top of a lobby: Back closes the menu instead of going home. */
@@ -155,7 +158,7 @@ export class Menu {
     for (const [id, node] of Object.entries(this.screens)) node.classList.toggle('hidden', id !== screen);
     // The profile card sits in the corner of the menu screens (not over a lobby, and not on your own profile).
     $('profile-card').classList.toggle('hidden', overRoom || screen === 'name' || screen === 'profile');
-    this.overlay.querySelector('.menu-panel')!.classList.toggle('wide', screen === 'bestiary');
+    this.overlay.querySelector('.menu-panel')!.classList.toggle('wide', screen === 'bestiary' || screen === 'profile');
     if (screen === 'bestiary') this.renderBestiary();
     this.setStatus('');
     clearInterval(this.roomsTimer);
@@ -223,8 +226,20 @@ export class Menu {
     this.renderCard(profile);
     if (!this.screens.bestiary.classList.contains('hidden')) this.renderBestiary();
     $('profile-name').textContent = profile.name;
-    $('profile-gold').textContent = `${profile.gold} gold`;
-    $('prestige-points').textContent = `${profile.points} prestige point${profile.points === 1 ? '' : 's'}`;
+    // Totals across every hero, and what's in the wallet.
+    const totals = statGrid(
+      [
+        ['Runs', String(profile.runs)],
+        ['Wins', String(profile.wins)],
+        ['Kills', profile.kills.toLocaleString('en-US')],
+        ['Gold', String(profile.gold)],
+        ['Prestige points', String(profile.points)],
+      ],
+      'hero-stats profile-total-stats',
+    );
+    totals.children[3].classList.add('gold');
+    totals.children[4].classList.add('prestige');
+    $('profile-totals').replaceChildren(totals);
     this.renderPrestige(profile);
     this.renderHeroShop(profile);
   }
@@ -266,29 +281,62 @@ export class Menu {
     );
   }
 
+  /** Hero cards (portrait, name, runs or price) and the selected hero's kit and record beside them. */
   private renderHeroShop(profile: ProfileState): void {
+    const selected = this.profileHero ?? profile.favorite ?? CHARACTER_IDS[0];
     $('hero-shop').replaceChildren(
       ...CHARACTER_IDS.map((id: CharacterId) => {
         const c = CHARACTERS[id];
         const owned = heroAvailable(id, profile.heroes);
-        const card = el('div', `shop-hero${owned ? ' owned' : ''}`);
-        const box = el('div', 'portrait');
-        box.innerHTML = portraitHtml(id, 0x4fc3f7); // A bundled image, no user input.
-        const info = el('div', 'shop-hero-info');
-        info.append(el('div', 'shop-hero-name', `${c.name}, ${c.title}`), el('div', 'shop-hero-trait', c.trait));
-        card.append(box, info);
-        if (owned) {
-          card.append(el('span', 'shop-owned', c.unlockCost === undefined ? 'Free' : 'Owned'));
-        } else {
-          const buy = el('button', 'prestige-buy', `Buy · ${c.unlockCost} gold`) as HTMLButtonElement;
-          buy.disabled = profile.gold < c.unlockCost!;
-          buy.addEventListener('click', () => {
-            if (window.confirm(`Buy ${c.name}, ${c.title} for ${c.unlockCost} gold?`)) this.onUnlock(id);
-          });
-          card.append(buy);
-        }
+        const runs = profile.records[id]?.runs ?? 0;
+        const card = el('button', `hero-tile${id === selected ? ' selected' : ''}${owned ? '' : ' locked'}`);
+        card.append(heroPortrait(id, 0x4fc3f7, 'hero-tile-portrait'), el('div', 'hero-tile-name', c.name), el('div', 'hero-tile-title', c.title));
+        card.append(el('div', 'hero-tile-runs', owned ? `${runs} run${runs === 1 ? '' : 's'}` : ''));
+        if (!owned) card.append(el('span', 'hero-tile-lock', `${c.unlockCost} gold`));
+        card.addEventListener('click', () => {
+          this.profileHero = id;
+          this.renderHeroShop(profile);
+        });
         return card;
       }),
     );
+
+    // The selected hero: their kit, then how they've done for you, then buying them if you haven't.
+    const c = CHARACTERS[selected];
+    const owned = heroAvailable(selected, profile.heroes);
+    const record = profile.records[selected];
+    const panel = $('profile-hero');
+    panel.replaceChildren(...heroDetail(selected, 0x4fc3f7));
+    panel.append(el('h2', 'profile-record-title', 'Your record'));
+    if (record && record.runs > 0) {
+      const minutes = Math.floor(record.bestTime / 60);
+      const seconds = String(record.bestTime % 60).padStart(2, '0');
+      panel.append(
+        statGrid(
+          [
+            ['Runs', String(record.runs)],
+            ['Wins', String(record.wins)],
+            ['Kills', record.kills.toLocaleString('en-US')],
+            ['Best damage', record.bestDamage.toLocaleString('en-US')],
+            ['Longest run', `${minutes}:${seconds}`],
+            ['Win rate', `${Math.round((record.wins / record.runs) * 100)}%`],
+          ],
+          'hero-stats profile-record',
+        ),
+      );
+    } else {
+      panel.append(el('p', 'prestige-hint', owned ? 'No runs with this hero yet.' : 'Unlock this hero to start a record.'));
+    }
+    if (!owned) {
+      const buy = el('button', 'primary hero-buy', `Unlock for ${c.unlockCost} gold`) as HTMLButtonElement;
+      buy.disabled = profile.gold < c.unlockCost!;
+      if (buy.disabled) buy.title = `You have ${profile.gold} gold`;
+      buy.addEventListener('click', () => {
+        if (window.confirm(`Buy ${c.name}, ${c.title} for ${c.unlockCost} gold?`)) this.onUnlock(selected);
+      });
+      panel.append(buy);
+    } else if (c.unlockCost !== undefined) {
+      panel.append(el('p', 'shop-owned profile-owned', 'Owned'));
+    }
   }
 }

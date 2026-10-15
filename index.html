@@ -170,19 +170,21 @@
             </div>
             <p class="hint">Progress is saved per name: a new name starts a fresh profile, and switching back gets your old one back.</p>
           </div>
-          <div class="wallet">
-            <span id="profile-gold" class="gold-amount"></span>
-            <span id="prestige-points"></span>
-          </div>
+          <div id="profile-totals" class="profile-totals"></div>
           <div class="prestige-head">
             <h2>Prestige</h2>
             <button id="respec" class="link">Refund all</button>
           </div>
           <p class="prestige-hint">Permanent upgrades, kept between runs. Every team level you reach in a run earns a point (more on harder maps).</p>
           <div id="prestige"></div>
-          <h2>Heroes</h2>
-          <p class="prestige-hint">New heroes are bought with gold from crates.</p>
-          <div id="hero-shop"></div>
+          <div class="prestige-head">
+            <h2>Heroes</h2>
+          </div>
+          <p class="prestige-hint">Pick a hero to see their kit and how they've done for you. New heroes are bought with gold from crates.</p>
+          <div class="profile-heroes">
+            <div id="hero-shop"></div>
+            <div id="profile-hero" class="profile-hero"></div>
+          </div>
           <p id="profile-note" class="hint"></p>
           <div class="menu-row"><button class="secondary" data-back>Back</button></div>
         </section>

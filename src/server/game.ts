@@ -158,6 +158,12 @@ import {
   minesStats,
   venomStats,
   meteorStats,
+  flaskStats,
+  hammerStats,
+  smiteStats,
+  toxicpoolStats,
+  consecrateStats,
+  prayerStats,
   shurikenStats,
   slamStats,
   stormStats,
@@ -171,7 +177,7 @@ import {
 } from '../shared/upgrades';
 import { Bot } from './bot';
 import { FlowField } from './navigation';
-import { buyHero, buyPrestige, getProfile, noteBoss, notePlayed, refundPrestige, type Profile } from './profiles';
+import { buyHero, buyPrestige, getProfile, noteBoss, notePlayed, noteRun, refundPrestige, type Profile } from './profiles';
 import { SpatialGrid } from './spatialGrid';
 
 const SEPARATION_SPEED = 150;
@@ -183,7 +189,7 @@ const BOT_NAMES = ['Rook (bot)', 'Mira (bot)', 'Bram (bot)', 'Juno (bot)', 'Wren
 const GEM_ACCEL = 1500;
 const GEM_MAX_SPEED = 900;
 /** Weapons that fire on their own (hero abilities are cast with E instead). */
-const WEAPON_IDS: WeaponId[] = ['bolt', 'knives', 'storm', 'hex', 'cleave', 'slam', 'venom', 'orbit', 'field', 'mines', 'shuriken', 'daggers', 'fireball', 'arrows', 'wolves'];
+const WEAPON_IDS: WeaponId[] = ['bolt', 'knives', 'storm', 'hex', 'cleave', 'slam', 'venom', 'orbit', 'field', 'mines', 'shuriken', 'daggers', 'fireball', 'arrows', 'wolves', 'flask', 'hammer', 'smite'];
 /** Seeker hexes turn this fast (radians per second) and look this far for a target. */
 const HEX_TURN = 7;
 const HEX_SEEK = 600;
@@ -224,9 +230,18 @@ const WOLF = {
   crowding: 140,
 };
 const CHRONO = { radius: 900, stun: 4 };
-const RAGE = { duration: 8, damage: 1.6, cooldown: 0.7, regen: 0.04 };
+/** Bloodrage: also heavy lifesteal (share of damage dealt, up to `lifestealCap` of max HP per second) and no dying. */
+const RAGE = { duration: 8, damage: 1.6, cooldown: 0.7, regen: 0.04, lifesteal: 0.06, lifestealCap: 0.08 };
 const RALLY = { radius: 700, heal: 0.4, guard: 6, reduction: 0.5 };
-const AURA = { rage: 0xff1744, guard: 0xffd54f, strike: 0xce93d8, storm: 0x9ccc65, inferno: 0xff6d00 };
+const AURA = { rage: 0xff1744, guard: 0xffd54f, strike: 0xce93d8, storm: 0x9ccc65, inferno: 0xff6d00, elixir: 0x76ff03, wrath: 0xfff59d };
+/** Grand Elixir: the alchemist drinks it, healing and buffing herself for a while. */
+const ELIXIR = { duration: 8, heal: 0.3, damage: 1.25, cooldown: 0.8, speed: 1.25, reduction: 0.25 };
+/** Avenging Wrath: pillars of light around the paladin, who takes less damage meanwhile. */
+const WRATH = { duration: 8, interval: 0.3, range: 420, radius: 70, damage: 70, perLevel: 5, reduction: 0.5 };
+/** Divine Intervention: everyone up, healed to full and untouchable for a moment. */
+const INTERVENTION = { invuln: 3 };
+/** Holy light (Paladin and Cleric): gold rings and pillars. */
+const HOLY = 0xffe082;
 
 /** Charge attack cycle (chargers and bosses). Other enemies stay in Normal. */
 const Mode = { Normal: 0, Windup: 1, Charge: 2, Recover: 3 } as const;
@@ -285,6 +300,10 @@ interface Player {
   ultCd: number;
   // Seconds left on buffs.
   rage: number;
+  /** Grand Elixir (from any alchemist on the team). */
+  elixir: number;
+  /** Avenging Wrath: seconds of light pillars left. */
+  wrath: number;
   guard: number;
   guardReduction: number;
   /** Shadow Veil: seconds of invisibility left. */
@@ -343,6 +362,10 @@ interface Zone {
   /** Mine: blast radius. */
   blast: number;
   damage: number;
+  /** Hallowed ground: HP per tick to allies standing in it. */
+  heal?: number;
+  /** Seconds between damage ticks, if not the usual for its kind (Toxic Pool ticks faster). */
+  tick?: number;
   life: number;
   /** Venom: seconds to the next damage tick. Mine: seconds until armed. */
   timer: number;
@@ -362,6 +385,8 @@ interface Blast {
   /** Stuns what it hits for this long. */
   stun?: number;
   color?: number;
+  /** Flask Toss: an acid puddle left where it lands. */
+  puddle?: { r: number; damage: number; life: number };
 }
 
 /** An ally a hero calls in: the druid's wolves and treants. */
@@ -734,6 +759,8 @@ export class Game {
       abilityCd: 0,
       ultCd: 0,
       rage: 0,
+      elixir: 0,
+      wrath: 0,
       guard: 0,
       guardReduction: 0,
       veil: 0,
@@ -1126,6 +1153,8 @@ export class Game {
     p.abilityCd = 0;
     p.ultCd = 0;
     p.rage = 0;
+    p.elixir = 0;
+    p.wrath = 0;
     p.guard = 0;
     p.veil = 0;
     p.strikes = 0;
@@ -1154,7 +1183,9 @@ export class Game {
     this.pause = null;
     const prestige = prestigeReward(this.level, this.map.prestigeReward);
     for (const p of this.players.values()) p.profile.points += prestige;
-    if (prestige > 0 || this.runGold > 0) this.options.onProfiles?.();
+    // Each person's hero record: wins, kills, best damage, longest run.
+    for (const p of this.humans()) noteRun(p.profile, p.character, { victory, damage: p.damageDealt, kills: p.kills, time: this.time });
+    this.options.onProfiles?.();
     this.result = {
       victory,
       prestige,
@@ -1189,6 +1220,14 @@ export class Game {
       stats.damageMult *= RAGE.damage;
       stats.cooldownMult *= RAGE.cooldown;
       stats.regen += stats.maxHp * RAGE.regen;
+      stats.lifesteal += RAGE.lifesteal;
+      stats.lifestealCap += RAGE.lifestealCap;
+    }
+    if (p.elixir > 0) {
+      stats.damageMult *= ELIXIR.damage;
+      stats.cooldownMult *= ELIXIR.cooldown;
+      stats.speed *= ELIXIR.speed;
+      stats.armor = 1 - (1 - stats.armor) * (1 - ELIXIR.reduction);
     }
     if (p.guard > 0) stats.armor = 1 - (1 - stats.armor) * (1 - p.guardReduction);
     if (p.veil > 0) stats.speed *= 1 + veilStats(p.upgrades.veil ?? 1).speed;
@@ -2239,6 +2278,7 @@ export class Game {
     p.abilityCd = Math.max(0, p.abilityCd - dt);
     p.ultCd = Math.max(0, p.ultCd - dt);
     p.rage = Math.max(0, p.rage - dt);
+    p.elixir = Math.max(0, p.elixir - dt);
     p.guard = Math.max(0, p.guard - dt);
     this.updateUltimates(p, dt);
     if (p.downed) {
@@ -2288,7 +2328,8 @@ export class Game {
     else p.taken.push(Math.round(taken));
     p.hurtUntil = this.time + 0.12;
     // God mode for testing: damage lands, but never below 1 HP.
-    if (p.god) p.hp = Math.max(1, p.hp);
+    // God mode (testing) and Bloodrage: damage lands, but never below 1 HP.
+    if (p.god || p.rage > 0) p.hp = Math.max(1, p.hp);
     if (p.hp <= 0) {
       p.hp = 0;
       p.downed = true;
@@ -2448,6 +2489,12 @@ export class Game {
         }
         return 0.1;
       }
+      case 'flask':
+        return this.flasks(p, level, stats);
+      case 'hammer':
+        return this.hammer(p, level, stats);
+      case 'smite':
+        return this.smite(p, level, stats);
       case 'mines': {
         const s = minesStats(level);
         const mine = this.zones.filter((z) => z.kind === ZoneKind.Mine && z.owner === p.id && !z.dead);
@@ -2468,8 +2515,8 @@ export class Game {
   /** Burning ground at (x, y). */
   private addZoneAt(p: Player, kind: number, x: number, y: number, r: number, damage: number, life: number, type: DamageType): void {
     this.zones.push({ id: this.nextId++, kind, owner: p.id, x, y, r, blast: 0, damage, life, timer: 0, type, dead: false });
-    const fires = this.zones.filter((z) => z.kind === ZoneKind.Fire && !z.dead);
-    if (fires.length > MAX_VENOM) fires[0].dead = true;
+    const same = this.zones.filter((z) => z.kind === kind && !z.dead);
+    if (same.length > MAX_VENOM) same[0].dead = true;
   }
 
   /** Venom puddles tick damage; mines arm, then blow up when an enemy comes close. */
@@ -2485,9 +2532,15 @@ export class Game {
       const owner = this.players.get(z.owner);
       if (z.kind !== ZoneKind.Mine) {
         if (z.timer > 0) continue;
-        z.timer = z.kind === ZoneKind.Fire ? BURN_TICK : VENOM_TICK;
-        // Flying enemies float over venom, but not over fire.
-        const hitsFlying = z.kind === ZoneKind.Fire;
+        z.timer = z.tick ?? (z.kind === ZoneKind.Venom ? VENOM_TICK : BURN_TICK);
+        // Flying enemies float over venom and poison pools, but not over fire or holy light.
+        const hitsFlying = z.kind !== ZoneKind.Venom && z.kind !== ZoneKind.Toxic;
+        if (z.heal) {
+          for (const ally of this.players.values()) {
+            if (ally.downed || dist2(ally.x, ally.y, z.x, z.y) >= (z.r + PLAYER_RADIUS) ** 2) continue;
+            ally.hp = Math.min(this.stats(ally).maxHp, ally.hp + z.heal);
+          }
+        }
         for (const e of this.grid.query(z.x, z.y, z.r + MAX_ENEMY_RADIUS, this.near)) {
           if (!e.dead && (hitsFlying || !ENEMY_TYPES[e.type].flying) && dist2(e.x, e.y, z.x, z.y) < (z.r + ENEMY_TYPES[e.type].radius) ** 2) {
             this.damageEnemy(e, z.damage, owner, z.type);
@@ -2532,6 +2585,94 @@ export class Game {
     };
     this.projectiles.push(pr);
     return pr;
+  }
+
+  /** Flask Toss: lob flasks at different enemies nearby; each splashes and leaves acid where it lands. */
+  private flasks(p: Player, level: number, stats: PlayerStats): number {
+    const s = flaskStats(level);
+    const inRange = this.grid.query(p.x, p.y, s.range, this.near).filter((e) => !e.dead && dist2(e.x, e.y, p.x, p.y) < s.range ** 2);
+    if (inRange.length === 0) return 0.2;
+    inRange.sort((a, b) => dist2(a.x, a.y, p.x, p.y) - dist2(b.x, b.y, p.x, p.y));
+    const count = s.count + stats.projectiles;
+    const r = s.radius * stats.area;
+    for (let i = 0; i < count; i++) {
+      // The nearest few, then spread over the rest of the crowd.
+      const e = inRange[i < inRange.length ? i : Math.floor(Math.random() * inRange.length)];
+      const x = e.x + (Math.random() - 0.5) * 20;
+      const y = e.y + (Math.random() - 0.5) * 20;
+      this.blasts.push({
+        x,
+        y,
+        r,
+        damage: s.damage * stats.damageMult,
+        owner: p.id,
+        t: s.flight,
+        color: 0x76ff03,
+        type: 'magic',
+        puddle: { r: r * s.puddle.scale, damage: s.puddle.damage * stats.damageMult, life: s.puddle.life * stats.duration },
+      });
+      this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0x76ff03, t: s.flight });
+    }
+    p.sounds.push('flask');
+    return s.cooldown;
+  }
+
+  /** Judgment Hammer: holy light smashed down in front of you, plus pillars on other enemies once evolved. */
+  private hammer(p: Player, level: number, stats: PlayerStats): number {
+    const s = hammerStats(level);
+    const r = s.radius * stats.area;
+    const x = p.x + Math.cos(p.aim) * s.reach;
+    const y = p.y + Math.sin(p.aim) * s.reach;
+    const damage = s.damage * stats.damageMult;
+    for (const e of this.grid.query(x, y, r + MAX_ENEMY_RADIUS, this.near)) {
+      if (e.dead || dist2(e.x, e.y, x, y) >= (r + ENEMY_TYPES[e.type].radius) ** 2) continue;
+      this.damageEnemy(e, damage, p, 'magic');
+      this.knockback(e, p.x, p.y, s.knockback);
+    }
+    this.hitCratesAround(x, y, r, damage);
+    this.fx.push({ k: 'ring', x: Math.round(x), y: Math.round(y), r, c: HOLY });
+    if (s.pillars > 0) {
+      const others = this.grid
+        .query(p.x, p.y, 320, this.near)
+        .filter((e) => !e.dead && dist2(e.x, e.y, x, y) > r ** 2 && dist2(e.x, e.y, p.x, p.y) < 320 ** 2);
+      for (let i = 0; i < s.pillars + stats.projectiles && others.length > 0; i++) {
+        const e = others.splice(Math.floor(Math.random() * others.length), 1)[0];
+        this.splash(e.x, e.y, r * 0.7, damage, p, 'magic');
+        this.fx.push({ k: 'zap', x: Math.round(e.x), y: Math.round(e.y) });
+        this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: r * 0.7, c: HOLY });
+      }
+    }
+    p.sounds.push('hammer');
+    return s.cooldown;
+  }
+
+  /** Smite: light strikes the nearest enemies, and the most hurt ally nearby is mended. */
+  private smite(p: Player, level: number, stats: PlayerStats): number {
+    const s = smiteStats(level);
+    const inRange = this.grid
+      .query(p.x, p.y, s.range, this.near)
+      .filter((e) => !e.dead && dist2(e.x, e.y, p.x, p.y) < s.range ** 2)
+      .sort((a, b) => dist2(a.x, a.y, p.x, p.y) - dist2(b.x, b.y, p.x, p.y));
+    if (inRange.length === 0) return 0.2;
+    for (const e of inRange.slice(0, s.targets + stats.projectiles)) {
+      this.damageEnemy(e, s.damage * stats.damageMult, p, 'magic');
+      this.fx.push({ k: 'zap', x: Math.round(e.x), y: Math.round(e.y) });
+      this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: 28, c: HOLY });
+    }
+    // The ally (or yourself) missing the biggest share of their health.
+    let patient: Player | null = null;
+    let worst = 1;
+    for (const ally of this.players.values()) {
+      if (ally.downed || dist2(ally.x, ally.y, p.x, p.y) > s.healRange ** 2) continue;
+      const share = ally.hp / this.stats(ally).maxHp;
+      if (share < worst) {
+        worst = share;
+        patient = ally;
+      }
+    }
+    if (patient) patient.hp = Math.min(this.stats(patient).maxHp, patient.hp + s.heal);
+    p.sounds.push('smite');
+    return s.cooldown;
   }
 
   /** Shadow Daggers: stab the nearest enemies within reach (or all of them, evolved). */
@@ -3107,6 +3248,83 @@ export class Game {
         p.sounds.push('summon');
         return s.cooldown;
       }
+      case 'toxicpool': {
+        const s = toxicpoolStats(level);
+        const d = Math.min(reach, s.maxRange);
+        const x = clamp(p.x + dirX * d, 0, this.map.width);
+        const y = clamp(p.y + dirY * d, 0, this.map.height);
+        const r = s.radius * stats.area;
+        this.zones.push({
+          id: this.nextId++,
+          kind: ZoneKind.Toxic,
+          owner: p.id,
+          x,
+          y,
+          r,
+          blast: 0,
+          damage: s.damage * stats.damageMult,
+          tick: s.tick,
+          life: s.life * stats.duration,
+          timer: 0,
+          type: 'magic',
+          dead: false,
+        });
+        this.fx.push({ k: 'ring', x: Math.round(x), y: Math.round(y), r, c: 0x9ccc65 });
+        p.sounds.push('flask');
+        return s.cooldown;
+      }
+      case 'consecrate': {
+        const s = consecrateStats(level);
+        const r = s.radius * stats.area;
+        this.zones.push({
+          id: this.nextId++,
+          kind: ZoneKind.Holy,
+          owner: p.id,
+          x: p.x,
+          y: p.y,
+          r,
+          blast: 0,
+          damage: s.damage * stats.damageMult,
+          heal: s.heal,
+          life: s.life * stats.duration,
+          timer: 0,
+          type: 'magic',
+          dead: false,
+        });
+        if (s.stun > 0) {
+          for (const e of this.grid.query(p.x, p.y, r + MAX_ENEMY_RADIUS, this.near)) {
+            if (!e.dead && dist2(e.x, e.y, p.x, p.y) < (r + ENEMY_TYPES[e.type].radius) ** 2) this.stun(e, s.stun * stats.duration);
+          }
+        }
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: HOLY });
+        p.sounds.push('holy');
+        return s.cooldown;
+      }
+      case 'prayer': {
+        const s = prayerStats(level);
+        const r = s.radius * stats.area;
+        for (const ally of this.players.values()) {
+          if (dist2(ally.x, ally.y, p.x, p.y) >= r ** 2) continue;
+          const maxHp = this.stats(ally).maxHp;
+          if (ally.downed) {
+            if (!s.revive) continue;
+            this.log(`${ally.name} was raised by ${p.name}'s Miracle`, 'good');
+            ally.downed = false;
+            ally.revive = 0;
+            ally.hp = maxHp * s.revive;
+          } else {
+            ally.hp = Math.min(maxHp, ally.hp + maxHp * s.heal);
+          }
+          ally.guardReduction = Math.max(ally.guard > 0 ? ally.guardReduction : 0, s.reduction);
+          ally.guard = Math.max(ally.guard, s.guard * stats.duration);
+        }
+        const damage = s.damage * stats.damageMult;
+        this.splash(p.x, p.y, r, damage, p, 'magic');
+        this.hitCratesAround(p.x, p.y, r, damage);
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: HOLY });
+        p.sounds.push('holy');
+        return s.cooldown;
+      }
       case 'timebomb': {
         const s = timebombStats(level);
         const d = Math.min(reach, s.maxRange);
@@ -3180,6 +3398,32 @@ export class Game {
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0x80d8ff });
         break;
       }
+      case 'elixir':
+        p.hp = Math.min(stats.maxHp, p.hp + stats.maxHp * ELIXIR.heal);
+        p.elixir = ELIXIR.duration * stats.duration;
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 90, c: AURA.elixir });
+        p.sounds.push('heal');
+        break;
+      case 'wrath':
+        p.wrath = WRATH.duration * stats.duration;
+        p.ultTimer = 0;
+        p.guardReduction = Math.max(p.guard > 0 ? p.guardReduction : 0, WRATH.reduction);
+        p.guard = Math.max(p.guard, p.wrath);
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: WRATH.range, c: HOLY });
+        break;
+      case 'intervention':
+        for (const ally of this.players.values()) {
+          const maxHp = this.stats(ally).maxHp;
+          if (ally.downed) {
+            this.log(`${ally.name} was saved by ${p.name}'s Divine Intervention`, 'good');
+            ally.downed = false;
+            ally.revive = 0;
+          }
+          ally.hp = maxHp;
+          ally.invuln = Math.max(ally.invuln, INTERVENTION.invuln);
+          this.fx.push({ k: 'ring', x: Math.round(ally.x), y: Math.round(ally.y), r: 90, c: HOLY });
+        }
+        break;
       case 'rage':
         p.rage = RAGE.duration * stats.duration;
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 120, c: AURA.rage });
@@ -3207,7 +3451,7 @@ export class Game {
   /** Ultimates that play out over time: Shadow Strike, Inferno, Arrow Storm, and Shadow Veil's eruption. */
   private updateUltimates(p: Player, dt: number): void {
     if (p.downed) {
-      p.veil = p.strikes = p.inferno = p.arrowStorm = 0;
+      p.veil = p.strikes = p.inferno = p.arrowStorm = p.wrath = 0;
       return;
     }
     const stats = this.stats(p);
@@ -3270,6 +3514,20 @@ export class Game {
         this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0xff6d00, t: 0.5 });
       }
     }
+    if (p.wrath > 0) {
+      p.wrath -= dt;
+      while (p.ultTimer <= 0) {
+        p.ultTimer += WRATH.interval;
+        // A pillar of light on a random enemy around the paladin.
+        const near = this.grid.query(p.x, p.y, WRATH.range * stats.area, this.near).filter((e) => !e.dead && dist2(e.x, e.y, p.x, p.y) < (WRATH.range * stats.area) ** 2);
+        if (near.length === 0) break;
+        const e = near[Math.floor(Math.random() * near.length)];
+        const r = WRATH.radius * stats.area;
+        this.blasts.push({ x: e.x, y: e.y, r, damage: (WRATH.damage + WRATH.perLevel * this.level) * stats.damageMult, owner: p.id, t: 0.25, color: HOLY, type: 'magic' });
+        this.fx.push({ k: 'cast', x: Math.round(e.x), y: Math.round(e.y), r, c: HOLY, t: 0.25 });
+      }
+      if (p.ultTimer < 0) p.ultTimer = 0;
+    }
     if (p.arrowStorm > 0) {
       p.arrowStorm -= dt;
       while (p.ultTimer <= 0) {
@@ -3287,6 +3545,10 @@ export class Game {
       b.t -= dt;
       if (b.t > 0) continue;
       this.splash(b.x, b.y, b.r, b.damage, this.players.get(b.owner), b.type);
+      const owner = this.players.get(b.owner);
+      if (b.puddle && owner) {
+        this.addZoneAt(owner, ZoneKind.Venom, b.x, b.y, b.puddle.r, b.puddle.damage, b.puddle.life, 'magic');
+      }
       if (b.stun) {
         for (const e of this.grid.query(b.x, b.y, b.r + MAX_ENEMY_RADIUS, this.near)) {
           if (!e.dead && dist2(e.x, e.y, b.x, b.y) < (b.r + ENEMY_TYPES[e.type].radius) ** 2) this.stun(e, b.stun);
@@ -3509,7 +3771,21 @@ export class Game {
       ready: p.bot !== null || this.lobbyReady.has(p.id),
       veiled: p.veil > 0,
       aura:
-        p.strikes > 0 ? AURA.strike : p.arrowStorm > 0 ? AURA.storm : p.inferno > 0 ? AURA.inferno : p.rage > 0 ? AURA.rage : p.guard > 0 ? AURA.guard : 0,
+        p.strikes > 0
+          ? AURA.strike
+          : p.arrowStorm > 0
+            ? AURA.storm
+            : p.inferno > 0
+              ? AURA.inferno
+              : p.wrath > 0
+                ? AURA.wrath
+                : p.rage > 0
+                  ? AURA.rage
+                  : p.elixir > 0
+                    ? AURA.elixir
+                    : p.guard > 0
+                      ? AURA.guard
+                      : 0,
     }));
     const enemies: number[] = [];
     for (const e of this.enemies) {
@@ -3612,7 +3888,7 @@ export class Game {
       speed: stats.speed,
       dodgeCooldown: stats.dodgeCooldown,
       ability: { cd: round1(p.abilityCd), cooldown: round1(this.abilityCooldown(p) * stats.cooldownMult) },
-      ultimate: { cd: round1(p.ultCd), cooldown: hero.ultimate.cooldown, active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil)) },
+      ultimate: { cd: round1(p.ultCd), cooldown: hero.ultimate.cooldown, active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil, p.wrath, hero.ultimate.id === 'elixir' ? p.elixir : 0)) },
       hits: this.takeHits(p),
       taken: p.taken.splice(0),
       sounds: [...new Set(p.sounds.splice(0))], // One of each per snapshot is plenty.
@@ -3654,6 +3930,12 @@ export class Game {
         return leapStats(level).cooldown;
       case 'warcry':
         return warcryStats(level).cooldown;
+      case 'toxicpool':
+        return toxicpoolStats(level).cooldown;
+      case 'consecrate':
+        return consecrateStats(level).cooldown;
+      case 'prayer':
+        return prayerStats(level).cooldown;
     }
   }
 }

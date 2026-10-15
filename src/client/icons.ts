@@ -103,6 +103,18 @@ const ICONS: Record<ChoiceId, string> = {
   // Treant: a tree.
   treant: `<rect x="13" y="17" width="6" height="13" rx="1.5" fill="#8a5a3a"/><circle cx="16" cy="11" r="9" fill="${GREEN}"/><circle cx="9" cy="16" r="5.5" fill="${GREEN_DARK}"/><circle cx="23" cy="16" r="5.5" fill="${GREEN_DARK}"/><circle cx="13" cy="8" r="2.5" fill="#8ef0b0"/>`,
   // Time Bomb: a bomb with a clock face.
+  // Flask Toss: a round flask of green brew with a cork.
+  flask: `<rect x="12" y="2" width="8" height="5" rx="1.5" fill="#8d6e63"/><path d="M13 7 H19 V12 C25 14 28 18 28 22 C28 27.5 22.5 31 16 31 C9.5 31 4 27.5 4 22 C4 18 7 14 13 12 Z" fill="${STEEL}"/><path d="M6.5 21 C10 23 22 23 25.5 21 C26 26 21.5 28.5 16 28.5 C10.5 28.5 6 26 6.5 21 Z" fill="${GREEN}"/><circle cx="13" cy="24" r="1.8" fill="#c6ff8a"/><circle cx="19" cy="25.5" r="1.2" fill="#c6ff8a"/>`,
+  // Judgment Hammer: a gold-trimmed war hammer with light behind it.
+  hammer: `<circle cx="19" cy="11" r="10" fill="#ffe082" opacity=".35"/><path d="M5 29 L18 14" stroke="#9a6a3e" stroke-width="3.6" stroke-linecap="round"/><rect x="12" y="3" width="17" height="11" rx="2" fill="${STEEL}" transform="rotate(42 20.5 8.5)"/><rect x="12" y="7" width="17" height="3" fill="${GOLD}" transform="rotate(42 20.5 8.5)"/>`,
+  // Smite: a beam of light striking down.
+  smite: `<path d="M12 1 H20 L18 22 H14 Z" fill="#fff59d"/><path d="M14.5 1 H17.5 L16.6 22 H15.4 Z" fill="#ffffff"/><ellipse cx="16" cy="25" rx="11" ry="4.5" fill="${GOLD}"/><ellipse cx="16" cy="25" rx="6" ry="2.4" fill="#fff59d"/><path d="M4 18 L7 20 M28 18 L25 20" stroke="#fff59d" stroke-width="2.2" stroke-linecap="round"/>`,
+  // Toxic Pool: a bubbling green puddle with a skull-ish glint.
+  toxicpool: `<ellipse cx="16" cy="23" rx="15" ry="7" fill="#5a8f2a"/><ellipse cx="16" cy="22" rx="12" ry="5" fill="#9ccc65"/><circle cx="10" cy="15" r="3" fill="#9ccc65"/><circle cx="20" cy="10" r="4" fill="#c5e1a5"/><circle cx="25" cy="16" r="2.2" fill="#9ccc65"/><circle cx="19" cy="9" r="1.3" fill="#ffffff" opacity=".7"/><path d="M8 23 C11 25 21 25 24 23" stroke="#33691e" stroke-width="1.8" fill="none" stroke-linecap="round"/>`,
+  // Consecration: a glowing circle on the ground with rays rising from it.
+  consecrate: `<ellipse cx="16" cy="24" rx="14" ry="6" fill="#ffe082" opacity=".45"/><ellipse cx="16" cy="24" rx="14" ry="6" fill="none" stroke="${GOLD}" stroke-width="2.4"/><path d="M10 22 V9 M16 21 V3 M22 22 V9" stroke="#fff59d" stroke-width="3" stroke-linecap="round"/>`,
+  // Prayer of Light: hands together, haloed.
+  prayer: `<circle cx="16" cy="9" r="7" fill="none" stroke="${GOLD}" stroke-width="2.6"/><path d="M16 11 C13 15 11 20 11 25 L9 30 H16 Z" fill="#f6d2b6"/><path d="M16 11 C19 15 21 20 21 25 L23 30 H16 Z" fill="#e8b58f"/><path d="M16 11 V30" stroke="#b07a5a" stroke-width="1.5"/>`,
   timebomb: `<circle cx="15" cy="18" r="11" fill="#2e3a4a"/><circle cx="15" cy="18" r="7" fill="${CYAN}"/><path d="M15 18 V13.5 M15 18 L18.5 20" stroke="#1b2a35" stroke-width="2" stroke-linecap="round"/><path d="M22 9 L25 5" stroke="#b07a4a" stroke-width="2.4" stroke-linecap="round"/><circle cx="26.5" cy="3.5" r="2.5" fill="${ORANGE}"/>`,
 
   // --- Bonus choices ---
@@ -127,6 +139,12 @@ const ULT_ICONS: Record<UltimateId, string> = {
   // Call of the Wild: a paw print under a moon.
   wildcall: `<path d="M26 2 C21 3 18.5 8 20.5 12.5 C22.5 16 27 17 30 15 C26.5 14.5 24 11 24.5 7.5 C25 5 26 3.5 26 2 Z" fill="${CREAM}"/><ellipse cx="13" cy="23.5" rx="6.5" ry="5.5" fill="${GREEN}"/><ellipse cx="5" cy="15.5" rx="2.6" ry="3.4" fill="${GREEN}"/><ellipse cx="10.5" cy="11" rx="2.6" ry="3.4" fill="${GREEN}"/><ellipse cx="17" cy="11.5" rx="2.6" ry="3.4" fill="${GREEN}"/><ellipse cx="21.5" cy="17" rx="2.6" ry="3.4" fill="${GREEN}"/><ellipse cx="11" cy="22" rx="3" ry="2" fill="#8ef0b0" opacity=".6"/>`,
   // Chronobreak: an hourglass inside a backward-turning arrow.
+  // Grand Elixir: a tall flask with bubbles rising out of it.
+  elixir: `<circle cx="11" cy="5" r="2.4" fill="${GREEN}"/><circle cx="19" cy="3" r="1.8" fill="${GREEN}"/><circle cx="22" cy="8" r="1.4" fill="#c6ff8a"/><path d="M12 9 H20 V14 L27 25 C28.5 28 26.5 31 23 31 H9 C5.5 31 3.5 28 5 25 L12 14 Z" fill="${STEEL}"/><path d="M7.5 23 H24.5 L26 25.5 C27 27.5 25.5 29 23 29 H9 C6.5 29 5 27.5 6 25.5 Z" fill="${GREEN}"/><path d="M11 25 L13 23" stroke="#c6ff8a" stroke-width="2" stroke-linecap="round"/>`,
+  // Avenging Wrath: wings of light around a sword.
+  wrath: `<path d="M16 4 C9 6 4 11 2 19 C7 16 11 16 14 18 Z M16 4 C23 6 28 11 30 19 C25 16 21 16 18 18 Z" fill="#fff59d"/><path d="M15 3 H17 V24 H15 Z" fill="${STEEL}"/><path d="M10 23 H22 V25.5 H10 Z" fill="${GOLD}"/><path d="M14.8 25.5 H17.2 V31 H14.8 Z" fill="#9a6a3e"/>`,
+  // Divine Intervention: a radiant hand reaching down.
+  intervention: `<g stroke="#fff59d" stroke-width="2.4" stroke-linecap="round"><path d="M16 26 V31 M6 22 L3 25 M26 22 L29 25"/></g><path d="M9 2 H23 V10 C23 15 20 18 16 19 C12 18 9 15 9 10 Z" fill="#f6d2b6"/><path d="M11 2 V9 M14 2 V10 M18 2 V10 M21 2 V9" stroke="#b07a5a" stroke-width="1.4"/><circle cx="16" cy="22" r="4" fill="${GOLD}"/>`,
   rewind: `<path d="M27 16 A11 11 0 1 1 16 5" stroke="${CYAN}" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M16 1 L21 5 L16 9 Z" fill="${CYAN}"/><path d="M11 10 H21 V12 C21 14 18 15.5 17 16 C18 16.5 21 18 21 20 V22 H11 V20 C11 18 14 16.5 15 16 C14 15.5 11 14 11 12 Z" fill="#eceff1"/><path d="M13 21 C13.5 19.5 15 18.5 16 18 C17 18.5 18.5 19.5 19 21 Z" fill="${CYAN}"/>`,
 };
 

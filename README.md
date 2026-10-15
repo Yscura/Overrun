@@ -98,14 +98,17 @@ Pick a hero in the lobby. Ranged and melee heroes are offered different weapons:
 |---|---|---|---|---|---|
 | Kael, the Assassin | Melee | Shadow Daggers | Shadow Veil: vanish (enemies lose you and can't touch you), then erupt | Shadow Strike (45s): blink between 7 enemies | +40% damage, 30% smaller areas, 70 HP, phases through walls |
 | Lyra, the Mage | Ranged | Arcane Bolt | Meteor: lands at your cursor | Chrono Freeze (70s) | +15% damage |
-| Brakka, the Bruiser | Melee | Cleave | Leap: jump to your cursor and smash | Bloodrage (60s) | Regenerates HP |
+| Brakka, the Bruiser | Melee | Cleave | Leap: jump to your cursor and smash | Bloodrage (60s): 8s of damage, lifesteal and can't drop below 1 HP | Regenerates HP |
 | Torvald, the Tank | Melee | Ground Slam | War Cry: taunt enemies, take less damage | Rally (90s): heal, shield, revive | Takes 25% less damage |
 | Ignis, the Pyromancer | Ranged | Fireball | Flame Nova: fire ring that leaves the ground burning | Inferno (60s): fireballs rain around you | +25% damage, 30% bigger areas, 70 HP |
 | Sylva, the Ranger | Ranged | Longbow | Tumble: roll toward the cursor and loose a fan of arrows | Arrow Storm (50s): 4s of rapid fire at the cursor | +15% damage, fast, dodges every 1.4s |
 | Oakhart, the Druid | Melee | Wolf Pack (druid only) | Treant: summons a tree that slams and roots | Call of the Wild (70s): 6 more wolves for 15s | 200 HP, regenerates |
 | Vex, the Chronobreaker | Melee | Spirit Blades | Time Bomb: detonates at the cursor and stuns | Chronobreak (60s): rewind 4s, restore HP, explode | +15% damage |
+| Vessa, the Alchemist | Ranged | Flask Toss: splash and acid puddles | Toxic Pool: a wide, long-lasting pool of poison at the cursor | Grand Elixir (75s): heal 30%, then 8s of +25% damage, faster attacks, speed and armor | +15% damage |
+| Aldric, the Paladin | Melee | Judgment Hammer (magic) | Consecration: hallowed ground that burns enemies and heals allies | Avenging Wrath (70s): 8s of light pillars, half damage taken | 150 HP, armored |
+| Seraphine, the Cleric | Ranged | Smite: strikes the nearest enemy, heals the most hurt ally | Prayer of Light: heal and shield allies around you, sear enemies | Divine Intervention (120s): every ally up, full HP, 3s invulnerable | The healer |
 
-The first four heroes are free. Ignis, Sylva, Oakhart and Vex cost 500 gold each (a full run brings in a few hundred):
+The first four heroes are free. Ignis, Sylva, Oakhart, Vex, Vessa, Aldric and Seraphine cost 500 gold each (a full run brings in a few hundred):
 click their card in the lobby. `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.
 
 WASD / arrows to move. Aimed weapons (bolts, knives, cleave) go toward your mouse cursor; the rest work on their own.

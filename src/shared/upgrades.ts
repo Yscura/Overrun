@@ -2,7 +2,7 @@ import { PICKUP_BASE_RADIUS } from './constants';
 
 export type Role = 'ranged' | 'melee';
 /** Hero abilities (cast with E). They level up like weapons but only their own hero can get them. */
-export type AbilityId = 'meteor' | 'leap' | 'warcry' | 'veil' | 'flamenova' | 'tumble' | 'treant' | 'timebomb';
+export type AbilityId = 'meteor' | 'leap' | 'warcry' | 'veil' | 'flamenova' | 'tumble' | 'treant' | 'timebomb' | 'toxicpool' | 'consecrate' | 'prayer';
 export type WeaponId =
   | 'bolt'
   | 'knives'
@@ -19,6 +19,9 @@ export type WeaponId =
   | 'fireball'
   | 'arrows'
   | 'wolves'
+  | 'flask'
+  | 'hammer'
+  | 'smite'
   | AbilityId;
 export type PassiveId =
   | 'might'
@@ -309,6 +312,55 @@ export function wolvesStats(level: number) {
   };
 }
 
+/** Alchemist: flasks lobbed at nearby enemies that splash and leave acid puddles. */
+export function flaskStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 15 + 6 * n,
+    cooldown: Math.max(0.9, 1.6 - 0.14 * n),
+    // Evolved: one more flask per throw.
+    count: 1 + Math.floor(n / 3) + (evolved ? 1 : 0),
+    radius: 55 + 5 * n,
+    range: 520,
+    /** Seconds from the throw to the splash. */
+    flight: 0.45,
+    /** Acid puddle left behind: damage every 0.5s. Evolved: 50% bigger. */
+    puddle: { damage: 3 + 1.5 * n, life: 2, scale: evolved ? 1.2 : 0.8 },
+  };
+}
+
+/** Paladin: a hammer of holy light smashed down in front of you. */
+export function hammerStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 32 + 12 * n,
+    cooldown: Math.max(0.75, 1.3 - 0.12 * n),
+    radius: 75 + 6 * n,
+    /** How far in front of you it lands. */
+    reach: 60,
+    knockback: 25,
+    /** Evolved: pillars of light also strike this many other enemies nearby. */
+    pillars: evolved ? 2 : 0,
+  };
+}
+
+/** Cleric: holy light strikes the nearest enemy and mends the most hurt ally. */
+export function smiteStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 26 + 10 * n,
+    cooldown: Math.max(0.55, 1 - 0.1 * n),
+    range: 480,
+    // Evolved: two more strikes, and twice the healing.
+    targets: 1 + (evolved ? 2 : 0),
+    heal: (2 + n) * (evolved ? 2 : 1),
+    healRange: 500,
+  };
+}
+
 /** Lyra: a meteor lands at the cursor after a short delay. */
 export function meteorStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
@@ -420,6 +472,56 @@ export function timebombStats(level: number) {
     maxRange: 600,
     /** Evolved: it goes off a second time. */
     repeats: evolved ? 2 : 1,
+  };
+}
+
+/** Alchemist: a big pool of poison at your cursor that eats away at everything in it for a long time. */
+export function toxicpoolStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    radius: (190 + 12 * n) * (evolved ? 1.3 : 1),
+    /** Seconds it lasts. Evolved: much longer. */
+    life: (8 + 0.5 * n) * (evolved ? 1.6 : 1),
+    /** Damage to every enemy in the pool, every `tick` seconds. */
+    damage: 4 + 2 * n,
+    tick: 0.3,
+    cooldown: Math.max(9, 14 - n),
+    maxRange: 550,
+  };
+}
+
+/** Paladin: hallowed ground under you that burns enemies and heals allies standing in it. */
+export function consecrateStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    radius: (140 + 10 * n) * (evolved ? 1.5 : 1),
+    life: 5 + 0.5 * n,
+    /** Per tick (every 0.5s): damage to enemies, HP to allies. */
+    damage: 10 + 5 * n,
+    heal: 2 + 0.5 * n,
+    cooldown: Math.max(7, 12 - n),
+    /** Evolved: enemies inside when it's laid down are stunned. */
+    stun: evolved ? 1 : 0,
+  };
+}
+
+/** Cleric: a burst of light that heals and shields allies around you and sears enemies. */
+export function prayerStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    radius: 260 + 20 * n,
+    /** Share of max HP healed. */
+    heal: 0.12 + 0.02 * n,
+    /** Damage taken is cut by this much for `guard` seconds. */
+    reduction: 0.3,
+    guard: 3,
+    damage: 45 + 18 * n,
+    cooldown: Math.max(6, 12 - 1.2 * n),
+    /** Evolved: fallen allies inside get back up with this much HP. */
+    revive: evolved ? 0.3 : 0,
   };
 }
 
@@ -615,6 +717,72 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       return `${plural(s.count, 'spirit wolf', 'spirit wolves')} hunt enemies near you, biting for ${s.damage} damage.`;
     },
     evolution: { name: 'Alpha Pack', text: 'Two more wolves, and every bite tears into the enemies around the target.' },
+  },
+  flask: {
+    name: 'Flask Toss',
+    kind: 'weapon',
+    damage: 'magic',
+    role: 'ranged',
+    describe: (level) => {
+      const s = flaskStats(level);
+      return `Lobs ${plural(s.count, 'flask')} at nearby enemies every ${s.cooldown.toFixed(1)}s, splashing for ${s.damage} damage and leaving acid that burns for ${s.puddle.damage} every 0.5s.`;
+    },
+    evolution: { name: 'Volatile Concoction', text: 'One more flask per throw, and the acid spreads 50% wider.' },
+  },
+  hammer: {
+    name: 'Judgment Hammer',
+    kind: 'weapon',
+    damage: 'magic',
+    role: 'melee',
+    describe: (level) => {
+      const s = hammerStats(level);
+      return `Smashes a hammer of light down in front of you for ${s.damage} damage every ${s.cooldown.toFixed(2)}s, pushing enemies back.`;
+    },
+    evolution: { name: 'Hammer of Dawn', text: 'Every smash also calls pillars of light down on two more enemies nearby.' },
+  },
+  smite: {
+    name: 'Smite',
+    kind: 'weapon',
+    damage: 'magic',
+    role: 'ranged',
+    describe: (level) => {
+      const s = smiteStats(level);
+      return `Holy light strikes the nearest enemy for ${s.damage} damage every ${s.cooldown.toFixed(2)}s and heals the most hurt ally nearby for ${s.heal} HP.`;
+    },
+    evolution: { name: 'Holy Fire', text: 'Strikes two more enemies, and heals twice as much.' },
+  },
+  toxicpool: {
+    name: 'Toxic Pool',
+    kind: 'weapon',
+    damage: 'magic',
+    owner: 'alchemist',
+    describe: (level) => {
+      const s = toxicpoolStats(level);
+      return `[E] Spill a wide pool of poison at your cursor for ${s.life.toFixed(1)}s. Every enemy in it takes ${s.damage} damage every ${s.tick}s. ${s.cooldown.toFixed(0)}s cooldown.`;
+    },
+    evolution: { name: 'Plague Bog', text: 'The pool is 30% wider and lasts 60% longer.' },
+  },
+  consecrate: {
+    name: 'Consecration',
+    kind: 'weapon',
+    damage: 'magic',
+    owner: 'paladin',
+    describe: (level) => {
+      const s = consecrateStats(level);
+      return `[E] Hallow the ground around you for ${s.life}s: enemies in it take ${s.damage} damage and allies heal ${s.heal} HP every 0.5s. ${s.cooldown.toFixed(0)}s cooldown.`;
+    },
+    evolution: { name: 'Sanctified Ground', text: 'The hallowed ground is 50% wider, and enemies in it when it appears are stunned for 1 second.' },
+  },
+  prayer: {
+    name: 'Prayer of Light',
+    kind: 'weapon',
+    damage: 'magic',
+    owner: 'cleric',
+    describe: (level) => {
+      const s = prayerStats(level);
+      return `[E] Heal allies around you for ${Math.round(s.heal * 100)}% of their max HP and cut their damage taken by 30% for ${s.guard}s. Enemies in the light take ${s.damage} damage. ${s.cooldown.toFixed(1)}s cooldown.`;
+    },
+    evolution: { name: 'Miracle', text: 'Fallen allies in the light get back up with 30% HP.' },
   },
   veil: {
     name: 'Shadow Veil',

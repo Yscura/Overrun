@@ -20,8 +20,19 @@ import {
   type WeaponId,
 } from './upgrades';
 
-export type CharacterId = 'assassin' | 'mage' | 'bruiser' | 'tank' | 'pyro' | 'ranger' | 'druid' | 'chronobreaker';
-export type UltimateId = 'shadowstrike' | 'chrono' | 'rage' | 'rally' | 'inferno' | 'arrowstorm' | 'wildcall' | 'rewind';
+export type CharacterId = 'assassin' | 'mage' | 'bruiser' | 'tank' | 'pyro' | 'ranger' | 'druid' | 'chronobreaker' | 'alchemist' | 'paladin' | 'cleric';
+export type UltimateId =
+  | 'shadowstrike'
+  | 'chrono'
+  | 'rage'
+  | 'rally'
+  | 'inferno'
+  | 'arrowstorm'
+  | 'wildcall'
+  | 'rewind'
+  | 'elixir'
+  | 'wrath'
+  | 'intervention';
 
 export interface UltimateDef {
   id: UltimateId;
@@ -106,7 +117,12 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     dodgeCooldown: 3,
     startWeapon: 'cleave',
     ability: 'leap',
-    ultimate: { id: 'rage', name: 'Bloodrage', text: 'For 8s: +60% damage, 30% faster attacks and heavy regeneration.', cooldown: 60 },
+    ultimate: {
+      id: 'rage',
+      name: 'Bloodrage',
+      text: "For 8s: +60% damage, 30% faster attacks, heavy regeneration and lifesteal, and you can't drop below 1 HP.",
+      cooldown: 60,
+    },
     trait: 'Regenerates 1 HP per second',
   },
   tank: {
@@ -193,6 +209,69 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
       cooldown: 60,
     },
     trait: '+25% damage. Chronobreak turns back time',
+    unlockCost: 500,
+  },
+  alchemist: {
+    name: 'Altor',
+    title: 'the Alchemist',
+    role: 'ranged',
+    maxHp: 85,
+    speed: 220,
+    armor: 0,
+    regen: 0,
+    damageMult: 1.15,
+    dodgeCooldown: 2.8,
+    startWeapon: 'flask',
+    ability: 'toxicpool',
+    ultimate: {
+      id: 'elixir',
+      name: 'Grand Elixir',
+      text: 'Drink it: heal 30%, and for 8s get +25% damage, 20% faster attacks, 25% more speed and 25% less damage taken.',
+      cooldown: 75,
+    },
+    trait: '+15% damage. Poisons whole crowds at once',
+    unlockCost: 500,
+  },
+  paladin: {
+    name: 'Zarek',
+    title: 'the Paladin',
+    role: 'melee',
+    maxHp: 150,
+    speed: 205,
+    armor: 0.15,
+    regen: 0.5,
+    damageMult: 1.1,
+    dodgeCooldown: 3.2,
+    startWeapon: 'hammer',
+    ability: 'consecrate',
+    ultimate: {
+      id: 'wrath', damage: 'magic',
+      name: 'Avenging Wrath',
+      text: 'For 8s, pillars of light strike enemies around you and you take half damage.',
+      cooldown: 70,
+    },
+    trait: 'Armored holy warrior: magic damage up close, and heals allies',
+    unlockCost: 500,
+  },
+  cleric: {
+    name: 'Liora',
+    title: 'the Cleric',
+    role: 'ranged',
+    maxHp: 100,
+    speed: 215,
+    armor: 0.1,
+    regen: 0.5,
+    damageMult: 1.15,
+    dodgeCooldown: 3,
+    startWeapon: 'smite',
+    ability: 'prayer',
+    ultimate: {
+      id: 'intervention',
+      name: 'Divine Intervention',
+      text: 'Every ally, anywhere: the fallen get back up, everyone heals to full and is invulnerable for 3s.',
+      cooldown: 120,
+    },
+    trait: 'The healer: keeps the team standing',
     unlockCost: 500,
   },
 };

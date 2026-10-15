@@ -3307,3 +3307,97 @@ body:has(#lobby:not(.hidden)) #sound-control {
   opacity: 0.45;
   cursor: default;
 }
+
+/* --- Profile page: totals, hero cards and the selected hero --- */
+
+.profile-totals {
+  margin-bottom: 18px;
+}
+
+.profile-total-stats {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.profile-total-stats .hero-stat-value {
+  font-size: 20px;
+}
+
+.profile-total-stats .gold .hero-stat-value {
+  color: #ffd54f;
+}
+
+.profile-total-stats .prestige .hero-stat-value {
+  color: #b388ff;
+}
+
+.profile-heroes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+@media (max-width: 860px) {
+  .profile-heroes {
+    grid-template-columns: 1fr;
+  }
+}
+
+#hero-shop {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.hero-tile-runs {
+  min-height: 1.2em;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.profile-hero {
+  position: sticky;
+  top: 0;
+  padding: 16px;
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.profile-hero .hero-detail-portrait {
+  width: 96px;
+  height: 96px;
+}
+
+.profile-record-title {
+  margin: 16px 0 8px;
+}
+
+.profile-record {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.hero-buy {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.profile-owned {
+  margin: 12px 0 0;
+  text-align: center;
+}
+
+.hero-buy:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+#screen-profile .setting {
+  max-width: 520px;
+  margin-right: auto;
+  margin-left: auto;
+}

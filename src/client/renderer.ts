@@ -800,6 +800,30 @@ export class GameRenderer {
         venom.circle(x, y, r).fill({ color: 0x76ff03, alpha: 0.16 });
         continue;
       }
+      if (kind === ZoneKind.Toxic) {
+        // Toxic Pool: a murky green pool with slowly drifting bubbles.
+        const t = performance.now() / 1000;
+        venom.circle(x, y, r).fill({ color: 0x558b2f, alpha: 0.22 }).circle(x, y, r).stroke({ width: 2, color: 0x9ccc65, alpha: 0.45 });
+        for (let b = 0; b < 6; b++) {
+          const a = id * 1.7 + b * 1.05 + t * 0.15;
+          const d = r * (0.25 + 0.6 * ((b * 0.37 + id * 0.13) % 1));
+          const pop = (t * 0.8 + b * 0.31) % 1;
+          venom.circle(x + Math.cos(a) * d, y + Math.sin(a) * d, 3 + 6 * pop).stroke({ width: 1.5, color: 0xc5e1a5, alpha: 0.5 * (1 - pop) });
+        }
+        continue;
+      }
+      if (kind === ZoneKind.Holy) {
+        // Hallowed ground: a soft golden glow with a pulsing rim.
+        const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260 + id);
+        venom
+          .circle(x, y, r)
+          .fill({ color: 0xffe082, alpha: 0.12 + 0.05 * pulse })
+          .circle(x, y, r)
+          .stroke({ width: 3, color: 0xfff59d, alpha: 0.35 + 0.3 * pulse })
+          .circle(x, y, r * 0.6)
+          .stroke({ width: 1.5, color: 0xfff59d, alpha: 0.25 });
+        continue;
+      }
       if (kind === ZoneKind.Fire) {
         const flicker = 0.5 + 0.5 * Math.sin(performance.now() / 90 + id);
         venom.circle(x, y, r).fill({ color: 0xff6d00, alpha: 0.14 + 0.06 * flicker }).circle(x, y, r * 0.55).fill({ color: 0xffab40, alpha: 0.1 });

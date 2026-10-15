@@ -97,6 +97,18 @@ export interface RoomInfo extends RoomRef {
 }
 
 /** Your progress between runs, for the profile page. */
+/** One hero's history on a profile. */
+export interface HeroRecord {
+  /** Runs started with them. */
+  runs: number;
+  wins: number;
+  kills: number;
+  /** Most damage dealt in a single run. */
+  bestDamage: number;
+  /** Longest run, in seconds. */
+  bestTime: number;
+}
+
 export interface ProfileState {
   name: string;
   points: number;
@@ -108,6 +120,11 @@ export interface ProfileState {
   favorite: CharacterId | null;
   /** Runs started. */
   runs: number;
+  /** Runs won, and enemies killed in all runs. */
+  wins: number;
+  kills: number;
+  /** How each hero has done in your hands. */
+  records: Partial<Record<CharacterId, HeroRecord>>;
   /** Bosses you've reached at least once, by name: their bestiary entries are unlocked. */
   bosses: string[];
 }
@@ -239,7 +256,11 @@ export type SoundId =
   | 'coin'
   | 'roar'
   | 'revive'
-  | 'revived';
+  | 'revived'
+  | 'flask'
+  | 'hammer'
+  | 'smite'
+  | 'holy';
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
@@ -320,7 +341,7 @@ export const ProjectileKind = { Bolt: 0, Knife: 1, Shuriken: 2, Hex: 3, BigShuri
 /** Allies some heroes call in. */
 export const SummonKind = { Wolf: 0, Treant: 1 } as const;
 /** Things players leave on the ground. */
-export const ZoneKind = { Venom: 0, Mine: 1, Fire: 2 } as const;
+export const ZoneKind = { Venom: 0, Mine: 1, Fire: 2, Holy: 3, Toxic: 4 } as const;
 /** Telegraphed danger zones: a bomb circle or a charger's path. */
 export const HazardKind = { Circle: 0, Line: 1 } as const;
 /** Bit flags in the enemy list. */

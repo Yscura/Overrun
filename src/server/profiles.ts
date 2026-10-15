@@ -4,7 +4,7 @@
 import { CHARACTERS, CHARACTER_IDS, heroAvailable, isCharacterId, type CharacterId } from '../shared/characters';
 import { ENEMY_TYPES, isBossType } from '../shared/enemies';
 import { PRESTIGE, isPrestigeId, prestigeCost, prestigeSpent, type PrestigeRanks } from '../shared/prestige';
-import type { ProfileState } from '../shared/protocol';
+import type { HeroRecord, ProfileState } from '../shared/protocol';
 
 export interface Profile {
   /** Unspent prestige points. */
@@ -20,6 +20,18 @@ export interface Profile {
   lastHero?: string;
   /** Names of the bosses they've reached (won or not). */
   bosses?: string[];
+  /** How each hero's finished runs went (runs started are in `played`). */
+  records?: Record<string, Omit<HeroRecord, 'runs'>>;
+}
+
+/** A run ended: add it to the hero's record. */
+export function noteRun(profile: Profile, character: CharacterId, run: { victory: boolean; damage: number; kills: number; time: number }): void {
+  profile.records ??= {};
+  const r = (profile.records[character] ??= { wins: 0, kills: 0, bestDamage: 0, bestTime: 0 });
+  if (run.victory) r.wins++;
+  r.kills += run.kills;
+  r.bestDamage = Math.max(r.bestDamage, Math.round(run.damage));
+  r.bestTime = Math.max(r.bestTime, Math.round(run.time));
 }
 
 /** A run starts: count it for the hero they're playing. */
@@ -103,6 +115,14 @@ export function profileState(name: string, profile: Profile, allHeroes: boolean)
     heroes: allHeroes ? [...CHARACTER_IDS] : (profile.heroes ?? []).filter((h): h is CharacterId => isCharacterId(h)),
     favorite: favoriteHero(profile),
     runs: Object.values(profile.played ?? {}).reduce((sum, n) => sum + n, 0),
+    wins: Object.values(profile.records ?? {}).reduce((sum, r) => sum + r.wins, 0),
+    kills: Object.values(profile.records ?? {}).reduce((sum, r) => sum + r.kills, 0),
+    records: Object.fromEntries(
+      CHARACTER_IDS.filter((id) => profile.played?.[id] || profile.records?.[id]).map((id) => [
+        id,
+        { runs: profile.played?.[id] ?? 0, ...(profile.records?.[id] ?? { wins: 0, kills: 0, bestDamage: 0, bestTime: 0 }) },
+      ]),
+    ),
     // Testing setups see every boss, like every hero.
     bosses: allHeroes ? ENEMY_TYPES.filter((_, t) => isBossType(t)).map((e) => e.name) : (profile.bosses ?? []),
   };
