@@ -1,12 +1,13 @@
 import { Application, BitmapFont, BitmapText, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { CHARACTER_IDS, type CharacterId, REWIND_SECONDS } from '../shared/characters';
-import { BOMB, BOSS_INTRO, COIN, CRATE_RADIUS, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
+import { BOMB, BOSS_INTRO, COIN, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
 import { DAMAGE_COLORS, DAMAGE_TYPES } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
-import { NO_ROTATE, drawEnemy } from './enemyArt';
+import { NO_ROTATE, drawEnemy, shade } from './enemyArt';
 import { TILE, decorations, drawWalls, groundTile } from './mapArt';
 import { MAPS } from '../shared/maps';
 import { Minimap } from './minimap';
+import { portraitUrl } from './portraits';
 import { RALLY_RADIUS, SHRINES, SHRINE_RADIUS, ShrineKind } from '../shared/objectives';
 import {
   ENEMY_SHOT_STRIDE,
@@ -58,6 +59,14 @@ const POINTER_MARGIN = 28;
 /** Downed players: their red cross and revive zone, and their body grayed out. */
 const DOWNED_RED = 0xff1744;
 const DOWNED_TINT = 0x8a8f99;
+/** Heroes are drawn as round portrait tokens, a little bigger than their hitbox so the faces read. */
+const TOKEN_R = PLAYER_RADIUS + 4;
+/** Resolution of the token textures (they're drawn at TOKEN_R * 2). */
+const TOKEN_TEX = 128;
+/** Walk cycle: radians of stride per pixel moved (a full step every ~30px). */
+const STRIDE_PER_PX = 0.21;
+/** Moving faster than this (a dodge, a leap) leaves wind streaks behind. Walking never gets near it. */
+const WIND_SPEED = DODGE_SPEED * 0.6;
 /** How long a ping stays on the map, in seconds. */
 const PING_LIFE = 4;
 
@@ -91,9 +100,24 @@ interface PlayerView {
   root: Container;
   bladeLayer: Container;
   blades: Sprite[];
-  body: Sprite;
-  outline: Sprite;
+  /** On the ground: a shadow and two feet. */
+  shadow: Graphics;
+  feet: Graphics;
+  /** The bit that bobs and sways: the portrait token, its ring, and a white flash when hit. */
+  avatar: Container;
+  token: Sprite;
+  ring: Graphics;
+  flash: Graphics;
   bars: Graphics;
+  /** Walk cycle phase, how much they're walking (0 idle to 1), and which way they face (1 right, -1 left). */
+  walk: number;
+  moving: number;
+  facing: number;
+  turn: number;
+  last: Point;
+  ringColor: number;
+  /** Moving at dash speed last frame (the first frame of a dash also leaves a puff of air). */
+  dashing: boolean;
   seen: number;
 }
 
@@ -156,7 +180,7 @@ export class GameRenderer {
     treant: Texture;
     enemies: Texture[];
     enemyFlash: Texture[];
-    bodies: Record<CharacterId, { fill: Texture; outline: Texture }>;
+    tokens: Record<CharacterId, Texture>;
     aimArrow: Texture;
     bolt: Texture;
     knife: Texture;
@@ -227,7 +251,7 @@ export class GameRenderer {
     this.tex = {
       enemies: ENEMY_TYPES.map((_, type) => this.enemyTexture(type, false)),
       enemyFlash: ENEMY_TYPES.map((_, type) => this.enemyTexture(type, true)),
-      bodies: Object.fromEntries(CHARACTER_IDS.map((id) => [id, this.bodyTextures(id)])) as Record<CharacterId, { fill: Texture; outline: Texture }>,
+      tokens: await this.tokenTextures(),
       aimArrow: this.texture(new Graphics().poly([0, -6, 10, 0, 0, 6]).fill({ color: 0xffffff, alpha: 0.85 })),
       bolt: this.texture(new Graphics().circle(0, 0, 9).fill({ color: 0xffffff, alpha: 0.3 }).circle(0, 0, 5).fill(0xffffff)),
       knife: this.texture(new Graphics().poly([-9, -2, 7, -2, 12, 0, 7, 2, -9, 2]).fill(0xffffff)),
@@ -531,7 +555,7 @@ export class GameRenderer {
     );
     this.renderPickups(sample, playing);
     this.renderRewindTrail(b.snap, myId, local);
-    this.renderPlayers(sample, myId, local);
+    this.renderPlayers(sample, myId, local, aim, realDt);
 
     this.aimArrow.visible = hasMe && aim !== null;
     if (aim !== null) {
@@ -992,7 +1016,7 @@ export class GameRenderer {
     g.poly([end.x - h, end.y - h, end.x + h, end.y - h, end.x, end.y, end.x + h, end.y + h, end.x - h, end.y + h, end.x, end.y]).fill({ color, alpha: 0.7 * strength });
   }
 
-  private renderPlayers({ a, b, t }: Sample, myId: number | null, local: Point): void {
+  private renderPlayers({ a, b, t }: Sample, myId: number | null, local: Point, aim: number | null, realDt: number): void {
     const time = lerp(a.snap.time, b.snap.time, t);
     for (const p of b.snap.players) {
       let x = p.x;
@@ -1011,12 +1035,8 @@ export class GameRenderer {
       const view = this.playerViews.get(p.id) ?? this.createPlayerView(p);
       view.seen = this.frame;
       view.root.position.set(x, y);
-      // Character can change in the lobby.
-      const textures = this.tex.bodies[p.character];
-      view.body.texture = textures.fill;
-      view.outline.texture = textures.outline;
-      view.body.tint = p.hurt ? 0xffffff : p.downed ? DOWNED_TINT : p.color;
-      view.body.alpha = p.downed ? 0.7 : 1;
+      view.token.texture = this.tex.tokens[p.character]; // Heroes can change in the lobby.
+      this.animateAvatar(view, p, x, y, p.id === myId ? aim : null, realDt);
       // Shadow Veil: barely there (enemies can't see you at all).
       view.root.alpha = p.veiled ? 0.25 : p.invuln ? 0.5 : 1;
       this.drawBars(view.bars, p);
@@ -1032,22 +1052,141 @@ export class GameRenderer {
   private createPlayerView(p: PlayerState): PlayerView {
     const root = new Container();
     const bladeLayer = new Container();
-    const body = new Sprite(this.tex.bodies[p.character].fill);
-    body.anchor.set(0.5);
-    const outline = new Sprite(this.tex.bodies[p.character].outline);
-    outline.anchor.set(0.5);
+    const shadow = new Graphics().ellipse(0, 0, TOKEN_R * 0.95, TOKEN_R * 0.38).fill({ color: 0x000000, alpha: 0.35 });
+    shadow.y = TOKEN_R - 1;
+    const feet = new Graphics();
+    const avatar = new Container();
+    const token = new Sprite(this.tex.tokens[p.character]);
+    token.anchor.set(0.5);
+    token.width = token.height = TOKEN_R * 2;
+    const ring = new Graphics();
+    const flash = new Graphics().circle(0, 0, TOKEN_R).fill(0xffffff);
+    flash.alpha = 0;
+    avatar.addChild(token, flash, ring);
     const bars = new Graphics();
     const label = new Text({
       text: p.name,
       style: { fontFamily: 'system-ui, sans-serif', fontSize: 13, fontWeight: '600', fill: 0xffffff, stroke: { color: 0x000000, width: 3 } },
     });
     label.anchor.set(0.5, 1);
-    label.y = -PLAYER_RADIUS - 8;
-    root.addChild(bladeLayer, body, outline, bars, label);
+    label.y = -TOKEN_R - 10;
+    root.addChild(bladeLayer, shadow, feet, avatar, bars, label);
     this.layers.players.addChild(root);
-    const view: PlayerView = { root, bladeLayer, blades: [], body, outline, bars, seen: 0 };
+    const view: PlayerView = {
+      root,
+      bladeLayer,
+      blades: [],
+      shadow,
+      feet,
+      avatar,
+      token,
+      ring,
+      flash,
+      bars,
+      walk: 0,
+      moving: 0,
+      facing: 1,
+      turn: 1,
+      last: { x: p.x, y: p.y },
+      ringColor: -1,
+      dashing: false,
+      seen: 0,
+    };
     this.playerViews.set(p.id, view);
     return view;
+  }
+
+  /**
+   * Air rushing past a dashing hero: thin streaks trailing behind them that drift back and fade, and on the first
+   * frame a puff of air where they kicked off.
+   */
+  private windTrail(x: number, y: number, ux: number, uy: number, start: boolean): void {
+    const px = -uy;
+    const py = ux;
+    for (let i = 0; i < 2; i++) {
+      const side = (Math.random() * 2 - 1) * TOKEN_R * 1.1;
+      const back = TOKEN_R * 0.4 + Math.random() * 10;
+      const len = 18 + Math.random() * 22;
+      const drift = 26 + Math.random() * 20;
+      const width = 1.5 + Math.random() * 1.5;
+      this.addEffect(x + px * side - ux * back, y + py * side - uy * back, 0.26 + Math.random() * 0.1, (g, p) => {
+        const off = -drift * p;
+        const l = len * (1 - 0.5 * p);
+        g.moveTo(ux * off, uy * off)
+          .lineTo(ux * (off - l), uy * (off - l))
+          .stroke({ width: width * (1 - p) + 0.5, color: 0xe8f4ff, alpha: 0.6 * (1 - p), cap: 'round' });
+      });
+    }
+    if (!start) return;
+    for (let i = 0; i < 6; i++) {
+      const angle = Math.atan2(-uy, -ux) + (Math.random() - 0.5) * 2.2;
+      const speed = 20 + Math.random() * 30;
+      const r = 5 + Math.random() * 5;
+      this.addEffect(x - ux * TOKEN_R, y - uy * TOKEN_R, 0.4, (g, p) =>
+        g
+          .circle(Math.cos(angle) * speed * p, Math.sin(angle) * speed * p, r * (1 + p * 1.2))
+          .fill({ color: 0xdfe9f3, alpha: 0.35 * (1 - p) }),
+      );
+    }
+  }
+
+  /**
+   * The walking trick: the token bobs and sways in step, two feet shuffle underneath, it squashes a little on each
+   * step and turns to face where it's going (or, for you, the cursor). Fallen heroes topple over and go gray.
+   */
+  private animateAvatar(view: PlayerView, p: PlayerState, x: number, y: number, aim: number | null, realDt: number): void {
+    const dx = x - view.last.x;
+    const dy = y - view.last.y;
+    const dist = Math.hypot(dx, dy);
+    view.last = { x, y };
+    // Dashing (dodge, leap): wind streaks behind them.
+    const dashing = !p.downed && dist < 120 && dist / Math.max(realDt, 1e-3) > WIND_SPEED;
+    if (dashing) this.windTrail(x, y, dx / dist, dy / dist, !view.dashing);
+    view.dashing = dashing;
+    const walking = !p.downed && dist > 0.15 && dist < 40; // Big jumps are teleports, not steps.
+    if (walking) view.walk += dist * STRIDE_PER_PX;
+    view.moving += ((walking ? 1 : 0) - view.moving) * 0.2;
+    if (aim !== null) view.facing = Math.cos(aim) < 0 ? -1 : 1;
+    else if (Math.abs(dx) > 0.3) view.facing = dx < 0 ? -1 : 1;
+    // Turning flips through a squash rather than snapping.
+    view.turn += (view.facing - view.turn) * 0.45;
+
+    const m = view.moving;
+    const step = Math.sin(view.walk);
+    const breathe = Math.sin(performance.now() / 420 + p.id) * 0.008;
+    const bob = Math.abs(step) * 1.5 * m;
+    const a = view.avatar;
+    if (p.downed) {
+      // Toppled over onto their side.
+      a.rotation += (view.turn * 1.4 - a.rotation) * 0.2;
+      a.position.set(0, 4);
+      a.scale.set(1, 1);
+    } else {
+      a.rotation = step * 0.03 * m;
+      a.position.set(0, -bob);
+      const squash = (1 - Math.abs(step)) * 0.015 * m; // Flattest when a foot lands.
+      a.scale.set(Math.max(0.15, Math.abs(view.turn)) * (1 + squash + breathe), 1 - squash + breathe);
+    }
+    // The art faces left or right as drawn; mirror it to face the other way.
+    view.token.scale.x = Math.abs(view.token.scale.x) * (view.turn < 0 ? -1 : 1);
+    view.token.tint = p.downed ? DOWNED_TINT : 0xffffff;
+    view.flash.alpha = p.hurt ? 0.55 : 0;
+
+    if (view.ringColor !== p.color) {
+      view.ringColor = p.color;
+      view.ring.clear().circle(0, 0, TOKEN_R).stroke({ width: 3.5, color: p.color }).circle(0, 0, TOKEN_R + 2).stroke({ width: 1.5, color: 0x000000, alpha: 0.6 });
+    }
+
+    // Feet: step forward and back in turn, lifting a little mid-stride; tucked away while idle or down.
+    const g = view.feet.clear();
+    view.shadow.scale.set(1 - bob * 0.03);
+    if (p.downed) return;
+    const foot = shade(p.color, -0.45);
+    for (const side of [-1, 1]) {
+      const swing = step * side * 5 * m;
+      const lift = Math.max(0, -step * side) * 2.5 * m;
+      g.ellipse(side * 7 + swing * view.turn, TOKEN_R + 1 - lift, 6, 4).fill(foot).stroke({ width: 1.5, color: 0x000000, alpha: 0.6 });
+    }
   }
 
   private drawBars(g: Graphics, p: PlayerState): void {
@@ -1064,7 +1203,7 @@ export class GameRenderer {
       g.circle(0, 0, PLAYER_RADIUS + 7).stroke({ width: 3, color: p.aura, alpha: 0.5 + 0.4 * pulse });
     }
     const width = 36;
-    const y = PLAYER_RADIUS + 8;
+    const y = TOKEN_R + 6;
     const ratio = Math.max(0, Math.min(1, p.hp / p.maxHp));
     g.rect(-width / 2, y, width, 5).fill({ color: 0x000000, alpha: 0.7 });
     if (ratio > 0) g.rect(-width / 2, y, width * ratio, 5).fill(ratio > 0.35 ? 0x66bb6a : 0xef5350);
@@ -1222,38 +1361,33 @@ export class GameRenderer {
   // --- Helpers ---
 
   /** Each character has its own body shape: a tintable fill plus a white outline that keeps its color. */
-  private bodyTextures(character: CharacterId): { fill: Texture; outline: Texture } {
-    const r = PLAYER_RADIUS;
-    const shape = (g: Graphics): Graphics => {
-      switch (character) {
-        case 'assassin':
-          return g.poly([0, -r - 3, r - 1, 0, 0, r + 3, -r + 1, 0]);
-        case 'bruiser':
-          return g.roundRect(-r + 1, -r + 1, (r - 1) * 2, (r - 1) * 2, 6);
-        case 'tank': {
-          const points: number[] = [];
-          for (let i = 0; i < 6; i++) points.push(Math.cos((i * Math.PI) / 3) * (r + 2), Math.sin((i * Math.PI) / 3) * (r + 2));
-          return g.poly(points);
-        }
-        case 'pyro': // A flame.
-          return g.poly([0, -r - 5, r * 0.75, -r * 0.2, r, r * 0.45, r * 0.5, r, -r * 0.5, r, -r, r * 0.45, -r * 0.75, -r * 0.2]);
-        case 'ranger': // An arrowhead.
-          return g.poly([0, -r - 4, r + 2, r, 0, r * 0.45, -r - 2, r]);
-        case 'druid': {
-          const points: number[] = [];
-          for (let i = 0; i < 8; i++) points.push(Math.cos((i * Math.PI) / 4 + Math.PI / 8) * (r + 3), Math.sin((i * Math.PI) / 4 + Math.PI / 8) * (r + 3));
-          return g.poly(points);
-        }
-        case 'chronobreaker': // An hourglass.
-          return g.poly([-r, -r, r, -r, 4, 0, r, r, -r, r, -4, 0]);
-        default:
-          return g.circle(0, 0, r);
-      }
-    };
-    return {
-      fill: this.texture(shape(new Graphics()).fill(0xffffff)),
-      outline: this.texture(shape(new Graphics()).stroke({ width: 3, color: 0xffffff })),
-    };
+  /** Each hero's portrait cropped to a round token around the face (the art is a bust on a dark background). */
+  private async tokenTextures(): Promise<Record<CharacterId, Texture>> {
+    const load = (url: string) =>
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = url;
+      });
+    const entries = await Promise.all(
+      CHARACTER_IDS.map(async (id) => {
+        const img = await load(portraitUrl(id));
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = TOKEN_TEX;
+        const ctx = canvas.getContext('2d')!;
+        // A square around the head and shoulders: a bit above the middle of the picture.
+        const side = Math.min(img.width, img.height) * 0.6;
+        const sx = (img.width - side) / 2;
+        const sy = Math.max(0, img.height * 0.37 - side / 2);
+        ctx.beginPath();
+        ctx.arc(TOKEN_TEX / 2, TOKEN_TEX / 2, TOKEN_TEX / 2, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, TOKEN_TEX, TOKEN_TEX);
+        return [id, Texture.from(canvas)] as const;
+      }),
+    );
+    return Object.fromEntries(entries) as Record<CharacterId, Texture>;
   }
 
   /** Draws a plus sign onto `g`, optionally with an outline. */
