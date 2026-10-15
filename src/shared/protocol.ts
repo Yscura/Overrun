@@ -312,6 +312,16 @@ export interface ArenaState {
   state: 'idle' | 'gather' | 'fight';
   /** Radius of the not-yet-burning area around the arena (0 while idle). */
   safeR: number;
+  /** The gate is open: from when the boss is due until everyone is inside. */
+  open: boolean;
+}
+
+/** Lava maps: everything farther than `r` from (x, y) is lava. `closing`: it's closing in for the boss. */
+export interface LavaState {
+  x: number;
+  y: number;
+  r: number;
+  closing: boolean;
 }
 
 /** Health bar for a final boss. */
@@ -333,7 +343,8 @@ export interface BossFight {
   /** Berserk stacks so far. */
   berserk: number;
   /** While a side mission runs the bosses are shielded. */
-  mission: { kind: MissionKind; done: number; total: number } | null;
+  /** `hp`: the living mission targets' health, as [id, share of max HP, ...]. */
+  mission: { kind: MissionKind; done: number; total: number; hp: number[] } | null;
 }
 
 export const PickupKind = { Crate: 0, Heart: 1, Coin: 2, Bomb: 3 } as const;
@@ -382,6 +393,7 @@ export interface Snapshot {
   /** Seconds into the run when the named boss arrives. */
   bossTime: number;
   arena: ArenaState | null;
+  lava: LavaState | null;
   bossFight: BossFight | null;
   pause: Pause | null;
   /** Game speed: below 1 while easing back in from a pause. */

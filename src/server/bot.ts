@@ -9,7 +9,7 @@ import { CHARACTERS, heroDamageType, ownedPassives, ownedWeapons, type Character
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, REVIVE_RADIUS, TICK_DT } from '../shared/constants';
 import { ENEMY_TYPES } from '../shared/enemies';
-import { MAPS } from '../shared/maps';
+import { MAPS, clampToArena, mapWalls } from '../shared/maps';
 import { ShrineKind } from '../shared/objectives';
 import {
   ENEMY_SHOT_STRIDE,
@@ -73,6 +73,7 @@ export class Bot {
   private dodgeDir: Point = { x: 1, y: 0 };
   private walls: WallIndex;
   private mapIndex = -1;
+  private gateOpen = false;
   private nav: FlowField | null = null;
   private navGoal: Point | null = null;
   private navAge = 0;
@@ -110,10 +111,13 @@ export class Bot {
     if (!snap?.me || snap.phase !== 'playing') return;
     const me = snap.players.find((p) => p.id === this.id);
     if (!me) return;
-    if (snap.map !== this.mapIndex) {
+    // New map, or the arena gate opened or shut: rebuild walls and pathfinding.
+    const gateOpen = !!snap.arena?.open;
+    if (snap.map !== this.mapIndex || gateOpen !== this.gateOpen) {
       this.mapIndex = snap.map;
+      this.gateOpen = gateOpen;
       const map = MAPS[snap.map];
-      this.walls = new WallIndex(map.walls, map.width, map.height);
+      this.walls = new WallIndex(mapWalls(map, !gateOpen), map.width, map.height);
       this.nav = new FlowField(this.walls);
       this.navGoal = null;
     }
@@ -162,14 +166,8 @@ export class Bot {
     const next = moveCircle(this.walls, this.local.x, this.local.y, vx * dt, vy * dt, PLAYER_RADIUS, pass);
     if (pass && overlapsWall(this.walls, next.x, next.y, PLAYER_RADIUS)) this.dodgeTime += dt; // Finish the dash.
     this.local = next;
-    const arena = snap.arena;
-    if (me.inArena && arena) {
-      const dx = this.local.x - arena.x;
-      const dy = this.local.y - arena.y;
-      const d = Math.hypot(dx, dy);
-      const max = arena.r - PLAYER_RADIUS;
-      if (d > max) this.local = { x: arena.x + (dx / d) * max, y: arena.y + (dy / d) * max };
-    }
+    const arena = MAPS[snap.map].arena;
+    if (me.inArena && arena) this.local = clampToArena(arena, this.local.x, this.local.y, PLAYER_RADIUS);
     this.send({ t: 'move', x: this.local.x, y: this.local.y, aim: aim.angle, epoch: this.epoch });
   }
 
@@ -428,6 +426,19 @@ export class Bot {
       const dir = this.pathTo(arena, dt);
       vx += dir.x * 4;
       vy += dir.y * 4;
+    }
+    // Keep off the lava: head inward near the edge, and well ahead of it while it's closing in.
+    const lava = snap.lava;
+    if (lava) {
+      const d = Math.hypot(this.local.x - lava.x, this.local.y - lava.y);
+      const margin = lava.closing ? 260 : 140;
+      if (d > lava.r - margin) {
+        // Straight in (pathTo's flow field belongs to the bot's main goal); the unstick wiggle handles rocks.
+        const dir = { x: (lava.x - this.local.x) / d, y: (lava.y - this.local.y) / d };
+        const urgency = d > lava.r ? 6 : 2 + (4 * (d - (lava.r - margin))) / margin;
+        vx += dir.x * urgency;
+        vy += dir.y * urgency;
+      }
     }
 
     // Unstick: if we've barely moved for a while despite trying, shuffle sideways.

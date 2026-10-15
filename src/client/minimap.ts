@@ -1,6 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import { ENEMY_TYPES } from '../shared/enemies';
-import { MAPS } from '../shared/maps';
+import { MAPS, zoneRect } from '../shared/maps';
 import { SHRINES, ShrineKind } from '../shared/objectives';
 import { AFFIX_SHIFT, ENEMY_STRIDE, PICKUP_STRIDE, PickupKind, SHRINE_STRIDE, type Snapshot } from '../shared/protocol';
 
@@ -22,13 +22,16 @@ export class Minimap {
   readonly container = new Container();
   private base = new Graphics();
   private dots = new Graphics();
+  /** Keeps the dots (and the burning zone's ring) inside the minimap. */
+  private clip = new Graphics();
   private mapIndex = -1;
   private size = SIZE;
   private scale = 1;
   private frame = 0;
 
   constructor() {
-    this.container.addChild(this.base, this.dots);
+    this.container.addChild(this.base, this.dots, this.clip);
+    this.dots.mask = this.clip;
   }
 
   update(
@@ -63,6 +66,7 @@ export class Minimap {
   private drawBase(): void {
     const map = MAPS[this.mapIndex];
     const s = (this.scale = this.size / Math.max(map.width, map.height));
+    this.clip.clear().rect(0, 0, map.width * s, map.height * s).fill(0xffffff);
     const g = this.base.clear();
     g.rect(0, 0, map.width * s, map.height * s)
       .fill({ color: 0x000000, alpha: 0.6 })
@@ -70,7 +74,9 @@ export class Minimap {
     for (const w of map.walls) {
       g.rect(w.x * s, w.y * s, Math.max(1, w.w * s), Math.max(1, w.h * s)).fill({ color: 0xb0bec5, alpha: w.thin ? 0.35 : 0.8 });
     }
-    if (map.arena) g.circle(map.arena.x * s, map.arena.y * s, map.arena.r * s).stroke({ width: 1.5, color: 0xff1744, alpha: 0.8 });
+    const arena = map.arena;
+    if (arena?.hall) g.rect((arena.x - arena.hall.hw) * s, (arena.y - arena.hall.hh) * s, arena.hall.hw * 2 * s, arena.hall.hh * 2 * s).stroke({ width: 1.5, color: 0xff1744, alpha: 0.8 });
+    else if (arena) g.circle(arena.x * s, arena.y * s, arena.r * s).stroke({ width: 1.5, color: 0xff1744, alpha: 0.8 });
   }
 
   private drawDots(
@@ -82,6 +88,11 @@ export class Minimap {
   ): void {
     const s = this.scale;
     const g = this.dots.clear();
+
+    // The lava, and the arena gate while it's shut.
+    const map = MAPS[this.mapIndex];
+    if (snap.lava) g.rect(0, 0, map.width * s, map.height * s).fill({ color: 0xff6d00, alpha: 0.45 }).circle(snap.lava.x * s, snap.lava.y * s, snap.lava.r * s).cut();
+    if (map.arena && !snap.arena?.open) for (const w of map.arena.gate) g.rect(w.x * s, w.y * s, Math.max(2, w.w * s), Math.max(2, w.h * s)).fill(0xffab40);
 
     // Ordinary enemies as a heat map, elites individually.
     const heat = new Map<number, number>();
@@ -137,7 +148,9 @@ export class Minimap {
 
     // The burning zone closing in on the arena.
     if (snap.arena && snap.arena.state !== 'idle') {
-      g.circle(snap.arena.x * s, snap.arena.y * s, snap.arena.safeR * s).stroke({ width: 2, color: 0xff3d00, alpha: 0.9 });
+      const box = map.arena && zoneRect(map.arena, snap.arena.safeR);
+      if (box) g.rect(box.x0 * s, box.y0 * s, (box.x1 - box.x0) * s, (box.y1 - box.y0) * s).stroke({ width: 2, color: 0xff3d00, alpha: 0.9 });
+      else g.circle(snap.arena.x * s, snap.arena.y * s, snap.arena.safeR * s).stroke({ width: 2, color: 0xff3d00, alpha: 0.9 });
     }
 
     // Pings: a ring pulsing in the pinger's color.

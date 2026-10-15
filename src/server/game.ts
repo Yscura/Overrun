@@ -80,7 +80,22 @@ import {
   isBossType,
 } from '../shared/enemies';
 import { isPrestigeId, prestigeCost, prestigeReward, prestigeSpent, PRESTIGE, type PrestigeRanks } from '../shared/prestige';
-import { BOSS_TIME, MAPS, mapBossName, ZONE_DAMAGE, ZONE_SWEEP_TIME, type MapDef } from '../shared/maps';
+import {
+  BOSS_TIME,
+  LAVA_CLOSE_TIME,
+  LAVA_DAMAGE,
+  MAPS,
+  ZONE_DAMAGE,
+  ZONE_SWEEP_TIME,
+  arenaReach,
+  clampToArena,
+  inZone,
+  insideArena,
+  mapBossName,
+  mapWalls,
+  zoneStart,
+  type MapDef,
+} from '../shared/maps';
 import {
   EVENTS,
   EVENT_DURATION,
@@ -240,6 +255,11 @@ const ELIXIR = { duration: 8, heal: 0.3, damage: 1.25, cooldown: 0.8, speed: 1.2
 const WRATH = { duration: 8, interval: 0.3, range: 420, radius: 70, damage: 70, perLevel: 5, reduction: 0.5 };
 /** Divine Intervention: everyone up, healed to full and untouchable for a moment. */
 const INTERVENTION = { invuln: 3 };
+/**
+ * While the lava closes in, the horde is thinned to fit: room for `full` enemies at the full rim, shrinking with the
+ * area (but never below `min` plus `perPlayer` each). At most `perTick` burn up per tick, farthest from the team first.
+ */
+const LAVA_CROWD = { full: 160, min: 14, perPlayer: 6, perTick: 4 };
 /** Holy light (Paladin and Cleric): gold rings and pillars. */
 const HOLY = 0xffe082;
 
@@ -655,6 +675,10 @@ export class Game {
   /** Seconds until the zone outside the arena starts burning. */
   /** Radius around the arena that isn't burning yet; shrinks to the arena once the boss is due. */
   private safeRadius = Infinity;
+  /** The arena gate: shut until the boss is due, and again once everyone is inside. */
+  private gateShut = true;
+  /** Lava maps: everything farther than this from the middle is lava. Closes in for the boss. */
+  private lavaR = Infinity;
   /** The final boss, or both twins (dead ones stay in the list). */
   private bosses: Enemy[] = [];
   /** Seconds since the boss fight started (for going berserk). */
@@ -1086,8 +1110,17 @@ export class Game {
   private loadMap(index: number): void {
     this.mapIndex = index;
     this.map = MAPS[index];
-    this.walls = new WallIndex(this.map.walls, this.map.width, this.map.height);
+    this.setGate(true);
+    this.lavaR = this.map.lava?.r ?? Infinity;
+  }
+
+  /** Collision and pathfinding for the map, with the arena gate shut or open. */
+  private setGate(shut: boolean): void {
+    this.gateShut = shut;
+    this.walls = new WallIndex(mapWalls(this.map, shut), this.map.width, this.map.height);
     this.flow = new FlowField(this.walls);
+    const visible = this.alivePlayers().filter((p) => p.veil <= 0);
+    if (visible.length > 0) this.flow.update(visible);
   }
 
   private startGame(): void {
@@ -1123,6 +1156,8 @@ export class Game {
     this.slowmo = 0;
     this.bossPhase = 'waiting';
     this.safeRadius = Infinity;
+    if (!this.gateShut) this.setGate(true);
+    this.lavaR = this.map.lava?.r ?? Infinity;
     this.bosses = [];
     this.fightTime = 0;
     this.berserk = 0;
@@ -1412,8 +1447,7 @@ export class Game {
 
   private spawnEnemies(dt: number, alive: Player[]): void {
     if (alive.length === 0) return;
-    // In a boss arena it's just the boss and its minions.
-    if (this.bossPhase === 'fight' && this.map.arena) return;
+    if (this.hordeHeldBack()) return;
     // More enemies over time, and more with more players. Fewer while fighting the boss out in the open.
     let perSecond = this.horde().spawnRate * (0.6 + 0.4 * this.players.size);
     if (this.bossPhase === 'fight') perSecond *= BOSS_FIGHT_HORDE;
@@ -1430,6 +1464,30 @@ export class Game {
         this.banner('A Warlord approaches!', 'danger');
       }
     }
+  }
+
+  /**
+   * No more horde: in a boss arena it's just the boss and its minions, and on lava maps the horde stops coming once
+   * the lava starts closing in.
+   */
+  private hordeHeldBack(): boolean {
+    if (this.map.lava) return this.bossPhase !== 'waiting';
+    return this.bossPhase === 'fight' && this.map.arena !== null;
+  }
+
+  /** Not in the lava, with room to spare. Always true on maps without lava. */
+  private dry(x: number, y: number, radius: number): boolean {
+    const lava = this.map.lava;
+    return !lava || dist2(x, y, lava.x, lava.y) < (this.lavaR - radius - 40) ** 2;
+  }
+
+  /** The nearest dry spot to (x, y). */
+  private ashore(x: number, y: number, radius: number): { x: number; y: number } {
+    const lava = this.map.lava;
+    if (!lava || this.dry(x, y, radius)) return { x, y };
+    const d = Math.hypot(x - lava.x, y - lava.y) || 1;
+    const max = Math.max(0, this.lavaR - radius - 40);
+    return { x: lava.x + ((x - lava.x) / d) * max, y: lava.y + ((y - lava.y) / d) * max };
   }
 
   /** Weighted random pick among the enemy types unlocked by now, adjusted by the map's mix. */
@@ -1461,8 +1519,9 @@ export class Game {
       x = clamp(near.x + Math.cos(angle) * distance, radius, this.map.width - radius);
       y = clamp(near.y + Math.sin(angle) * distance, radius, this.map.height - radius);
       const farEnough = dist2(x, y, near.x, near.y) > (minDist * 0.8) ** 2;
-      if (farEnough && !overlapsWall(this.walls, x, y, radius) && this.flow.distanceAt(x, y) < Infinity) break;
+      if (farEnough && this.dry(x, y, radius) && !overlapsWall(this.walls, x, y, radius) && this.flow.distanceAt(x, y) < Infinity) break;
     }
+    ({ x, y } = this.ashore(x, y, radius));
     return pushOut(this.walls, x, y, radius);
   }
 
@@ -1550,42 +1609,100 @@ export class Game {
 
   private updateBoss(dt: number, alive: Player[]): void {
     const arena = this.map.arena;
+    const lava = this.map.lava;
     if (this.bossPhase === 'waiting' && this.time >= this.bossTime) {
       if (arena) {
         this.bossPhase = 'gather';
-        this.safeRadius = this.farthestCorner(arena);
-        this.banner(`${mapBossName(this.map)} ${this.map.twin ? 'await' : 'awaits'} in the arena. The fire is closing in!`, 'danger');
+        this.safeRadius = zoneStart(arena, this.map.width, this.map.height);
+        this.setGate(false);
+        this.banner(`The gates are open! ${mapBossName(this.map)} ${this.map.twin ? 'await' : 'awaits'}. The fire is closing in!`, 'danger');
+      } else if (lava) {
+        this.bossPhase = 'gather';
+        this.banner('The lava is closing in! Get to the heart of the caldera!', 'danger');
       } else {
         this.startBossFight(alive);
       }
     }
+    if (lava) this.updateLava(dt, alive);
     if (!arena || this.bossPhase === 'waiting') return;
 
     // The burning zone sweeps in from the edges of the map until only the arena is safe.
-    const shrink = (this.farthestCorner(arena) - arena.r) / ZONE_SWEEP_TIME;
-    this.safeRadius = Math.max(arena.r, this.safeRadius - shrink * dt);
+    const shrink = (zoneStart(arena, this.map.width, this.map.height) - arena.zone) / ZONE_SWEEP_TIME;
+    this.safeRadius = Math.max(arena.zone, this.safeRadius - shrink * dt);
     for (const p of alive) {
       // Fully inside the arena? Then you're locked in.
-      if (!p.inArena && dist2(p.x, p.y, arena.x, arena.y) < (arena.r - PLAYER_RADIUS) ** 2) {
+      if (!p.inArena && insideArena(arena, p.x, p.y, PLAYER_RADIUS)) {
         p.inArena = true;
         if (this.bossPhase === 'gather') this.startBossFight(alive);
       }
       // Anyone the fire has caught up with burns.
-      if (!p.inArena && dist2(p.x, p.y, arena.x, arena.y) > this.safeRadius ** 2) {
+      if (!p.inArena && !inZone(arena, p.x, p.y, this.safeRadius)) {
         this.hurtPlayer(p, this.stats(p).maxHp * ZONE_DAMAGE * dt, true);
       }
     }
+    // The gate slams shut once everyone still standing is inside, and opens again for anyone left out.
+    const shut = this.bossPhase === 'fight' && alive.length > 0 && alive.every((p) => p.inArena);
+    if (shut !== this.gateShut) {
+      this.setGate(shut);
+      // Everyone's in: the fire has done its job and closes in all the way.
+      if (shut) this.safeRadius = arena.zone;
+      this.log(shut ? 'The gates slam shut behind you' : 'The gates open for a straggler');
+    }
   }
 
-  /** Distance from the arena to the farthest corner of the map: where the burning zone starts. */
-  private farthestCorner(arena: { x: number; y: number }): number {
-    return Math.hypot(Math.max(arena.x, this.map.width - arena.x), Math.max(arena.y, this.map.height - arena.y));
+  /**
+   * Lava maps: anyone past the rim burns. When the boss is due the rim closes in on the middle, burning away the
+   * horde that no longer fits, and once it's done the boss arrives there.
+   */
+  private updateLava(dt: number, alive: Player[]): void {
+    const lava = this.map.lava!;
+    if (this.bossPhase === 'gather') {
+      this.lavaR = Math.max(lava.final, this.lavaR - ((lava.r - lava.final) / LAVA_CLOSE_TIME) * dt);
+      this.thinHorde(alive);
+      if (this.lavaR <= lava.final) this.startBossFight(alive);
+    }
+    const r2 = this.lavaR ** 2;
+    for (const p of this.players.values()) {
+      if (dist2(p.x, p.y, lava.x, lava.y) <= r2) continue;
+      if (p.downed) {
+        // The fallen wash up on the edge, where they can still be revived.
+        const shore = this.ashore(p.x, p.y, PLAYER_RADIUS);
+        ({ x: p.x, y: p.y } = pushOut(this.walls, shore.x, shore.y, PLAYER_RADIUS));
+        p.epoch++;
+      } else {
+        this.hurtPlayer(p, this.stats(p).maxHp * LAVA_DAMAGE.player * dt, true);
+      }
+    }
+    for (const e of this.enemies) {
+      if (e.dead || dist2(e.x, e.y, lava.x, lava.y) <= r2) continue;
+      this.damageEnemy(e, e.maxHp * (this.isBoss(e) ? LAVA_DAMAGE.boss : LAVA_DAMAGE.enemy) * dt, undefined, 'true');
+    }
+  }
+
+  /** While the lava closes in there isn't room for the whole horde: the ones farthest from the team burn up first. */
+  private thinHorde(alive: Player[]): void {
+    const lava = this.map.lava!;
+    if (alive.length === 0) return;
+    const room = Math.max(LAVA_CROWD.min + LAVA_CROWD.perPlayer * this.players.size, Math.round(LAVA_CROWD.full * (this.lavaR / lava.r) ** 2));
+    const horde = this.enemies.filter((e) => !e.dead && !this.isBoss(e) && !e.missionTarget && e.id !== this.quest?.targetId);
+    if (horde.length <= room) return;
+    const near = (e: Enemy) => Math.min(...alive.map((p) => dist2(p.x, p.y, e.x, e.y)));
+    const doomed = horde
+      .map((e) => ({ e, d: near(e) }))
+      .sort((a, b) => b.d - a.d)
+      .slice(0, Math.min(LAVA_CROWD.perTick, horde.length - room));
+    for (const { e } of doomed) {
+      e.dead = true;
+      if (e.hazard) e.hazard.dead = true;
+      this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: Math.round(ENEMY_TYPES[e.type].radius * 1.8), c: 0xff6d00 });
+    }
   }
 
   private startBossFight(alive: Player[]): void {
     this.bossPhase = 'fight';
     const type = this.map.boss;
-    const arena = this.map.arena;
+    // In the arena, or the middle of the lava ring.
+    const arena = this.map.arena ?? this.map.lava;
     let x: number;
     let y: number;
     if (arena) {
@@ -1663,7 +1780,7 @@ export class Game {
     const kind = pick(MISSION_KINDS.filter((k) => k !== this.lastMission));
     this.lastMission = kind;
     // Around the arena, or the first living boss out in the open.
-    const center = this.map.arena ?? this.bosses.find((b) => !b.dead)!;
+    const center = this.map.arena ?? this.map.lava ?? this.bosses.find((b) => !b.dead)!;
     const ids: number[] = [];
     const scale = 1 + 0.5 * (this.players.size - 1);
     switch (kind) {
@@ -1707,7 +1824,8 @@ export class Game {
    */
   private missionSpot(center: { x: number; y: number }, angle: number, distance: number, radius: number): { x: number; y: number } {
     const arena = this.map.arena;
-    const maxD = arena ? Math.min(distance, arena.r - radius - 30) : distance;
+    const reach = arena ? arenaReach(arena) : (this.map.lava?.final ?? Infinity);
+    const maxD = Math.min(distance, reach - radius - 30);
     const at = (a: number, d: number) => ({
       x: clamp(center.x + Math.cos(a) * d, radius, this.map.width - radius),
       y: clamp(center.y + Math.sin(a) * d, radius, this.map.height - radius),
@@ -1717,7 +1835,9 @@ export class Game {
         const { x, y } = at(a, step);
         if (overlapsWall(this.walls, x, y, PLAYER_RADIUS)) return false;
       }
-      return !overlapsWall(this.walls, at(a, d).x, at(a, d).y, radius);
+      const end = at(a, d);
+      if (arena && !insideArena(arena, end.x, end.y, radius)) return false;
+      return !overlapsWall(this.walls, end.x, end.y, radius);
     };
     for (const scale of [1, 0.75, 0.5]) {
       for (const turn of [0, 0.2, -0.2, 0.4, -0.4, 0.6, -0.6]) {
@@ -1915,8 +2035,9 @@ export class Game {
         const distance = RALLY_DISTANCE[0] + Math.random() * (RALLY_DISTANCE[1] - RALLY_DISTANCE[0]);
         x = clamp(cx + Math.cos(angle) * distance, 200, this.map.width - 200);
         y = clamp(cy + Math.sin(angle) * distance, 200, this.map.height - 200);
-        if (!overlapsWall(this.walls, x, y, RALLY_RADIUS / 2) && this.flow.distanceAt(x, y) < Infinity) break;
+        if (this.dry(x, y, RALLY_RADIUS) && !overlapsWall(this.walls, x, y, RALLY_RADIUS / 2) && this.flow.distanceAt(x, y) < Infinity) break;
       }
+      ({ x, y } = this.ashore(x, y, RALLY_RADIUS));
       this.quest = { kind, timeLeft: RALLY_TIME, x, y, targetId: 0 };
     } else {
       const thief = this.spawnEnemy(EnemyType.Thief, alive, 450, 600);
@@ -2091,15 +2212,9 @@ export class Game {
   }
 
   private keepInArena(target: { x: number; y: number }, radius: number): void {
-    const arena = this.map.arena!;
-    const dx = target.x - arena.x;
-    const dy = target.y - arena.y;
-    const d = Math.hypot(dx, dy);
-    const max = arena.r - radius;
-    if (d > max && d > 0) {
-      target.x = arena.x + (dx / d) * max;
-      target.y = arena.y + (dy / d) * max;
-    }
+    const { x, y } = clampToArena(this.map.arena!, target.x, target.y, radius);
+    target.x = x;
+    target.y = y;
   }
 
   /**
@@ -3573,7 +3688,7 @@ export class Game {
     this.crateTimer -= dt;
     if (this.crateTimer > 0 || alive.length === 0) return;
     this.crateTimer = CRATE_INTERVAL;
-    if (this.bossPhase === 'fight' && this.map.arena) return;
+    if (this.hordeHeldBack()) return;
     if (this.pickups.filter((c) => c.kind === PickupKind.Crate).length >= MAX_CRATES) return;
     const { x, y } = this.pointNear(alive, 300, 600, CRATE_RADIUS + 4);
     this.addPickup(PickupKind.Crate, x, y, CRATE_HP);
@@ -3817,6 +3932,7 @@ export class Game {
     const summons: number[] = [];
     for (const m of this.summons) summons.push(m.id, m.kind, Math.round(m.x), Math.round(m.y));
     const arena = this.map.arena;
+    const lava = this.map.lava;
 
     const shared: Omit<Snapshot, 'me'> = {
       t: 'snap',
@@ -3827,10 +3943,14 @@ export class Game {
       unlocked: this.unlocked,
       bossTime: this.bossTime,
       arena: arena && {
-        ...arena,
+        x: arena.x,
+        y: arena.y,
+        r: arena.r,
         state: this.bossPhase === 'waiting' ? 'idle' : this.bossPhase,
         safeR: this.bossPhase === 'waiting' ? 0 : Math.round(this.safeRadius),
+        open: !this.gateShut,
       },
+      lava: lava ? { x: lava.x, y: lava.y, r: Math.round(this.lavaR), closing: this.bossPhase === 'gather' } : null,
       bossFight:
         this.bossPhase === 'fight' && this.bosses.length > 0
           ? {
@@ -3843,7 +3963,12 @@ export class Game {
               })),
               berserkIn: round1(Math.max(0, BOSS_BERSERK.after - this.fightTime)),
               berserk: this.berserk,
-              mission: this.mission && { kind: this.mission.kind, done: this.missionDone(this.mission), total: this.mission.total },
+              mission: this.mission && {
+                kind: this.mission.kind,
+                done: this.missionDone(this.mission),
+                total: this.mission.total,
+                hp: this.enemies.filter((e) => e.missionTarget && !e.dead).flatMap((e) => [e.id, round2(Math.max(0, e.hp) / e.maxHp)]),
+              },
             }
           : null,
       pause: this.pause && (this.pause.kind === 'choose' ? { ...this.pause, timeLeft: round1(this.pause.timeLeft) } : { ...this.pause, ready: [...this.pause.ready] }),

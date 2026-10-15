@@ -2,7 +2,7 @@ import { DEV_NAME } from '../shared/protocol';
 import { CHARACTERS, DEFAULT_CHARACTER, isCharacterId } from '../shared/characters';
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, TICK_RATE } from '../shared/constants';
-import { MAPS } from '../shared/maps';
+import { MAPS, clampToArena, mapWalls } from '../shared/maps';
 import type { Snapshot } from '../shared/protocol';
 import { Sound } from './audio';
 import { Input } from './input';
@@ -44,8 +44,9 @@ async function main() {
   let latest: Snapshot | null = null;
   // Your own position is simulated locally so movement feels instant; the server just follows along.
   const local = { ...MAPS[0].spawn };
-  let walls = new WallIndex(MAPS[0].walls, MAPS[0].width, MAPS[0].height);
-  let wallsFor = 0;
+  let walls = new WallIndex(mapWalls(MAPS[0], true), MAPS[0].width, MAPS[0].height);
+  /** Which map, and whether its arena gate is open, the walls were built for. */
+  let wallsFor = '0:shut';
   let epoch = -1;
   let sendTimer = 0;
   let lastSent = { x: NaN, y: NaN, aim: NaN };
@@ -152,10 +153,11 @@ async function main() {
     buffer.push(snap);
     cues.onSnapshot(latest, snap, local);
     latest = snap;
-    if (snap.map !== wallsFor) {
+    const wallsKey = `${snap.map}:${snap.arena?.open ? 'open' : 'shut'}`;
+    if (wallsKey !== wallsFor) {
       const map = MAPS[snap.map];
-      walls = new WallIndex(map.walls, map.width, map.height);
-      wallsFor = snap.map;
+      walls = new WallIndex(mapWalls(map, !snap.arena?.open), map.width, map.height);
+      wallsFor = wallsKey;
     }
     if (snap.me && snap.me.epoch !== epoch) {
       // The server moved us (new run, went down, new map): jump to where it says we are.
@@ -241,17 +243,8 @@ async function main() {
         dashExtension += dt;
       }
       // Locked inside the boss arena.
-      const arena = latest!.arena;
-      if (me!.inArena && arena) {
-        const dx = local.x - arena.x;
-        const dy = local.y - arena.y;
-        const d = Math.hypot(dx, dy);
-        const max = arena.r - PLAYER_RADIUS;
-        if (d > max) {
-          local.x = arena.x + (dx / d) * max;
-          local.y = arena.y + (dy / d) * max;
-        }
-      }
+      const arena = MAPS[latest!.map].arena;
+      if (me!.inArena && arena) ({ x: local.x, y: local.y } = clampToArena(arena, local.x, local.y, PLAYER_RADIUS));
 
       sendTimer += dt;
       if (sendTimer >= 1 / TICK_RATE) {

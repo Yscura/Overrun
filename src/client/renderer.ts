@@ -4,8 +4,8 @@ import { BOMB, BOSS_INTRO, COIN, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER
 import { DAMAGE_COLORS, DAMAGE_TYPES } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
 import { NO_ROTATE, drawEnemy, shade } from './enemyArt';
-import { TILE, decorations, drawWalls, groundTile } from './mapArt';
-import { MAPS } from '../shared/maps';
+import { TILE, decorations, drawGate, lavaField, drawWalls, groundTile } from './mapArt';
+import { MAPS, zoneRect } from '../shared/maps';
 import { Minimap } from './minimap';
 import { portraitUrl } from './portraits';
 import { RALLY_RADIUS, SHRINES, SHRINE_RADIUS, ShrineKind } from '../shared/objectives';
@@ -202,6 +202,13 @@ export class GameRenderer {
   private mapLayer = new Container();
   private mapIndex = -1;
   private arenaRing = new Graphics();
+  /** The arena gate's doors, and how far open they're drawn (-1: not drawn yet on this map). */
+  private gate = new Graphics();
+  private gateAmount = 0;
+  private gateDrawn = -1;
+  /** Lava maps: the mask that shows the lava field past the current edge, and the radius it was drawn for. */
+  private lavaMask: Graphics | null = null;
+  private lavaDrawnR = -1;
   /** Red tint over everything outside the boss arena while the zone burns. */
   private zone = new Graphics();
   private minimap = new Minimap();
@@ -307,7 +314,7 @@ export class GameRenderer {
     this.aimArrow.anchor.set(0.5);
 
     this.background = new TilingSprite({ texture: Texture.EMPTY, width: 1, height: 1 });
-    this.world.addChild(this.mapLayer, this.arenaRing, this.questMarker, this.rewindTrail, ...Object.values(this.layers), this.zone, this.aimArrow);
+    this.world.addChild(this.mapLayer, this.gate, this.arenaRing, this.questMarker, this.rewindTrail, ...Object.values(this.layers), this.zone, this.aimArrow);
     this.app.stage.addChild(this.background, this.world, this.pointers, this.minimap.container);
   }
 
@@ -349,34 +356,115 @@ export class GameRenderer {
     // Floor decorations and landmarks, then the walls on top. All drawn once.
     const decor = decorations(index, map);
     this.mapGlow = decor.glow;
-    this.mapLayer.addChild(decor.still, decor.glow, outside, drawWalls(map));
+    this.mapLayer.addChild(decor.still, decor.glow);
+    // The lava field, shown past the lava's edge (see renderLava).
+    this.lavaMask = null;
+    this.lavaDrawnR = -1;
+    if (map.lava) {
+      const lava = lavaField(map);
+      this.lavaMask = new Graphics();
+      lava.mask = this.lavaMask;
+      this.mapLayer.addChild(lava, this.lavaMask);
+    }
+    this.mapLayer.addChild(outside, drawWalls(map), decor.top);
+    this.gateDrawn = -1;
   }
 
-  /** The boss arena: a faint ring until the boss shows up, then a glowing barrier, plus the burning zone outside. */
+  /** The arena gate's doors slide open when the boss is due, and shut once everyone's inside. */
+  private renderGate(snap: Snapshot, realDt: number): void {
+    const arena = MAPS[snap.map].arena;
+    if (!arena) {
+      this.gate.clear();
+      return;
+    }
+    const target = snap.arena?.open ? 1 : 0;
+    // About a second to open or close; a new map starts where it is.
+    this.gateAmount = this.gateDrawn < 0 ? target : this.gateAmount + Math.max(-realDt, Math.min(realDt, target - this.gateAmount));
+    if (this.gateAmount === this.gateDrawn) return;
+    this.gateDrawn = this.gateAmount;
+    this.gate.clear();
+    for (const w of arena.gate) drawGate(this.gate, w, this.gateAmount);
+  }
+
+  /** The lava's edge: the lava field is masked to everything past it, with a glowing front line. */
+  private renderLava(snap: Snapshot): void {
+    const lava = snap.lava;
+    if (!lava || !this.lavaMask) return;
+    const map = MAPS[snap.map];
+    if (lava.r !== this.lavaDrawnR) {
+      this.lavaDrawnR = lava.r;
+      this.lavaMask.clear().rect(-50, -50, map.width + 100, map.height + 100).fill(0xffffff).circle(lava.x, lava.y, lava.r).cut();
+    }
+    const flicker = 0.5 + 0.5 * Math.sin(performance.now() / 90);
+    this.arenaRing
+      .circle(lava.x, lava.y, lava.r + 6)
+      .stroke({ width: 26, color: FIRE, alpha: 0.25 + 0.15 * flicker })
+      .circle(lava.x, lava.y, lava.r)
+      .stroke({ width: 5, color: 0xffd180, alpha: 0.85 });
+    // While it closes in: where it will stop.
+    if (lava.closing && map.lava) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
+      this.arenaRing.circle(lava.x, lava.y, map.lava.final).stroke({ width: 5, color: 0xffd180, alpha: 0.25 + 0.4 * pulse });
+    }
+  }
+
+  /**
+   * The boss arena (its walls and gate show where it is): a pulsing glow inside once the gate opens, a barrier while
+   * the fight is on and the gate still open, and the burning zone outside. Then the lava, on lava maps.
+   */
   private renderArena(snap: Snapshot): void {
     const arena = snap.arena;
     const ring = this.arenaRing.clear();
     const zone = this.zone.clear();
-    if (!arena) return;
+    this.renderLava(snap);
+    const def = MAPS[snap.map].arena;
+    if (!arena || !def) return;
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
-    ring.circle(arena.x, arena.y, arena.r);
-    if (arena.state === 'idle') ring.stroke({ width: 4, color: DANGER, alpha: 0.25 });
-    else if (arena.state === 'gather') ring.fill({ color: DANGER, alpha: 0.05 }).stroke({ width: 6, color: DANGER, alpha: 0.5 + 0.5 * pulse });
-    else ring.stroke({ width: 8, color: 0xff8a80, alpha: 0.9 });
+    const shape = () => (def.hall ? ring.rect(def.x - def.hall.hw, def.y - def.hall.hh, def.hall.hw * 2, def.hall.hh * 2) : ring.circle(def.x, def.y, def.r));
+    if (arena.state === 'gather') shape().fill({ color: DANGER, alpha: 0.05 + 0.04 * pulse }).stroke({ width: 4, color: DANGER, alpha: 0.3 + 0.4 * pulse });
+    else if (arena.state === 'fight' && arena.open) shape().stroke({ width: 6, color: 0xff8a80, alpha: 0.7 });
     if (arena.state !== 'idle') {
-      // The burning zone: everything beyond the safe circle glows with fire, with a flickering front line.
+      // The burning zone: everything outside the safe area glows with fire, with a flickering front line.
       const map = MAPS[snap.map];
       const flicker = 0.5 + 0.5 * Math.sin(performance.now() / 70);
-      zone
-        .rect(-200, -200, map.width + 400, map.height + 400)
-        .fill({ color: FIRE, alpha: 0.16 + 0.04 * pulse })
-        .circle(arena.x, arena.y, arena.safeR)
-        .cut();
-      zone
-        .circle(arena.x, arena.y, arena.safeR)
-        .stroke({ width: 14, color: FIRE, alpha: 0.35 + 0.25 * flicker })
-        .circle(arena.x, arena.y, arena.safeR)
-        .stroke({ width: 3, color: 0xffd180, alpha: 0.9 });
+      const tint = { color: FIRE, alpha: 0.16 + 0.04 * pulse };
+      const pad = 200;
+      const box = zoneRect(def, arena.safeR);
+      if (box) {
+        // Around a hall it's a rectangle: tint the four strips around it.
+        const L = -pad;
+        const T = -pad;
+        const R = map.width + pad;
+        const B = map.height + pad;
+        const x0 = Math.max(L, Math.min(R, box.x0));
+        const x1 = Math.max(L, Math.min(R, box.x1));
+        const y0 = Math.max(T, Math.min(B, box.y0));
+        const y1 = Math.max(T, Math.min(B, box.y1));
+        for (const [x, y, w, h] of [
+          [L, T, R - L, y0 - T],
+          [L, y1, R - L, B - y1],
+          [L, y0, x0 - L, y1 - y0],
+          [x1, y0, R - x1, y1 - y0],
+        ]) {
+          if (w > 0 && h > 0) zone.rect(x, y, w, h).fill(tint);
+        }
+        zone
+          .rect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0)
+          .stroke({ width: 14, color: FIRE, alpha: 0.35 + 0.25 * flicker })
+          .rect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0)
+          .stroke({ width: 3, color: 0xffd180, alpha: 0.9 });
+      } else {
+        // A ring wide enough to cover the rest of the map. (Cutting the circle out of a rectangle breaks once the
+        // circle is bigger than the map, and tints everything.)
+        const far = Math.hypot(map.width + pad * 2, map.height + pad * 2);
+        zone
+          .circle(arena.x, arena.y, arena.safeR + far / 2)
+          .stroke({ width: far, color: FIRE, alpha: tint.alpha })
+          .circle(arena.x, arena.y, arena.safeR)
+          .stroke({ width: 14, color: FIRE, alpha: 0.35 + 0.25 * flicker })
+          .circle(arena.x, arena.y, arena.safeR)
+          .stroke({ width: 3, color: 0xffd180, alpha: 0.9 });
+      }
     }
   }
 
@@ -525,6 +613,7 @@ export class GameRenderer {
     const playing = b.snap.phase === 'playing';
     if (this.mapGlow) this.mapGlow.alpha = 0.75 + 0.25 * Math.sin(performance.now() / 450);
     this.renderArena(b.snap);
+    this.renderGate(b.snap, realDt);
     this.renderShrines(b.snap);
     this.renderQuestMarker(b.snap);
     this.renderHazards(sample);
@@ -689,6 +778,7 @@ export class GameRenderer {
     if (snap.quest) targets.push({ x: snap.quest.x, y: snap.quest.y, color: QUEST_COLOR });
     const inArena = snap.players.find((p) => p.id === myId)?.inArena;
     if (snap.arena && snap.arena.state !== 'idle' && !inArena) targets.push({ x: snap.arena.x, y: snap.arena.y, color: DANGER });
+    if (snap.lava?.closing) targets.push({ x: snap.lava.x, y: snap.lava.y, color: FIRE });
     // Downed teammates who need you.
     for (const p of snap.players) if (p.downed && p.id !== myId) targets.push({ x: p.x, y: p.y, color: DOWNED_RED });
     for (const ping of this.pings) targets.push(ping);
@@ -722,6 +812,9 @@ export class GameRenderer {
     const blink = Math.floor(now / 80) % 2 === 0;
     const pulse = 0.5 + 0.5 * Math.sin(now / 180);
     const marks = this.marks.clear();
+    const missionHp = new Map<number, number>();
+    const hpList = b.snap.bossFight?.mission?.hp ?? [];
+    for (let i = 0; i < hpList.length; i += 2) missionHp.set(hpList[i], hpList[i + 1]);
     if (!marks.parent) this.layers.enemies.addChild(marks);
     else this.layers.enemies.setChildIndex(marks, this.layers.enemies.children.length - 1);
     for (let i = 0; i < listB.length; i += ENEMY_STRIDE) {
@@ -770,7 +863,17 @@ export class GameRenderer {
       if (flags & EnemyFlag.Shielded) {
         marks.circle(x, y, r + 14).fill({ color: 0xe040fb, alpha: 0.12 + 0.08 * pulse }).stroke({ width: 3, color: 0xea80fc, alpha: 0.5 + 0.4 * pulse });
       }
-      if (flags & EnemyFlag.Marked) marks.circle(x, y, r + 6).stroke({ width: 2.5, color: 0xffd54f, alpha: 0.5 + 0.5 * pulse });
+      if (flags & EnemyFlag.Marked) {
+        marks.circle(x, y, r + 6).stroke({ width: 2.5, color: 0xffd54f, alpha: 0.5 + 0.5 * pulse });
+        // And a health bar, so you can see the wards (and the marked brood) going down.
+        const hp = missionHp.get(id);
+        if (hp !== undefined) {
+          const w = Math.max(40, r * 2);
+          const by = y + r + 12;
+          marks.rect(x - w / 2 - 1, by - 1, w + 2, 7).fill({ color: 0x000000, alpha: 0.7 });
+          marks.rect(x - w / 2, by, w * hp, 5).fill(0xffd54f);
+        }
+      }
       // Champions: bigger, with a ring in their affix's color.
       if (affix) {
         marks.circle(x, y, r * CHAMPION.size + 5).stroke({ width: 3, color: AFFIXES[affix].color, alpha: 0.6 + 0.4 * pulse });

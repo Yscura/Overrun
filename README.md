@@ -43,9 +43,16 @@ Then give your friends a URL to that port, create a Multiplayer lobby and tell t
 
 | Map | Final boss | Boss fight | Enemy health and damage | Prestige per level |
 |---|---|---|---|---|
-| Verdant Ruins | Grimjaw, the Ruin Beast | Wherever you are | ×1 | 1 |
-| Frozen Fortress | Rime, Queen of the Frozen Fortress | Arena to the east | ×1.5 | 1.5 |
-| Ashen Caldera | Ashlord Vael and Embra, the Twin Flames | Arena to the north | ×2.2 | 2 |
+| Verdant Ruins | Grimjaw, the Ruin Beast | A ruined colosseum east of the courtyard | ×1 | 1 |
+| Frozen Fortress | Rime, Queen of the Frozen Fortress | The throne hall inside the castle keep | ×1.5 | 1.5 |
+| Ashen Caldera | Ashlord Vael and Embra, the Twin Flames | The heart of the caldera, as the lava closes in | ×2.2 | 2 |
+
+- **Verdant Ruins:** the overgrown ruins and fenced courtyard, plus an old colosseum to the east behind a big gate.
+- **Frozen Fortress:** a castle courtyard inside curtain walls (barracks, stables, a frozen fountain in a hedge
+  garden, statues along the road), with the keep to the east. The Queen's throne hall is inside the keep.
+- **Ashen Caldera:** a round plateau ringed by lava, with a broken ring of basalt and four obelisks around its heart.
+  **Lava** burns everyone standing in it, friend or foe (20% of max HP per second for players, 25% for enemies, very
+  little for bosses), unless they're invulnerable, e.g. mid-dodge.
 
 A run is about 10 minutes: the named boss arrives at 9:00. The horde ramps up gently at first and steeply over the last
 few minutes (more health, more damage, faster, more elites; see `hordeScaling` in `src/shared/enemies.ts`), and keeps
@@ -54,16 +61,23 @@ growing if the boss fight drags on. Hordes are kept smallish (`HORDE_DENSITY`): 
 **Champions.** From about 2 minutes in, a few percent of enemies spawn as champions: bigger, with a colored ring,
 4x the health, 1.5x the damage and 5x the XP, plus an affix: **Hasted** (yellow, much faster), **Vampiric** (red,
 heals by hitting you), **Volatile** (orange, leaves a bomb when it dies) or **Splitting** (green, splits in three).
-**Warlords** still show up every 2 minutes. On arena maps a burning zone then sweeps in from the map's far corners, closing in on
-the arena over 45 seconds and burning anyone it catches, and anyone who enters the arena is locked in until the fight ends.
+**Warlords** still show up every 2 minutes.
+
+**Getting to the boss.** Boss arenas are walled off by a big gate until 9:00. Then the gate opens, and a burning zone
+sweeps in from the map's far corners, closing in on the arena over 45 seconds and burning anyone it catches. The fight
+starts when the first player walks in; anyone inside is locked in, and the gate slams shut once everyone still standing
+is inside (it opens again if a teammate is revived outside). On Ashen Caldera the lava instead closes in on the middle
+over 40 seconds (a ring of runes marks where it stops). No new enemies come while it does, and the horde is thinned to
+fit the shrinking ground, farthest from the team first. When the lava stops, the Twin Flames arrive in the middle.
+Players who fall in the lava wash up at its edge, where they can still be revived.
 Bosses only take a short stun and are briefly immune afterwards, and they ignore Deep Freeze.
 
 **The boss fight.**
 
 - **5 minutes:** kill the boss within 5 minutes of the fight starting. After that it goes **berserk**, and every 30
   seconds it hits harder, attacks faster and makes its bomb circles, charge lanes and bullet rings bigger.
-- **The horde backs off:** when the boss arrives on an open map, all but the 30 enemies closest to the team scatter,
-  and only a trickle keeps coming during the fight. Boss summons are smaller and skipped when the fight is crowded.
+- **The horde backs off:** in an arena or the lava ring it's just you and the bosses (and their summons). On a map
+  without either, all but the 30 enemies closest to the team scatter, and only a trickle keeps coming during the fight. Boss summons are smaller and skipped when the fight is crowded.
 - **Side missions:** at 66% and 33% of their health, bosses put up a shield and are immune until the team completes a
   side mission. That's one of: destroy 4 Wards, charge 3 Sigils by standing in them, or kill a marked brood. The
   berserk clock keeps running.
@@ -209,8 +223,9 @@ sent to the server (it only sanity-checks the distance), so moving always feels 
 - `upgrades.ts`: weapons and passives (per-level stats, evolutions, card text, which role can get them) and the XP curve.
 - `prestige.ts`: the permanent upgrades bought between runs, their costs and the points a run pays.
 - `objectives.ts`: upgrade points, Altar events and Quest quests (timings, sizes, rewards).
-- `maps.ts`: the maps (size, walls, theme, enemy mix, boss and arena) and the boss timing. Walls are built from small
-  helpers like `room(...)` (a room with door gaps), `fenceH`/`fenceV` and `pillar`.
+- `maps.ts`: the maps (size, walls, theme, enemy mix, boss, arena and its gate, lava) and the boss timing. Walls are
+  built from small helpers like `room(...)` (a room with door gaps), `fenceH`/`fenceV`, `pillar`, `arc` (a stretch of
+  round wall) and `colosseum` (a round wall with a gate). An arena is round (`r`) or a rectangular `hall`.
 
 Enemies find their way around walls with a flow field (`src/server/navigation.ts`): one pathfinding pass from all
 players per few ticks, which every enemy then follows. That scales to hundreds of enemies where per-enemy A* wouldn't.

@@ -14,7 +14,7 @@ import {
 import { MAX_PLAYERS } from '../shared/constants';
 import { MODES } from '../shared/modes';
 import { MISSIONS } from '../shared/enemies';
-import { MAPS, mapBossName } from '../shared/maps';
+import { MAPS, inZone, mapBossName } from '../shared/maps';
 import { EVENTS, QUESTS } from '../shared/objectives';
 import { DEV_NAME, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot } from '../shared/protocol';
 import {
@@ -454,7 +454,7 @@ export class UI {
         card.disabled = locked || !this.amHost;
         if (!this.amHost && !locked) card.title = 'The host picks the map';
         const title = el('div', 'map-card-title');
-        title.append(el('span', 'map-card-name', map.name), el('span', 'map-card-tag', map.arena ? 'Boss arena' : 'Open field'));
+        title.append(el('span', 'map-card-name', map.name), el('span', 'map-card-tag', map.arena ? 'Boss arena' : map.lava ? 'Closing lava' : 'Open field'));
         card.append(
           title,
           el('div', 'map-card-sub', locked ? `Beat ${MAPS[i - 1].name} to unlock` : map.subtitle),
@@ -614,12 +614,20 @@ export class UI {
     let text = '';
     let urgent = false;
     const arena = snap.arena;
+    const lava = snap.lava;
     const outsideArena = arena && arena.state !== 'idle' && me && !me.inArena && !me.downed;
     if (outsideArena) {
       // The fire is sweeping in: are you in it yet?
       urgent = true;
-      const burning = Math.hypot(me.x - arena.x, me.y - arena.y) > arena.safeR;
-      text = burning ? "You're burning! Get to the arena!" : fight ? 'Join the fight! The fire is closing in.' : 'Get to the arena! The fire is closing in.';
+      const def = MAPS[snap.map].arena;
+      const burning = !!def && !inZone(def, me.x, me.y, arena.safeR);
+      text = burning ? "You're burning! Get to the arena!" : fight ? 'Join the fight! The fire is closing in.' : 'The gates are open! Get to the arena.';
+    } else if (lava && me && !me.downed && Math.hypot(me.x - lava.x, me.y - lava.y) > lava.r) {
+      urgent = true;
+      text = lava.closing ? "You're in the lava! Get to the middle!" : "You're in the lava! Get out!";
+    } else if (lava?.closing) {
+      urgent = true;
+      text = `The lava is closing in! ${mapBossName(MAPS[snap.map])} ${MAPS[snap.map].twin ? 'arrive' : 'arrives'} when it stops.`;
     } else if (snap.phase === 'playing' && !fight && (!arena || arena.state === 'idle') && snap.time < snap.bossTime) {
       text = `${mapBossName(MAPS[snap.map])} in ${formatTime(snap.bossTime - snap.time)}`;
     }

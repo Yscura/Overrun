@@ -1,10 +1,10 @@
 // Map looks: a ground texture per map, decorations scattered over the floor, landmarks, and detailed walls.
 // Everything here is drawn once when the map loads, so it costs nothing per frame (apart from the Caldera's
-// glowing cracks, whose alpha pulses).
+// glowing cracks, whose alpha pulses, the lava's edge, and the arena gate).
 
 import { Graphics } from 'pixi.js';
-import { WallIndex, overlapsWall } from '../shared/collision';
-import type { MapDef } from '../shared/maps';
+import { WallIndex, overlapsWall, type Wall } from '../shared/collision';
+import { insideArena, type MapDef } from '../shared/maps';
 import { shade } from './enemyArt';
 
 /** A small deterministic random generator, so a map always looks the same. */
@@ -63,13 +63,17 @@ export function groundTile(index: number, map: MapDef): Graphics {
   return g;
 }
 
-/** Things lying on the floor: `still` never changes; `glow` (lava, embers) has its alpha pulsed by the renderer. */
-export function decorations(index: number, map: MapDef): { still: Graphics; glow: Graphics } {
+/**
+ * Things lying on the floor: `still` never changes; `glow` (lava, embers) has its alpha pulsed by the renderer;
+ * `top` goes over the walls (battlements, the throne, the fountain).
+ */
+export function decorations(index: number, map: MapDef): { still: Graphics; glow: Graphics; top: Graphics } {
   const rand = seeded(7 + index * 31);
   const walls = new WallIndex(map.walls, map.width, map.height);
   const still = new Graphics();
   const glow = new Graphics();
-  landmarks(index, map, still, glow, rand);
+  const top = new Graphics();
+  landmarks(index, map, still, glow, top, rand);
 
   const count = Math.round((map.width * map.height) / 21000);
   for (let i = 0; i < count; i++) {
@@ -78,19 +82,21 @@ export function decorations(index: number, map: MapDef): { still: Graphics; glow
     const roll = rand();
     const size = 0.7 + rand() * 0.8;
     if (overlapsWall(walls, x, y, 26)) continue;
+    // Arena floors stay clean.
+    if (map.arena && insideArena(map.arena, x, y, -30)) continue;
     if (index === 0) ruinsProp(still, x, y, roll, size, rand);
     else if (index === 1) frostProp(still, x, y, roll, size, rand);
     else calderaProp(still, glow, x, y, roll, size, rand);
   }
-  return { still, glow };
+  return { still, glow, top };
 }
 
 /** Big set pieces that give each map a sense of place. */
-function landmarks(index: number, map: MapDef, still: Graphics, glow: Graphics, rand: () => number): void {
+function landmarks(index: number, map: MapDef, still: Graphics, glow: Graphics, top: Graphics, rand: () => number): void {
   if (index === 0) {
     // An old mosaic floor in the courtyard.
-    const cx = map.width / 2;
-    const cy = map.height / 2;
+    const cx = map.spawn.x;
+    const cy = map.spawn.y;
     still.circle(cx, cy, 520).fill({ color: 0x2b3a2c, alpha: 0.5 });
     for (const r of [500, 380, 250, 120]) still.circle(cx, cy, r).stroke({ width: 6, color: 0x55684f, alpha: 0.35 });
     for (let i = 0; i < 16; i++) {
@@ -99,57 +105,215 @@ function landmarks(index: number, map: MapDef, still: Graphics, glow: Graphics, 
     }
     // Cracks where the mosaic broke.
     for (let i = 0; i < 10; i++) crack(still, cx + (rand() - 0.5) * 800, cy + (rand() - 0.5) * 800, 60 + rand() * 80, 0x101610, 0.6, rand);
+    colosseumArt(map, still, rand);
   } else if (index === 1) {
-    // A paved road from the gates to the queen's arena.
-    const y = map.spawn.y;
-    const x0 = 200;
-    const x1 = map.arena ? map.arena.x : map.width - 200;
-    still.rect(x0, y - 70, x1 - x0, 140).fill({ color: 0x232c38, alpha: 0.85 });
-    for (let x = x0; x < x1; x += 46) {
-      for (let row = 0; row < 3; row++) {
-        const off = row % 2 ? 23 : 0;
-        still.roundRect(x + off + 2, y - 68 + row * 46, 42, 42, 4).stroke({ width: 2, color: 0x11161d, alpha: 0.6 });
-      }
-    }
-    if (map.arena) {
-      const { x, y: ay, r } = map.arena;
-      still.circle(x, ay, r - 10).fill({ color: 0x2a3644, alpha: 0.7 });
-      for (let i = 0; i < 12; i++) {
-        const a = (i / 12) * Math.PI * 2;
-        still.poly([x + Math.cos(a) * (r - 60), ay + Math.sin(a) * (r - 60), x + Math.cos(a + 0.08) * (r - 20), ay + Math.sin(a + 0.08) * (r - 20), x + Math.cos(a - 0.08) * (r - 20), ay + Math.sin(a - 0.08) * (r - 20)]).fill({ color: 0xb3e5fc, alpha: 0.25 });
-      }
-    }
+    castleArt(map, still, top, rand);
   } else {
-    // A scorched road up to the arena, and rivers of lava along the sides of the map.
-    const x = map.spawn.x;
-    const yTop = map.arena ? map.arena.y : 300;
-    still.rect(x - 80, yTop, 160, map.spawn.y - yTop + 100).fill({ color: 0x15100d, alpha: 0.7 });
-    for (const side of [0, 1]) {
-      const pts: number[] = [];
-      const baseX = side === 0 ? 180 : map.width - 180;
-      for (let y = -40; y <= map.height + 40; y += 120) pts.push(baseX + Math.sin(y / 260 + side) * 60, y);
-      lavaRiver(glow, still, pts, 55);
-    }
-    if (map.arena) {
-      const { x: ax, y: ay, r } = map.arena;
-      still.circle(ax, ay, r - 6).fill({ color: 0x1a0f0b, alpha: 0.8 });
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2;
-        crack(glow, ax + Math.cos(a) * r * 0.5, ay + Math.sin(a) * r * 0.5, r * 0.45, 0xff6d00, 0.8, rand, 4);
-      }
-    }
+    calderaArt(map, still, glow, top, rand);
   }
 }
 
-function lavaRiver(glow: Graphics, still: Graphics, pts: number[], width: number): void {
-  const line = (g: Graphics) => {
-    g.moveTo(pts[0], pts[1]);
-    for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]);
-    return g;
+/** The Verdant Ruins' colosseum: a worn path to its gate, stone seating under the ring of blocks, a sand floor. */
+function colosseumArt(map: MapDef, still: Graphics, rand: () => number): void {
+  const { x, y } = map.arena!;
+  const x0 = map.spawn.x + 560;
+  const x1 = x - 560;
+  still.rect(x0, y - 60, x1 - x0, 120).fill({ color: 0x252f25, alpha: 0.7 });
+  for (let px = x0; px < x1 - 40; px += 44) {
+    for (let row = 0; row < 3; row++) {
+      if (rand() < 0.3) continue; // Missing stones.
+      still.roundRect(px + (row % 2 ? 22 : 0) + 2, y - 58 + row * 39, 40, 36, 4).fill({ color: 0x4b5748, alpha: 0.55 }).stroke({ width: 1.5, color: 0x1c231c, alpha: 0.6 });
+    }
+  }
+  still.circle(x, y, 540).stroke({ width: 100, color: shade(map.theme.wall, -0.3) });
+  for (const r of [505, 575]) still.circle(x, y, r).stroke({ width: 3, color: shade(map.theme.wall, -0.55), alpha: 0.8 });
+  still.circle(x, y, 488).fill({ color: 0x4a4430 });
+  for (const r of [380, 230, 70]) still.circle(x, y, r).stroke({ width: 3, color: 0x5e5640, alpha: 0.5 });
+  for (let i = 0; i < 14; i++) crack(still, x + (rand() - 0.5) * 700, y + (rand() - 0.5) * 700, 40 + rand() * 60, 0x2e2a1d, 0.5, rand);
+  // Old stains in the sand.
+  for (let i = 0; i < 6; i++) still.ellipse(x + (rand() - 0.5) * 600, y + (rand() - 0.5) * 600, 30 + rand() * 30, 16 + rand() * 14).fill({ color: 0x3b1d16, alpha: 0.35 });
+}
+
+/** The Frozen Fortress: a cobbled road through the courtyard, the fountain, the throne hall, and battlements. */
+function castleArt(map: MapDef, still: Graphics, top: Graphics, rand: () => number): void {
+  const arena = map.arena!;
+  const hall = arena.hall!;
+  const y = map.spawn.y;
+  const fountain = { x: 1800, y: 1500 };
+  const cobbles = (x0: number, x1: number, y0: number, rows: number) => {
+    for (let x = x0; x < x1; x += 46) {
+      for (let row = 0; row < rows; row++) still.roundRect(x + (row % 2 ? 23 : 0) + 2, y0 + 2 + row * 46, 42, 42, 4).stroke({ width: 2, color: 0x11161d, alpha: 0.6 });
+    }
   };
-  line(still).stroke({ width: width + 24, color: 0x2a120a, cap: 'round', join: 'round' });
-  line(glow).stroke({ width, color: 0xff6d00, alpha: 0.85, cap: 'round', join: 'round' });
-  line(glow).stroke({ width: width * 0.45, color: 0xffd180, alpha: 0.8, cap: 'round', join: 'round' });
+  // The road from the gatehouse to the keep, and the square around the fountain.
+  const roadEnd = arena.x - hall.hw - 70;
+  still.rect(60, y - 70, roadEnd - 60, 140).fill({ color: 0x232c38, alpha: 0.85 });
+  cobbles(60, roadEnd - 46, y - 70, 3);
+  still.circle(fountain.x, fountain.y, 290).fill({ color: 0x232c38, alpha: 0.9 });
+  for (const r of [120, 190, 260]) still.circle(fountain.x, fountain.y, r).stroke({ width: 2, color: 0x11161d, alpha: 0.6 });
+  // Snowed-over flower beds in the hedge garden.
+  for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    still.roundRect(fountain.x + dx * 210 - 70, fountain.y + dy * 210 - 50, 140, 100, 16).fill({ color: 0xdfeaf5, alpha: 0.12 });
+  }
+
+  // The throne hall: a tiled floor and a long carpet up to the throne.
+  const hx = arena.x - hall.hw;
+  const hy = arena.y - hall.hh;
+  still.rect(hx, hy, hall.hw * 2, hall.hh * 2).fill(0x1b2330);
+  for (let tx = hx; tx <= hx + hall.hw * 2; tx += 80) still.rect(tx, hy, 1.5, hall.hh * 2);
+  for (let ty = hy; ty <= hy + hall.hh * 2; ty += 80) still.rect(hx, ty, hall.hw * 2, 1.5);
+  still.fill({ color: 0x0e131a, alpha: 0.8 });
+  const carpetEnd = arena.x + hall.hw - 140;
+  still.rect(hx, arena.y - 60, carpetEnd - hx, 120).fill(0x5c1820);
+  still.rect(hx, arena.y - 50, carpetEnd - hx, 3).rect(hx, arena.y + 47, carpetEnd - hx, 3).fill(0xc9a227);
+  // The dais and the ice throne.
+  const tx = arena.x + hall.hw - 80;
+  still.rect(tx - 70, arena.y - 130, 150, 260).fill(0x2a3644).stroke({ width: 3, color: 0x52606f });
+  still.rect(tx - 50, arena.y - 110, 130, 220).fill(0x34445a);
+  top.poly([tx + 30, arena.y - 50, tx + 50, arena.y - 95, tx + 58, arena.y - 40, tx + 58, arena.y + 40, tx + 50, arena.y + 95, tx + 30, arena.y + 50]).fill({ color: 0xb3e5fc, alpha: 0.9 }).stroke({ width: 2, color: 0xe1f5fe });
+  top.roundRect(tx - 15, arena.y - 38, 50, 76, 8).fill({ color: 0x81d4fa, alpha: 0.85 }).stroke({ width: 2, color: 0xe1f5fe });
+  for (const dy of [-1, 1]) top.poly([tx + 40, arena.y + dy * 30, tx + 70, arena.y + dy * 70, tx + 52, arena.y + dy * 20]).fill({ color: 0xe1f5fe, alpha: 0.9 });
+
+  // Battlements on the castle walls and towers (not the thinner rooms, carts or statues).
+  const stone = shade(map.theme.wall, 0.12);
+  const edge = shade(map.theme.wall, -0.45);
+  for (const w of map.walls) {
+    if (w.thin) continue;
+    const thick = Math.min(w.w, w.h);
+    const long = Math.max(w.w, w.h);
+    if (thick >= 120) {
+      // A tower: a darker roof ringed with merlons.
+      top.rect(w.x + 14, w.y + 14, w.w - 28, w.h - 28).fill({ color: shade(map.theme.wall, -0.2) }).stroke({ width: 2, color: edge });
+      for (let d = 6; d + 16 <= w.w - 6; d += 30) top.rect(w.x + d, w.y + 4, 16, 10).rect(w.x + d, w.y + w.h - 14, 16, 10);
+      for (let d = 6; d + 16 <= w.h - 6; d += 30) top.rect(w.x + 4, w.y + d, 10, 16).rect(w.x + w.w - 14, w.y + d, 10, 16);
+      top.fill(stone).stroke({ width: 1.5, color: edge });
+    } else if (thick >= 60 && long >= 120) {
+      // A wall walk: a row of merlons down the middle.
+      const across = Math.round(thick * 0.4);
+      for (let d = 10; d + 18 <= long - 10; d += 34) {
+        if (w.w > w.h) top.rect(w.x + d, w.y + (w.h - across) / 2, 18, across);
+        else top.rect(w.x + (w.w - across) / 2, w.y + d, across, 18);
+      }
+      top.fill(stone).stroke({ width: 1.5, color: edge });
+    }
+  }
+  // The main gate in the west wall, shut for good: a portcullis.
+  top.rect(0, y - 100, 60, 200).fill(0x20262e);
+  for (let by = y - 92; by < y + 100; by += 16) top.rect(4, by, 52, 3);
+  for (let bx = 8; bx < 60; bx += 14) top.rect(bx, y - 100, 3, 200);
+  top.fill(0x6b7785);
+  // Red banners on either side of the keep's gate.
+  const gate = arena.gate[0];
+  for (const by of [gate.y - 95, gate.y + gate.h + 25]) {
+    top.poly([gate.x - 64, by, gate.x - 30, by, gate.x - 30, by + 60, gate.x - 47, by + 48, gate.x - 64, by + 60]).fill(0x8e1b26).stroke({ width: 2, color: 0x4a0d13 });
+    top.circle(gate.x - 47, by + 22, 7).fill(0xb3e5fc);
+  }
+  // The frozen fountain on its plinth.
+  top.circle(fountain.x, fountain.y, 46).fill({ color: 0x81d4fa, alpha: 0.55 }).stroke({ width: 4, color: 0xb0bec5 });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + rand() * 0.3;
+    const h = 22 + rand() * 18;
+    top.poly([fountain.x + Math.cos(a - 0.3) * 10, fountain.y + Math.sin(a - 0.3) * 10, fountain.x + Math.cos(a) * h, fountain.y + Math.sin(a) * h, fountain.x + Math.cos(a + 0.3) * 10, fountain.y + Math.sin(a + 0.3) * 10]).fill({ color: 0xe1f5fe, alpha: 0.9 });
+  }
+  top.circle(fountain.x, fountain.y, 9).fill(0xffffff);
+}
+
+/** The Ashen Caldera: a dark heart ringed with runes where the lava will stop, and a rocky lip at the rim. */
+function calderaArt(map: MapDef, still: Graphics, glow: Graphics, top: Graphics, rand: () => number): void {
+  const lava = map.lava!;
+  const { x, y } = lava;
+  still.circle(x, y, lava.r - 20).stroke({ width: 50, color: 0x2a1c16, alpha: 0.55 });
+  still.circle(x, y, lava.final + 40).fill({ color: 0x120c09, alpha: 0.7 });
+  // Runes around the heart, where the lava stops.
+  glow.circle(x, y, lava.final).stroke({ width: 3, color: 0xff6d00, alpha: 0.45 });
+  for (let i = 0; i < 40; i++) {
+    const a = (i / 40) * Math.PI * 2;
+    const rx = x + Math.cos(a) * (lava.final + 18);
+    const ry = y + Math.sin(a) * (lava.final + 18);
+    glow.poly([rx, ry - 7, rx + 5, ry, rx, ry + 7, rx - 5, ry]).fill({ color: 0xff9100, alpha: 0.75 });
+  }
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + rand() * 0.4;
+    crack(still, x + Math.cos(a) * 120, y + Math.sin(a) * 120, 380, 0x0c0705, 0.9, rand, 6);
+    crack(glow, x + Math.cos(a) * 120, y + Math.sin(a) * 120, 300, 0xff6d00, 0.7, seeded(i + 5), 2.5);
+  }
+  // Glowing runes on the obelisks around the heart.
+  for (const w of map.walls) {
+    const cx = w.x + w.w / 2;
+    const cy = w.y + w.h / 2;
+    if ((cx - x) ** 2 + (cy - y) ** 2 > lava.final ** 2) continue;
+    top.poly([cx, cy - 18, cx + 11, cy, cx, cy + 18, cx - 11, cy]).stroke({ width: 3, color: 0xff9100, alpha: 0.9 });
+    top.circle(cx, cy, 4).fill(0xffd180);
+  }
+  // The team's camp: a burnt-out fire.
+  const camp = map.spawn;
+  still.circle(camp.x, camp.y + 40, 34).fill({ color: 0x0c0705, alpha: 0.8 });
+  for (let i = 0; i < 6; i++) glow.circle(camp.x + (rand() - 0.5) * 30, camp.y + 40 + (rand() - 0.5) * 20, 2 + rand() * 2).fill({ color: 0xff9100, alpha: 0.8 });
+}
+
+/**
+ * The sea of lava around the Caldera: molten rock under drifting plates of crust. Drawn once over the whole map;
+ * the renderer masks it to whatever lies past the current edge.
+ */
+export function lavaField(map: MapDef): Graphics {
+  const lava = map.lava!;
+  const rand = seeded(424242);
+  const g = new Graphics().rect(0, 0, map.width, map.height).fill(0xd84315);
+  for (let i = 0; i < 220; i++) g.ellipse(rand() * map.width, rand() * map.height, 60 + rand() * 120, 30 + rand() * 60).fill({ color: 0xff9100, alpha: 0.35 });
+  const cell = 150;
+  for (let cy = 0; cy < map.height + cell; cy += cell) {
+    for (let cx = 0; cx < map.width + cell; cx += cell) {
+      const px = cx + (rand() - 0.5) * 50;
+      const py = cy + (rand() - 0.5) * 50;
+      if (rand() < 0.3 || (px - lava.x) ** 2 + (py - lava.y) ** 2 < (lava.final - 80) ** 2) continue;
+      const pts: number[] = [];
+      const n = 5 + Math.floor(rand() * 3);
+      const size = cell * (0.3 + rand() * 0.16);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + rand() * 0.4;
+        const r = size * (0.75 + rand() * 0.35);
+        pts.push(px + Math.cos(a) * r, py + Math.sin(a) * r);
+      }
+      g.poly(pts).fill({ color: 0x3e2723, alpha: 0.9 }).stroke({ width: 3, color: 0xffab40, alpha: 0.5 });
+      g.ellipse(px - size * 0.2, py - size * 0.25, size * 0.35, size * 0.18).fill({ color: 0x6d4c41, alpha: 0.5 });
+    }
+  }
+  for (let i = 0; i < 160; i++) g.circle(rand() * map.width, rand() * map.height, 3 + rand() * 6).fill({ color: 0xffe0b2, alpha: 0.7 });
+  return g;
+}
+
+/** An arena gate: a heavy double door of planks and iron. `open` (0 to 1) slides the halves apart into the walls. */
+export function drawGate(g: Graphics, w: Wall, open: number): void {
+  const vertical = w.h > w.w;
+  const length = vertical ? w.h : w.w;
+  const leaf = (length / 2) * (1 - open);
+  if (leaf < 1) return;
+  for (const end of [0, 1]) {
+    const start = end === 0 ? 0 : length - leaf;
+    const r = vertical ? { x: w.x + 6, y: w.y + start, w: w.w - 12, h: leaf } : { x: w.x + start, y: w.y + 6, w: leaf, h: w.h - 12 };
+    g.rect(r.x + 5, r.y + 8, r.w, r.h).fill({ color: 0x000000, alpha: 0.35 });
+    g.rect(r.x, r.y, r.w, r.h).fill(0x5d4037);
+    // Planks across the door.
+    for (let d = 14; d < leaf - 2; d += 16) {
+      if (vertical) g.rect(r.x, r.y + d, r.w, 2);
+      else g.rect(r.x + d, r.y, 2, r.h);
+    }
+    g.fill({ color: 0x2e1d18, alpha: 0.8 });
+    // Iron bands down its length, studded.
+    for (const at of [0.22, 0.72]) {
+      if (vertical) g.rect(r.x + r.w * at, r.y, 6, r.h);
+      else g.rect(r.x, r.y + r.h * at, r.w, 6);
+    }
+    g.fill(0x37474f);
+    for (const at of [0.22, 0.72]) {
+      for (let d = 10; d < leaf - 4; d += 22) {
+        if (vertical) g.circle(r.x + r.w * at + 3, r.y + d, 2.2);
+        else g.circle(r.x + d, r.y + r.h * at + 3, 2.2);
+      }
+    }
+    g.fill(0xb0bec5);
+    g.rect(r.x, r.y, r.w, r.h).stroke({ width: 2.5, color: 0x1b1210 });
+  }
 }
 
 /** A jagged crack: a few short segments wandering in a direction. */
