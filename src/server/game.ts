@@ -54,6 +54,8 @@ import {
   BOSS_MISSIONS,
   BOSS_NOVA,
   BOSS_POWER,
+  BOSS_SPIT,
+  BOSS_STING,
   BOSS_STUN,
   BOSS_SUMMON,
   BOSS_FIGHT_HORDE,
@@ -1937,6 +1939,26 @@ export class Game {
       case 'charge':
         this.startWindup(e, ux, uy, { ...BOSS_CHARGE, width: BOSS_CHARGE.width * mods.area });
         return [0, 0];
+      case 'spit': {
+        // A fan of venom aimed at the target.
+        const shots = Math.round(BOSS_SPIT.shots * mods.area) + (e.enraged ? 2 : 0);
+        const aim = Math.atan2(uy, ux);
+        for (let i = 0; i < shots; i++) {
+          const angle = aim + (i - (shots - 1) / 2) * BOSS_SPIT.spread;
+          this.addEnemyShot(e.x, e.y, angle, BOSS_SPIT.speed, BOSS_SPIT.damage * this.damageScale(e), BOSS_SPIT.life);
+        }
+        break;
+      }
+      case 'sting':
+        // The tail stabs down in a line toward the target, one strike after another.
+        for (let i = 0; i < BOSS_STING.count + (e.enraged ? 2 : 0); i++) {
+          const along = ENEMY_TYPES[e.type].radius + BOSS_STING.step * (i + 0.6);
+          const x = clamp(e.x + ux * along, 0, this.map.width);
+          const y = clamp(e.y + uy * along, 0, this.map.height);
+          const delay = BOSS_STING.delay + i * BOSS_STING.stagger;
+          this.addHazard(HazardKind.Circle, x, y, BOSS_STING.radius * mods.area, 0, 0, delay, BOSS_STING.damage * this.damageScale(e));
+        }
+        break;
       case 'summon':
         // Don't pile on: skip the summon while the fight is already crowded.
         if (this.enemies.filter((m) => !m.dead && !this.bosses.includes(m) && !m.missionTarget).length >= BOSS_SUMMON.maxMinions) break;

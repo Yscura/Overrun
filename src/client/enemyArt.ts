@@ -93,11 +93,14 @@ function gloss(pen: Pen, x: number, y: number, rx: number, ry: number): void {
   });
 }
 
-/** Draws enemy `type` into `g`, facing +x, centered on (0, 0). Returns how far it reaches from the center. */
-export function drawEnemy(g: Graphics, type: number, flash: boolean): number {
+/**
+ * Draws enemy `type` into `g`, facing +x, centered on (0, 0), in `color` (its own, or the map's for it). Returns how far
+ * it reaches from the center.
+ */
+export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENEMY_TYPES[type].color): number {
   const def = ENEMY_TYPES[type];
   const r = def.radius;
-  const pen: Pen = { g, flash, body: def.color, dark: shade(def.color, -0.55), light: shade(def.color, 0.6) };
+  const pen: Pen = { g, flash, body: color, dark: shade(color, -0.55), light: shade(color, 0.6) };
   shadow(pen, r);
   // Resistances show as a rim: steel for armor (resists physical), blue for a ward (resists magic).
   detail(pen, (g) => {
@@ -134,7 +137,7 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean): number {
     }
     case EnemyType.Warlord: {
       // A crowned brute with three eyes.
-      solid(pen, (g) => g.poly(star(9, r * 1.18, r * 0.92, Math.PI / 9)), shade(def.color, -0.3), INK);
+      solid(pen, (g) => g.poly(star(9, r * 1.18, r * 0.92, Math.PI / 9)), shade(color, -0.3), INK);
       solid(pen, (g) => g.circle(0, 0, r * 0.95));
       gloss(pen, -r * 0.25, -r * 0.4, r * 0.45, r * 0.22);
       detail(pen, (g) => {
@@ -223,7 +226,7 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean): number {
     }
     case EnemyType.Rime: {
       // An ice crystal with cold, glowing eyes.
-      solid(pen, (g) => g.poly(star(6, r * 1.2, r * 0.75, 0)), shade(def.color, 0.3), shade(def.color, -0.4));
+      solid(pen, (g) => g.poly(star(6, r * 1.2, r * 0.75, 0)), shade(color, 0.3), shade(color, -0.4));
       solid(pen, (g) => g.poly(ngon(6, r * 0.9, Math.PI / 6)));
       detail(pen, (g) => {
         for (let i = 0; i < 6; i++) {
@@ -241,7 +244,7 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean): number {
       for (const side of [-1, 1]) {
         solid(pen, (g) => g.poly([r * 0.25, side * r * 0.75, -r * 0.35, side * r * 1.35, -r * 0.95, side * r * 1.45, -r * 0.45, side * r * 1.05, -r * 0.2, side * r * 0.8]), 0xbcaaa4, 0x3e2723);
       }
-      solid(pen, (g) => g.circle(0, 0, r), shade(def.color, -0.3), INK);
+      solid(pen, (g) => g.circle(0, 0, r), shade(color, -0.3), INK);
       detail(pen, (g) => {
         const cracks = [
           [-0.7, -0.2, -0.3, -0.35, 0, -0.1],
@@ -260,18 +263,86 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean): number {
       // Wreathed in flame.
       solid(pen, (g) => g.poly(star(10, r * 1.25, r * 0.85, 0.2)), 0xff6d00, 0xbf360c);
       detail(pen, (g) => g.poly(star(10, r * 1.05, r * 0.8, 0.5)).fill({ color: 0xffd180, alpha: 0.6 }));
-      solid(pen, (g) => g.circle(0, 0, r * 0.82), shade(def.color, -0.15), 0x6d2a00);
+      solid(pen, (g) => g.circle(0, 0, r * 0.82), shade(color, -0.15), 0x6d2a00);
       gloss(pen, -r * 0.2, -r * 0.35, r * 0.35, r * 0.15);
       eyes(pen, r * 0.38, r * 0.28, r * 0.12, { glow: 0xfff176 });
       return r * 1.35;
+    }
+    case EnemyType.Sylvara: {
+      // A coiled serpent: one smooth body spiraling out behind the head, thickening as it goes, with a pattern
+      // down its back, a wedge-shaped head and a forked tongue.
+      const cx = -r * 0.3;
+      const steps = 40;
+      const coil = Array.from({ length: steps + 1 }, (_, i) => {
+        const t = i / steps;
+        const a = (t - 1) * Math.PI * 2 * 1.25;
+        const d = r * (0.15 + 0.55 * t);
+        return { x: cx + Math.cos(a) * d, y: Math.sin(a) * d, w: r * (0.12 + 0.36 * t) };
+      });
+      const body = (extra: number, color: number) => {
+        for (let i = 1; i < coil.length; i++) {
+          pen.g.moveTo(coil[i - 1].x, coil[i - 1].y).lineTo(coil[i].x, coil[i].y).stroke({ width: coil[i].w + extra, color, cap: 'round' });
+        }
+      };
+      // The outline pass first, then the body over it, so there are no seams between segments.
+      if (!pen.flash) body(5, pen.dark);
+      body(0, pen.flash ? 0xffffff : color);
+      detail(pen, (g) => {
+        for (let i = 6; i < coil.length; i += 4) {
+          const { x, y, w } = coil[i];
+          g.poly([x, y - w * 0.22, x + w * 0.22, y, x, y + w * 0.22, x - w * 0.22, y]).fill({ color: 0x1b5e20, alpha: 0.75 });
+        }
+      });
+      solid(pen, (g) => g.poly([r * 0.3, -r * 0.3, r * 0.9, -r * 0.34, r * 1.22, 0, r * 0.9, r * 0.34, r * 0.3, r * 0.3]), shade(color, 0.1));
+      detail(pen, (g) => {
+        g.moveTo(r * 1.22, 0).lineTo(r * 1.45, 0).lineTo(r * 1.58, -r * 0.09).moveTo(r * 1.45, 0).lineTo(r * 1.58, r * 0.09).stroke({ width: 3, color: 0xe53935, cap: 'round' });
+        g.poly([r * 0.5, -r * 0.12, r * 0.7, 0, r * 0.5, r * 0.12, r * 0.4, 0]).fill({ color: 0x1b5e20, alpha: 0.7 });
+      });
+      gloss(pen, r * 0.75, -r * 0.18, r * 0.22, r * 0.08);
+      eyes(pen, r * 0.9, r * 0.2, r * 0.09, { angry: true, glow: 0xffeb3b });
+      return r * 1.65;
+    }
+    case EnemyType.Kharzak: {
+      // A giant scorpion: eight legs, two big pincers in front, and the tail curling around to its sting.
+      const limb = pen.flash ? 0xffffff : shade(color, -0.45);
+      for (const side of [-1, 1]) {
+        for (let i = 0; i < 4; i++) {
+          const bx = r * (0.3 - i * 0.28);
+          pen.g
+            .moveTo(bx, side * r * 0.4)
+            .lineTo(bx - r * 0.05, side * r * 0.95)
+            .lineTo(bx - r * 0.3, side * r * 1.25)
+            .stroke({ width: r * 0.09, color: limb, cap: 'round', join: 'round' });
+        }
+        pen.g.moveTo(r * 0.45, side * r * 0.3).lineTo(r * 0.95, side * r * 0.62).stroke({ width: r * 0.16, color: limb, cap: 'round' });
+        solid(pen, (g) => g.poly([r * 0.85, side * r * 0.45, r * 1.5, side * r * 0.42, r * 1.22, side * r * 0.6, r * 1.52, side * r * 0.8, r * 1.0, side * r * 0.9]));
+      }
+      solid(pen, (g) => g.ellipse(-r * 0.3, 0, r * 0.68, r * 0.56));
+      solid(pen, (g) => g.ellipse(r * 0.32, 0, r * 0.46, r * 0.48), shade(color, 0.1));
+      detail(pen, (g) => {
+        for (let i = 0; i < 4; i++) g.moveTo(-r * (0.7 - i * 0.22), -r * 0.45).quadraticCurveTo(-r * (0.6 - i * 0.22), 0, -r * (0.7 - i * 0.22), r * 0.45).stroke({ width: 2, color: shade(color, -0.45), alpha: 0.8 });
+      });
+      gloss(pen, r * 0.2, -r * 0.25, r * 0.22, r * 0.1);
+      // The tail, over the body.
+      const tail: [number, number, number][] = [
+        [-0.95, 0, 0.22],
+        [-1.2, -0.18, 0.2],
+        [-1.22, -0.45, 0.18],
+        [-1.0, -0.65, 0.16],
+        [-0.68, -0.68, 0.14],
+      ];
+      for (const [tx, ty, tr] of tail) solid(pen, (g) => g.circle(tx * r, ty * r, tr * r), shade(color, -0.1));
+      solid(pen, (g) => g.poly([-r * 0.58, -r * 0.78, -r * 0.2, -r * 0.62, -r * 0.55, -r * 0.55]), 0x3e2723, INK);
+      eyes(pen, r * 0.58, r * 0.12, r * 0.07, { angry: true, glow: 0xff1744 });
+      return r * 1.75;
     }
     case EnemyType.Ward: {
       // A stone totem with a glowing rune (it doesn't turn).
       solid(pen, (g) => g.poly(ngon(8, r, Math.PI / 8)), 0x546e7a, 0x263238);
       solid(pen, (g) => g.poly(ngon(8, r * 0.7, Math.PI / 8)), 0x78909c, 0x37474f);
       detail(pen, (g) => {
-        g.poly([0, -r * 0.45, r * 0.3, 0, 0, r * 0.45, -r * 0.3, 0]).stroke({ width: 3, color: def.color });
-        g.circle(0, 0, r * 0.12).fill(def.color);
+        g.poly([0, -r * 0.45, r * 0.3, 0, 0, r * 0.45, -r * 0.3, 0]).stroke({ width: 3, color: color });
+        g.circle(0, 0, r * 0.12).fill(color);
       });
       return r * 1.15;
     }

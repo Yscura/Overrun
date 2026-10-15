@@ -50,6 +50,9 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Embra', radius: 52, speed: 95, hp: 24000, damage: 35, xp: 0, color: 0xffab40, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, ward: 0.3 },
   // Stationary totems that shield the boss during a side mission.
   { name: 'Ward', radius: 26, speed: 0, hp: 160, damage: 0, xp: 0, color: 0x80deea, behavior: 'ward', spawnAfter: 0, weight: 0, elite: true, ward: 0.5 },
+  // More named final bosses (after the Ward, so the ids above don't change).
+  { name: 'Sylvara', radius: 58, speed: 90, hp: 22000, damage: 35, xp: 0, color: 0x66bb6a, behavior: 'named', spawnAfter: 0, weight: 0, elite: true },
+  { name: 'Kharzak', radius: 62, speed: 85, hp: 34000, damage: 48, xp: 0, color: 0xd4a056, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, armor: 0.35 },
 ];
 
 export const EnemyType = {
@@ -67,6 +70,8 @@ export const EnemyType = {
   AshlordVael: 11,
   Embra: 12,
   Ward: 13,
+  Sylvara: 14,
+  Kharzak: 15,
 } as const;
 
 export const MAX_ENEMY_RADIUS = Math.max(...ENEMY_TYPES.map((e) => e.radius));
@@ -121,7 +126,7 @@ export const BOSS_ATTACK = { cooldown: 5, radius: 95, delay: 1.4, damage: 35 };
 
 // --- Named bosses ---
 
-export type BossAttack = 'barrage' | 'nova' | 'charge' | 'summon';
+export type BossAttack = 'barrage' | 'nova' | 'charge' | 'summon' | 'spit' | 'sting';
 
 export interface NamedBossDef {
   title: string;
@@ -135,6 +140,7 @@ export interface NamedBossDef {
 }
 
 export const NAMED_BOSSES: Record<number, NamedBossDef> = {
+  [EnemyType.Sylvara]: { title: 'the Glade Serpent', attacks: ['spit', 'charge', 'spit', 'summon'], cooldown: 3.6, minions: [EnemyType.Grunt, EnemyType.Runner] },
   [EnemyType.Grimjaw]: { title: 'the Ruin Beast', attacks: ['charge', 'barrage', 'charge', 'summon'], cooldown: 3.5, minions: [EnemyType.Grunt, EnemyType.Runner] },
   [EnemyType.Rime]: { title: 'Queen of the Frozen Fortress', attacks: ['nova', 'barrage', 'nova', 'summon'], cooldown: 3.2, minions: [EnemyType.Wraith, EnemyType.Spitter] },
   [EnemyType.AshlordVael]: {
@@ -151,10 +157,23 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
     minions: [EnemyType.Wraith, EnemyType.Spitter],
     keepAway: 320,
   },
+  [EnemyType.Kharzak]: {
+    title: 'Tyrant of the Canyon',
+    attacks: ['charge', 'sting', 'barrage', 'sting', 'summon'],
+    cooldown: 3.2,
+    minions: [EnemyType.Charger, EnemyType.Runner],
+  },
 };
 
 /** A ring of bullets in every direction. */
 export const BOSS_NOVA = { shots: 18, speed: 210, damage: 12, life: 4 };
+/** The serpent spits a fan of venom at its target: `shots` bullets, `spread` radians apart. */
+export const BOSS_SPIT = { shots: 7, spread: 0.16, speed: 260, damage: 12, life: 3 };
+/**
+ * The scorpion stabs its tail down in a line toward its target: `count` circles `step` apart, each landing `stagger`
+ * seconds after the one before (the first after `delay`).
+ */
+export const BOSS_STING = { count: 5, step: 115, radius: 72, delay: 0.9, stagger: 0.14, damage: 30 };
 export const BOSS_CHARGE: ChargeConfig = { windup: 1.0, speed: 640, duration: 0.8, recover: 0.8, damage: 40, width: 120 };
 /** Each summon calls `count` minions, but never while `maxMinions` regular enemies are already in the fight. */
 export const BOSS_SUMMON = { count: 3, maxMinions: 10 };

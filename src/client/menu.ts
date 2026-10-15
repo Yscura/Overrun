@@ -66,7 +66,7 @@ export class Menu {
   /** The hero shown on the profile page (your favorite until you pick another). */
   private profileHero: CharacterId | null = null;
   /** An enemy's picture, from the game's sprites (set by main once the renderer is up). */
-  enemyArt: (type: number) => string = () => '';
+  enemyArt: (type: number, color?: number) => string = () => '';
   /** Opened on top of a lobby: Back closes the menu instead of going home. */
   private overRoom = false;
   private roomsTimer = 0;

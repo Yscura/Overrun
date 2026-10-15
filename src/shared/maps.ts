@@ -1,5 +1,5 @@
 import type { Wall } from './collision';
-import { EnemyType, bossDisplayName } from './enemies';
+import { ENEMY_TYPES, EnemyType, bossDisplayName } from './enemies';
 
 /** The named boss arrives this many seconds in; with the fight that makes a run about 10 minutes. */
 export const BOSS_TIME = 9 * 60;
@@ -28,6 +28,16 @@ export interface Arena {
   zone: number;
   /** The gate: walls that seal the arena until the boss is due (and again once everyone is inside). */
   gate: Wall[];
+  /** What the gate looks like: a wooden double door, or a wall of brambles. */
+  gateLook?: 'door' | 'vines';
+}
+
+/** A river: water you can't walk through (but can dodge across), with bridges and fords. */
+export interface River {
+  /** Its middle line, top to bottom. */
+  points: { x: number; y: number }[];
+  width: number;
+  crossings: { y: number; kind: 'bridge' | 'ford' }[];
 }
 
 /** A map ringed by lava: everything farther than `r` from the middle burns. */
@@ -42,6 +52,8 @@ export interface Lava {
 export interface MapDef {
   name: string;
   subtitle: string;
+  /** Which look the client gives it: ground, props and landmarks. */
+  art: 'forest' | 'ruins' | 'frost' | 'canyon' | 'caldera';
   width: number;
   height: number;
   /** Where the team starts. */
@@ -57,6 +69,7 @@ export interface MapDef {
   arena: Arena | null;
   /** A lava rim that closes in for the boss (who then spawns in the middle). */
   lava?: Lava;
+  river?: River;
   /**
    * Multiplier on enemy health and damage (bosses included). Later maps are meant to need a few ranks of
    * prestige first.
@@ -66,6 +79,8 @@ export interface MapDef {
   prestigeReward: number;
   /** Multipliers on enemy spawn weights, to give each map its own mix. */
   enemyWeights: Partial<Record<number, number>>;
+  /** The horde's colors here, to fit the map (types not listed keep their own color). */
+  enemyColors?: Partial<Record<number, number>>;
   theme: { background: number; grid: number; wall: number; wallEdge: number; fence: number; outside: number };
 }
 
@@ -130,9 +145,16 @@ export function mapWalls(map: MapDef, gateShut: boolean): Wall[] {
 const T = 40; // Thick wall width.
 const F = 14; // Thin wall (fence) width.
 
-const wall = (x: number, y: number, w: number, h: number): Wall => ({ x, y, w, h, thin: false });
+const wall = (x: number, y: number, w: number, h: number, look?: Wall['look']): Wall => ({ x, y, w, h, thin: false, ...(look && { look }) });
 const fence = (x: number, y: number, w: number, h: number): Wall => ({ x, y, w, h, thin: true });
-const pillar = (cx: number, cy: number, size = 60): Wall => wall(cx - size / 2, cy - size / 2, size, size);
+const pillar = (cx: number, cy: number, size = 60, look?: Wall['look']): Wall => wall(cx - size / 2, cy - size / 2, size, size, look);
+const tree = (cx: number, cy: number, size = 80): Wall => pillar(cx, cy, size, 'tree');
+const boulder = (cx: number, cy: number, size = 90): Wall => pillar(cx, cy, size, 'rock');
+
+/** A few trees together, around (cx, cy). */
+function grove(cx: number, cy: number, scale = 1): Wall[] {
+  return [tree(cx, cy, 90 * scale), tree(cx + 75 * scale, cy + 40 * scale, 70 * scale), tree(cx - 55 * scale, cy + 70 * scale, 75 * scale), tree(cx + 25 * scale, cy - 75 * scale, 65 * scale)];
+}
 
 /** A rectangular room of thick walls, with a door gap in the middle of each listed side. */
 function room(x: number, y: number, w: number, h: number, doors: ('n' | 's' | 'e' | 'w')[], door = 160): Wall[] {
@@ -166,7 +188,7 @@ function fenceV(x: number, y1: number, y2: number, gap = 0): Wall[] {
  * A round wall of overlapping blocks around (cx, cy) with an opening facing west, and the gate that fills it.
  * `opening` is roughly how wide the way in is.
  */
-function colosseum(cx: number, cy: number, r: number, size: number, opening: number): { walls: Wall[]; gate: Wall[] } {
+function colosseum(cx: number, cy: number, r: number, size: number, opening: number, look?: Wall['look']): { walls: Wall[]; gate: Wall[] } {
   const count = Math.ceil((Math.PI * 2 * r) / (size * 0.85));
   const half = Math.asin(opening / 2 / r);
   const walls: Wall[] = [];
@@ -176,7 +198,7 @@ function colosseum(cx: number, cy: number, r: number, size: number, opening: num
     const fromWest = Math.abs(a - Math.PI);
     if (fromWest < half) continue;
     nearest = Math.min(nearest, fromWest);
-    walls.push(pillar(cx + Math.cos(a) * r, cy + Math.sin(a) * r, size));
+    walls.push(pillar(cx + Math.cos(a) * r, cy + Math.sin(a) * r, size, look));
   }
   // The gate reaches the middle of the blocks on either side of the opening.
   const reach = Math.sin(nearest) * r;
@@ -201,6 +223,51 @@ function pillarRing(cx: number, cy: number, r: number, count: number, size: numb
 
 // --- The maps, in unlock order ---
 
+// The Emerald Woods: a river down the middle, and the serpent's glade ringed by trees to the east.
+const WOODS = { width: 4200, height: 3400 };
+const GLADE = colosseum(3550, 1700, 520, 90, 220, 'tree');
+const riverX = (y: number) => 2050 + 110 * Math.sin(y / 420) + 50 * Math.sin(y / 170 + 2);
+const RIVER: River = {
+  points: Array.from({ length: Math.ceil(WOODS.height / 20) + 1 }, (_, i) => ({ x: riverX(i * 20), y: i * 20 })),
+  width: 170,
+  crossings: [
+    { y: 810, kind: 'bridge' },
+    { y: 1710, kind: 'ford' },
+    { y: 2610, kind: 'bridge' },
+  ],
+};
+/**
+ * The river as thin walls (you can dodge across): short strips that follow its bends, as wide as the water is drawn
+ * (less a little, so you can stand at the very edge), with gaps exactly as tall as the bridges and the ford (240).
+ */
+function riverWalls(river: River, height: number): Wall[] {
+  const step = 30;
+  const width = river.width - 16;
+  const walls: Wall[] = [];
+  for (let y = 0; y < height; y += step) {
+    if (river.crossings.some((c) => y + step > c.y - 120 && y < c.y + 120)) continue;
+    walls.push({ x: riverX(y + step / 2) - width / 2, y, w: width, h: step, thin: true, look: 'water' });
+  }
+  return walls;
+}
+
+// The Sunscar Canyon: cliffs along both sides, and the scorpion's den behind a gate to the east.
+const CANYON = { width: 5300, height: 3000 };
+const DEN = colosseum(4600, 1500, 540, 110, 230, 'rock');
+const cliffTop = (x: number) => 360 + 150 * Math.sin(x / 530) + 90 * Math.sin(x / 210 + 1);
+const cliffBottom = (x: number) => 360 + 150 * Math.sin(x / 470 + 2) + 90 * Math.sin(x / 190 + 4);
+/** The canyon's walls: columns of rock along the top and bottom edges, their heights rising and falling. */
+function cliffs(width: number, height: number): Wall[] {
+  const step = 100;
+  const walls: Wall[] = [];
+  for (let x = 0; x < width; x += step) {
+    const top = Math.round(cliffTop(x + step / 2));
+    const bottom = Math.round(cliffBottom(x + step / 2));
+    walls.push(wall(x, 0, step, top, 'rock'), wall(x, height - bottom, step, bottom, 'rock'));
+  }
+  return walls;
+}
+
 // The Verdant Ruins' old colosseum, east of the courtyard.
 const RUINS_ARENA = colosseum(4150, 1800, 540, 80, 220);
 
@@ -215,8 +282,65 @@ const CALDERA = { x: 2200, y: 2200 };
 
 export const MAPS: MapDef[] = [
   {
+    name: 'Emerald Woods',
+    subtitle: 'A sunny forest split by a river. The serpent sleeps in a glade beyond the trees.',
+    art: 'forest',
+    width: WOODS.width,
+    height: WOODS.height,
+    spawn: { x: 800, y: 1700 },
+    boss: EnemyType.Sylvara,
+    arena: { x: 3550, y: 1700, r: 430, zone: 640, gate: GLADE.gate, gateLook: 'vines' },
+    river: RIVER,
+    difficulty: 0.7,
+    prestigeReward: 0.75,
+    // A gentle start: mostly the basic horde.
+    enemyWeights: { [EnemyType.Wraith]: 0, [EnemyType.Bombardier]: 0.3, [EnemyType.Charger]: 0.5, [EnemyType.Spitter]: 0.7 },
+    // Greens and blues of the forest.
+    enemyColors: {
+      [EnemyType.Grunt]: 0x66bb6a,
+      [EnemyType.Runner]: 0x4dd0e1,
+      [EnemyType.Brute]: 0x5c6bc0,
+      [EnemyType.Spitter]: 0xd4e157,
+      [EnemyType.Bombardier]: 0x42a5f5,
+      [EnemyType.Charger]: 0x26a69a,
+      [EnemyType.Wraith]: 0xa5d6a7,
+      [EnemyType.Warlord]: 0x2e7d32,
+    },
+    theme: { background: 0x1d3a1b, grid: 0x274a25, wall: 0x6b7a5c, wallEdge: 0x3b4a32, fence: 0x9c7b4f, outside: 0x07110a },
+    walls: [
+      ...riverWalls(RIVER, WOODS.height),
+      // The glade, and groves dotted around the woods.
+      ...GLADE.walls,
+      ...grove(450, 450),
+      ...grove(1250, 330, 0.9),
+      ...grove(450, 2950),
+      ...grove(1300, 3050, 0.9),
+      ...grove(1450, 1150),
+      ...grove(1400, 2300, 1.1),
+      ...grove(2750, 480),
+      ...grove(2800, 2950),
+      ...grove(2700, 1250, 0.9),
+      ...grove(2750, 2200),
+      ...grove(3450, 420, 1.1),
+      ...grove(3450, 3000, 1.1),
+      ...grove(4000, 750, 0.8),
+      ...grove(4000, 2650, 0.8),
+      ...grove(250, 1700, 0.8),
+      tree(900, 1050, 70),
+      tree(800, 2400, 75),
+      tree(1800, 520, 70),
+      tree(2400, 3150, 70),
+      tree(3100, 900, 70),
+      tree(3100, 2500, 70),
+      // A log pile and a woodcutter's fence near the start.
+      wall(560, 1200, 150, 44),
+      ...fenceH(380, 760, 2150),
+    ],
+  },
+  {
     name: 'Verdant Ruins',
     subtitle: 'Overgrown ruins with a fenced courtyard, and an old colosseum to the east.',
+    art: 'ruins',
     width: 4750,
     height: 3600,
     spawn: { x: 1800, y: 1800 },
@@ -258,6 +382,7 @@ export const MAPS: MapDef[] = [
   {
     name: 'Frozen Fortress',
     subtitle: 'Fight across the castle courtyard. The Queen waits in her throne hall.',
+    art: 'frost',
     width: 4400,
     height: 3000,
     spawn: { x: 450, y: 1500 },
@@ -274,6 +399,17 @@ export const MAPS: MapDef[] = [
     difficulty: 1.5,
     prestigeReward: 1.5,
     enemyWeights: { [EnemyType.Spitter]: 1.6, [EnemyType.Wraith]: 1, [EnemyType.Bombardier]: 0.5 },
+    // Ice blues, frost whites and cold violets.
+    enemyColors: {
+      [EnemyType.Grunt]: 0x90caf9,
+      [EnemyType.Runner]: 0xe0f7fa,
+      [EnemyType.Brute]: 0x5c6bc0,
+      [EnemyType.Spitter]: 0x4dd0e1,
+      [EnemyType.Bombardier]: 0x90a4ae,
+      [EnemyType.Charger]: 0x9575cd,
+      [EnemyType.Wraith]: 0xd1c4e9,
+      [EnemyType.Warlord]: 0x1e88e5,
+    },
     theme: { background: 0x161c24, grid: 0x1f2833, wall: 0x8fa3b8, wallEdge: 0x52606f, fence: 0x6d8ba3, outside: 0x05080c },
     walls: [
       // Curtain walls all around, towers at the corners and along the sides, and the gatehouse to the west.
@@ -338,8 +474,52 @@ export const MAPS: MapDef[] = [
     ],
   },
   {
+    name: 'Sunscar Canyon',
+    subtitle: 'A sun-baked canyon between the mountains. The scorpion lurks in its den to the east.',
+    art: 'canyon',
+    width: CANYON.width,
+    height: CANYON.height,
+    spawn: { x: 500, y: 1500 },
+    boss: EnemyType.Kharzak,
+    arena: { x: 4600, y: 1500, r: 440, zone: 680, gate: DEN.gate },
+    difficulty: 1.85,
+    prestigeReward: 1.75,
+    enemyWeights: { [EnemyType.Charger]: 1.4, [EnemyType.Spitter]: 1.4, [EnemyType.Runner]: 1.3, [EnemyType.Wraith]: 0.6 },
+    // Dust: grays, browns, sand and rust.
+    enemyColors: {
+      [EnemyType.Grunt]: 0xbcaaa4,
+      [EnemyType.Runner]: 0xe6c07b,
+      [EnemyType.Brute]: 0x8d6e63,
+      [EnemyType.Spitter]: 0xafb42b,
+      [EnemyType.Bombardier]: 0x90a4ae,
+      [EnemyType.Charger]: 0xc0703c,
+      [EnemyType.Wraith]: 0xe0e0e0,
+      [EnemyType.Warlord]: 0x6d4c41,
+    },
+    theme: { background: 0x4a3826, grid: 0x58432d, wall: 0x9a6a45, wallEdge: 0x4e2f1c, fence: 0x9c7a4f, outside: 0x160d07 },
+    walls: [
+      ...cliffs(CANYON.width, CANYON.height),
+      ...DEN.walls,
+      // Mesas and boulders on the canyon floor.
+      wall(1400, 1020, 280, 240, 'rock'),
+      wall(2300, 1720, 320, 260, 'rock'),
+      wall(3200, 980, 240, 220, 'rock'),
+      wall(3150, 1880, 200, 180, 'rock'),
+      boulder(900, 1150),
+      boulder(1000, 1950, 80),
+      boulder(1950, 1300, 100),
+      boulder(2750, 1350),
+      boulder(2800, 2150, 80),
+      boulder(3700, 1120, 80),
+      boulder(3700, 1880, 80),
+      // An abandoned mining camp.
+      ...fenceH(1650, 2150, 2250, 140),
+    ],
+  },
+  {
     name: 'Ashen Caldera',
     subtitle: 'A ring of rock in a sea of lava. When the Twin Flames come, the lava closes in.',
+    art: 'caldera',
     width: 4400,
     height: 4400,
     spawn: { x: CALDERA.x, y: CALDERA.y + 750 },
@@ -351,6 +531,17 @@ export const MAPS: MapDef[] = [
     difficulty: 2.2,
     prestigeReward: 2,
     enemyWeights: { [EnemyType.Charger]: 1.6, [EnemyType.Bombardier]: 1.6, [EnemyType.Wraith]: 1.2, [EnemyType.Spitter]: 0.8 },
+    // Fire and ash.
+    enemyColors: {
+      [EnemyType.Grunt]: 0xc62828,
+      [EnemyType.Runner]: 0xffca28,
+      [EnemyType.Brute]: 0xa1887f,
+      [EnemyType.Spitter]: 0xc6ff00,
+      [EnemyType.Bombardier]: 0xff7043,
+      [EnemyType.Charger]: 0xb0bec5,
+      [EnemyType.Wraith]: 0xffab91,
+      [EnemyType.Warlord]: 0xbf360c,
+    },
     theme: { background: 0x1e1714, grid: 0x2a201b, wall: 0x5a4038, wallEdge: 0x2e1f1a, fence: 0xb2552c, outside: 0x0a0503 },
     walls: [
       // Four obelisks around the heart of the caldera, where the boss fight happens.
@@ -372,6 +563,11 @@ export const MAPS: MapDef[] = [
     ],
   },
 ];
+
+/** An enemy type's color on this map. */
+export function enemyColor(map: MapDef, type: number): number {
+  return map.enemyColors?.[type] ?? ENEMY_TYPES[type].color;
+}
 
 /** Who you fight at the end of this map. */
 export function mapBossName(map: MapDef): string {

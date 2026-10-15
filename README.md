@@ -43,16 +43,27 @@ Then give your friends a URL to that port, create a Multiplayer lobby and tell t
 
 | Map | Final boss | Boss fight | Enemy health and damage | Prestige per level |
 |---|---|---|---|---|
+| Emerald Woods | Sylvara, the Glade Serpent | A glade ringed by trees, east of the river | ×0.7 | 0.75 |
 | Verdant Ruins | Grimjaw, the Ruin Beast | A ruined colosseum east of the courtyard | ×1 | 1 |
 | Frozen Fortress | Rime, Queen of the Frozen Fortress | The throne hall inside the castle keep | ×1.5 | 1.5 |
+| Sunscar Canyon | Kharzak, Tyrant of the Canyon | A rocky den at the canyon's east end | ×1.85 | 1.75 |
 | Ashen Caldera | Ashlord Vael and Embra, the Twin Flames | The heart of the caldera, as the lava closes in | ×2.2 | 2 |
 
+- **Emerald Woods:** the first map, kept simple to get into the game: a sunny forest with groves of trees and a river
+  down the middle. Cross it on one of two bridges or the ford on the path (or dodge across). Mostly the basic horde.
+  The serpent's glade is behind a wall of brambles; Sylvara spits fans of venom and lunges.
 - **Verdant Ruins:** the overgrown ruins and fenced courtyard, plus an old colosseum to the east behind a big gate.
 - **Frozen Fortress:** a castle courtyard inside curtain walls (barracks, stables, a frozen fountain in a hedge
   garden, statues along the road), with the keep to the east. The Queen's throne hall is inside the keep.
+- **Sunscar Canyon:** a desert canyon between mountain cliffs, with mesas, boulders and an abandoned mining camp. Lots
+  of chargers and spitters. Kharzak, an armored scorpion, charges and stabs its tail down in a line of strikes.
 - **Ashen Caldera:** a round plateau ringed by lava, with a broken ring of basalt and four obelisks around its heart.
   **Lava** burns everyone standing in it, friend or foe (20% of max HP per second for players, 25% for enemies, very
   little for bosses), unless they're invulnerable, e.g. mid-dodge.
+
+Each map dresses the horde in its own colors (`enemyColors` in `maps.ts`): greens and blues in the woods, ice blues in
+the fortress, dusty grays and browns in the canyon, fire and ash in the caldera. Each type keeps its own shape and a
+color distinct from the others, and the bestiary shows every variant (click one to see which map it's from).
 
 A run is about 10 minutes: the named boss arrives at 9:00. The horde ramps up gently at first and steeply over the last
 few minutes (more health, more damage, faster, more elites; see `hordeScaling` in `src/shared/enemies.ts`), and keeps
@@ -225,7 +236,10 @@ sent to the server (it only sanity-checks the distance), so moving always feels 
 - `objectives.ts`: upgrade points, Altar events and Quest quests (timings, sizes, rewards).
 - `maps.ts`: the maps (size, walls, theme, enemy mix, boss, arena and its gate, lava) and the boss timing. Walls are
   built from small helpers like `room(...)` (a room with door gaps), `fenceH`/`fenceV`, `pillar`, `arc` (a stretch of
-  round wall) and `colosseum` (a round wall with a gate). An arena is round (`r`) or a rectangular `hall`.
+  round wall) and `colosseum` (a round wall with a gate). An arena is round (`r`) or a rectangular `hall`. A wall's
+  `look` draws it as a tree, rock or water instead of stonework; each map's `art` picks its ground, props and landmarks
+  (in `src/client/mapArt.ts`). Unlocked maps are saved as a count of `MAPS`, so `src/server/progress.ts` moves old saves
+  over when the list changes (`MAPS_VERSION`).
 
 Enemies find their way around walls with a flow field (`src/server/navigation.ts`): one pathfinding pass from all
 players per few ticks, which every enemy then follows. That scales to hundreds of enemies where per-enemy A* wouldn't.

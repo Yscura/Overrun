@@ -3,7 +3,7 @@
 //   npm run balance -- --map 0 --heroes mage,tank,ranger,druid --runs 3
 //
 // Options:
-//   --map N|all       map index (0 = Verdant Ruins), or every map (default 0)
+//   --map N|all       map index (0 = Emerald Woods, 1 = Verdant Ruins, ...), or every map (default 0)
 //   --heroes a,b,...  one bot per hero (default: mage,bruiser,assassin,tank)
 //   --runs N          runs per map (default 1)
 //   --prestige N      every prestige upgrade at rank N for all bots (default 0)

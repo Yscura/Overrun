@@ -3,7 +3,7 @@
 // numbers at boss time (and keep growing after); harder maps multiply everything.
 
 import { AFFIXES, AFFIX_TUNING, BOSS_POWER, ENEMY_TYPES, HORDE_DENSITY, hordeScaling, isBossType, type EnemyDef } from '../shared/enemies';
-import { MAPS } from '../shared/maps';
+import { MAPS, enemyColor } from '../shared/maps';
 
 /** A line about each enemy, by name. */
 const LORE: Record<string, string> = {
@@ -21,6 +21,8 @@ const LORE: Record<string, string> = {
   'Ashlord Vael': 'Lord of the caldera, armored in cooled lava. Never fights alone.',
   Embra: "The Ashlord's fiery twin: faster and frailer, warded against magic.",
   Ward: 'A totem that shields the boss during a side mission. Break them all.',
+  Sylvara: 'The Glade Serpent. Spits fans of venom and lunges across its glade.',
+  Kharzak: 'An armored scorpion that rules the canyon. Its tail strikes in a line: step aside.',
 };
 
 const AFFIX_TEXT: Record<string, string> = {
@@ -87,12 +89,24 @@ function tagsFor(def: EnemyDef): [string, string][] {
 }
 
 /** The big view of one enemy: art, tags, description and stats. */
-function detail(type: number, hidden: boolean, art: string): HTMLElement {
+/** The colors an enemy comes in, and the maps where it has each. */
+function variants(type: number): { color: number; maps: string[] }[] {
+  const out: { color: number; maps: string[] }[] = [];
+  for (const map of MAPS) {
+    const color = enemyColor(map, type);
+    const same = out.find((v) => v.color === color);
+    if (same) same.maps.push(map.name);
+    else out.push({ color, maps: [map.name] });
+  }
+  return out;
+}
+
+function detail(type: number, hidden: boolean, art: (type: number, color?: number) => string): HTMLElement {
   const def = ENEMY_TYPES[type];
   const root = el('div', `beast-detail${hidden ? ' hidden-entry' : ''}`);
   const pic = el('div', 'beast-detail-art');
   const img = document.createElement('img');
-  img.src = art;
+  img.src = art(type);
   img.alt = '';
   pic.append(img);
   const head = el('div', 'beast-head');
@@ -118,6 +132,27 @@ function detail(type: number, hidden: boolean, art: string): HTMLElement {
   stat('Ward', `${Math.round((def.ward ?? 0) * 100)}%`, def.ward ? 'magic' : '');
   stat('XP', String(def.xp));
   root.append(stats);
+  // Its colors on each map: click one to see it up close.
+  const kinds = variants(type);
+  if (kinds.length > 1) {
+    const row = el('div', 'beast-variants');
+    for (const v of kinds) {
+      const chip = el('button', 'beast-variant');
+      chip.title = v.maps.join(', ');
+      const icon = document.createElement('img');
+      icon.src = art(type, v.color);
+      icon.alt = v.maps.join(', ');
+      chip.append(icon);
+      chip.addEventListener('click', () => {
+        img.src = icon.src;
+        for (const other of row.children) other.classList.toggle('selected', other === chip);
+        caption.textContent = v.maps.join(', ');
+      });
+      row.append(chip);
+    }
+    const caption = el('div', 'beast-variant-maps', 'Looks different on each map');
+    root.append(el('h3', 'beast-variants-title', 'Variants'), row, caption);
+  }
   return root;
 }
 
@@ -125,7 +160,7 @@ function detail(type: number, hidden: boolean, art: string): HTMLElement {
  * The bestiary page: a grid of enemy cards (picture and name) and, to the right, the selected one up close.
  * `art` gives an enemy's picture (a data URL from the game's own sprites); `seen` is the bosses you've reached, by name.
  */
-export function renderBestiary(seen: readonly string[], art: (type: number) => string): HTMLElement {
+export function renderBestiary(seen: readonly string[], art: (type: number, color?: number) => string): HTMLElement {
   const root = el('div', 'bestiary');
   const grid = el('div', 'bestiary-grid');
   const side = el('div', 'bestiary-side');
@@ -134,7 +169,7 @@ export function renderBestiary(seen: readonly string[], art: (type: number) => s
   const select = (type: number) => {
     selected = type;
     cards.forEach((card, i) => card.classList.toggle('selected', i === type));
-    side.replaceChildren(detail(type, isHidden(type), art(type)));
+    side.replaceChildren(detail(type, isHidden(type), art));
   };
   const cards = ENEMY_TYPES.map((def, type) => {
     const hidden = isHidden(type);
@@ -170,7 +205,7 @@ export function renderBestiary(seen: readonly string[], art: (type: number) => s
   layout.append(main, side);
   root.append(
     layout,
-    el('p', 'prestige-hint', 'Numbers are for a solo run on Verdant Ruins: the horde grows from its start-of-run strength (left) to its strength at boss time (right). Harder maps and more players make everything tougher. Armor resists physical damage, ward resists magic.'),
+    el('p', 'prestige-hint', 'Numbers are for a solo run on a map of normal difficulty (the Verdant Ruins): the horde grows from its start-of-run strength (left) to its strength at boss time (right). Harder maps and more players make everything tougher. Armor resists physical damage, ward resists magic.'),
   );
   return root;
 }

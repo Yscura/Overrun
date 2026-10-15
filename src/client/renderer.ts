@@ -5,7 +5,7 @@ import { DAMAGE_COLORS, DAMAGE_TYPES } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
 import { NO_ROTATE, drawEnemy, shade } from './enemyArt';
 import { TILE, decorations, drawGate, lavaField, drawWalls, groundTile } from './mapArt';
-import { MAPS, zoneRect } from '../shared/maps';
+import { MAPS, enemyColor, zoneRect } from '../shared/maps';
 import { Minimap } from './minimap';
 import { portraitUrl } from './portraits';
 import { RALLY_RADIUS, SHRINES, SHRINE_RADIUS, ShrineKind } from '../shared/objectives';
@@ -223,7 +223,10 @@ export class GameRenderer {
   private pings: Ping[] = [];
 
   private frame = 0;
-  private artCache = new Map<number, string>();
+  private artCache = new Map<string, string>();
+  private enemyTextures = new Map<string, Texture>();
+  /** Each enemy type's color on the current map (for death bursts). */
+  private enemyColors: number[] = ENEMY_TYPES.map((def) => def.color);
   private shrineViews = new Map<number, ShrineView>();
   private spritePool: Sprite[] = [];
   private enemyViews = new Map<number, EnemyView>();
@@ -319,12 +322,13 @@ export class GameRenderer {
   }
 
   /** An enemy's sprite as an image (for the bestiary), made once per type. */
-  enemyArt(type: number): string {
-    let url = this.artCache.get(type);
+  enemyArt(type: number, color = ENEMY_TYPES[type].color): string {
+    const key = `${type}|${color}`;
+    let url = this.artCache.get(key);
     if (!url) {
-      const canvas = this.app.renderer.extract.canvas(this.tex.enemies[type]) as HTMLCanvasElement;
+      const canvas = this.app.renderer.extract.canvas(this.enemyTexture(type, false, color)) as HTMLCanvasElement;
       url = canvas.toDataURL();
-      this.artCache.set(type, url);
+      this.artCache.set(key, url);
     }
     return url;
   }
@@ -336,11 +340,14 @@ export class GameRenderer {
     const { theme } = map;
 
     const old = this.background.texture;
-    const tile = groundTile(index, map);
+    const tile = groundTile(map);
     this.background.texture = this.app.renderer.generateTexture({ target: tile, frame: new Rectangle(0, 0, TILE, TILE) });
     tile.destroy();
     if (old !== Texture.EMPTY) old.destroy(true);
 
+    // The horde in this map's colors.
+    this.enemyColors = ENEMY_TYPES.map((_, type) => enemyColor(map, type));
+    this.tex.enemies = ENEMY_TYPES.map((_, type) => this.enemyTexture(type, false, this.enemyColors[type]));
     for (const child of this.mapLayer.removeChildren()) child.destroy();
     // Darken everything outside the map and outline its edge.
     const pad = 4000;
@@ -354,7 +361,7 @@ export class GameRenderer {
       .stroke({ width: 6, color: theme.wallEdge });
 
     // Floor decorations and landmarks, then the walls on top. All drawn once.
-    const decor = decorations(index, map);
+    const decor = decorations(map);
     this.mapGlow = decor.glow;
     this.mapLayer.addChild(decor.still, decor.glow);
     // The lava field, shown past the lava's edge (see renderLava).
@@ -383,7 +390,7 @@ export class GameRenderer {
     if (this.gateAmount === this.gateDrawn) return;
     this.gateDrawn = this.gateAmount;
     this.gate.clear();
-    for (const w of arena.gate) drawGate(this.gate, w, this.gateAmount);
+    for (const w of arena.gate) drawGate(this.gate, w, this.gateAmount, arena.gateLook);
   }
 
   /** The lava's edge: the lava field is masked to everything past it, with a glowing front line. */
@@ -884,7 +891,7 @@ export class GameRenderer {
       if (view.seen === this.frame) continue;
       if (showDeaths) {
         const big = ENEMY_TYPES[view.type].radius >= 50;
-        this.burst(view.sprite.x, view.sprite.y, ENEMY_TYPES[view.type].color, big ? 40 : 6);
+        this.burst(view.sprite.x, view.sprite.y, this.enemyColors[view.type], big ? 40 : 6);
         this.onEnemyDeath(view.sprite.x, view.sprite.y, big);
       }
       this.release(view.sprite);
@@ -1541,12 +1548,19 @@ export class GameRenderer {
     return shape(g).fill(color);
   }
 
-  /** An enemy type's look (or its white hit-flash silhouette), centered on the enemy and drawn at 2x for sharpness. */
-  private enemyTexture(type: number, flash: boolean): Texture {
+  /**
+   * An enemy type's look in a color (or its white hit-flash silhouette), centered on the enemy and drawn at 2x for
+   * sharpness. Kept, since maps share colors and sprites may still show the last map's.
+   */
+  private enemyTexture(type: number, flash: boolean, color = ENEMY_TYPES[type].color): Texture {
+    const key = `${type}|${flash ? 'flash' : color}`;
+    let texture = this.enemyTextures.get(key);
+    if (texture) return texture;
     const g = new Graphics();
-    const reach = Math.ceil(drawEnemy(g, type, flash)) + 4;
-    const texture = this.app.renderer.generateTexture({ target: g, frame: new Rectangle(-reach, -reach, reach * 2, reach * 2), resolution: 2 });
+    const reach = Math.ceil(drawEnemy(g, type, flash, color)) + 4;
+    texture = this.app.renderer.generateTexture({ target: g, frame: new Rectangle(-reach, -reach, reach * 2, reach * 2), resolution: 2 });
     g.destroy();
+    this.enemyTextures.set(key, texture);
     return texture;
   }
 

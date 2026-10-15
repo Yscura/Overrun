@@ -59,7 +59,7 @@ async function main() {
   // --- The main menu ---
   const menu = new Menu();
   menu.bindSound(sound);
-  menu.enemyArt = (type) => renderer.enemyArt(type);
+  menu.enemyArt = (type, color) => renderer.enemyArt(type, color);
   const savedHero = () => {
     const saved = loadHero();
     return isCharacterId(saved) ? saved : DEFAULT_CHARACTER;

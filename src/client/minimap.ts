@@ -1,6 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import { ENEMY_TYPES } from '../shared/enemies';
-import { MAPS, zoneRect } from '../shared/maps';
+import { MAPS, enemyColor, zoneRect } from '../shared/maps';
 import { SHRINES, ShrineKind } from '../shared/objectives';
 import { AFFIX_SHIFT, ENEMY_STRIDE, PICKUP_STRIDE, PickupKind, SHRINE_STRIDE, type Snapshot } from '../shared/protocol';
 
@@ -72,7 +72,8 @@ export class Minimap {
       .fill({ color: 0x000000, alpha: 0.6 })
       .stroke({ width: 1, color: 0x4a5263 });
     for (const w of map.walls) {
-      g.rect(w.x * s, w.y * s, Math.max(1, w.w * s), Math.max(1, w.h * s)).fill({ color: 0xb0bec5, alpha: w.thin ? 0.35 : 0.8 });
+      const color = w.look === 'water' ? 0x4fc3f7 : w.look === 'tree' ? 0x66bb6a : w.look === 'rock' ? 0xbcaaa4 : 0xb0bec5;
+      g.rect(w.x * s, w.y * s, Math.max(1, w.w * s), Math.max(1, w.h * s)).fill({ color, alpha: w.look ? 0.7 : w.thin ? 0.35 : 0.8 });
     }
     const arena = map.arena;
     if (arena?.hall) g.rect((arena.x - arena.hall.hw) * s, (arena.y - arena.hall.hh) * s, arena.hall.hw * 2 * s, arena.hall.hh * 2 * s).stroke({ width: 1.5, color: 0xff1744, alpha: 0.8 });
@@ -115,8 +116,9 @@ export class Minimap {
       const def = ENEMY_TYPES[snap.enemies[i + 1]];
       const x = snap.enemies[i + 2] * s;
       const y = snap.enemies[i + 3] * s;
-      if (def.radius >= 50) skull(g, x, y, def.color);
-      else g.circle(x, y, 2.5).fill(def.color);
+      const color = enemyColor(MAPS[snap.map], snap.enemies[i + 1]);
+      if (def.radius >= 50) skull(g, x, y, color);
+      else g.circle(x, y, 2.5).fill(color);
     }
 
     // Crates as small wooden boxes, hearts as green plus signs.

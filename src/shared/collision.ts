@@ -7,6 +7,8 @@ export interface Wall {
   w: number;
   h: number;
   thin: boolean;
+  /** How it's drawn: stonework by default, or as water, a tree or rock. Collision doesn't care. */
+  look?: 'water' | 'tree' | 'rock';
 }
 
 /** Which walls a mover may pass through. */
