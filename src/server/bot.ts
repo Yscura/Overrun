@@ -12,15 +12,15 @@ import { ENEMY_TYPES } from '../shared/enemies';
 import { MAPS } from '../shared/maps';
 import { ShrineKind } from '../shared/objectives';
 import {
-  ENEMY_SHOT_Swiftness,
-  ENEMY_Swiftness,
+  ENEMY_SHOT_STRIDE,
+  ENEMY_STRIDE,
   EnemyFlag,
-  GEM_Swiftness,
-  HAZARD_Swiftness,
+  GEM_STRIDE,
+  HAZARD_STRIDE,
   HazardKind,
-  PICKUP_Swiftness,
+  PICKUP_STRIDE,
   PickupKind,
-  SHRINE_Swiftness,
+  SHRINE_STRIDE,
   type ClientMessage,
   type PlayerState,
   type Snapshot,
@@ -178,7 +178,7 @@ export class Bot {
   private enemiesAround(snap: Snapshot): EnemyView[] {
     const out: EnemyView[] = [];
     const list = snap.enemies;
-    for (let i = 0; i < list.length; i += ENEMY_Swiftness) {
+    for (let i = 0; i < list.length; i += ENEMY_STRIDE) {
       const type = list[i + 1];
       const def = ENEMY_TYPES[type];
       const x = list[i + 2];
@@ -224,7 +224,7 @@ export class Bot {
     // Focus a boss in reach: leaving a warlord alive costs more than the trash around it.
     if (boss && boss.d < 400) return at(boss);
     if (me.hp / me.maxHp < 0.6) {
-      for (let i = 0; i < snap.pickups.length; i += PICKUP_Swiftness) {
+      for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
         if (snap.pickups[i + 1] !== PickupKind.Crate) continue;
         const c = { x: snap.pickups[i + 2], y: snap.pickups[i + 3] };
         if (Math.hypot(c.x - this.local.x, c.y - this.local.y) < 300) return at(c);
@@ -233,7 +233,7 @@ export class Bot {
     if (nearest && nearest.d < 220) return at(nearest);
     if (boss) return at(boss);
     // Nothing close: shoot open a crate.
-    for (let i = 0; i < snap.pickups.length; i += PICKUP_Swiftness) {
+    for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
       if (snap.pickups[i + 1] !== PickupKind.Crate) continue;
       const c = { x: snap.pickups[i + 2], y: snap.pickups[i + 3] };
       if (Math.hypot(c.x - this.local.x, c.y - this.local.y) < 350) return at(c);
@@ -385,7 +385,7 @@ export class Bot {
 
     // Get out of bomb circles and charge lanes.
     const h = snap.hazards;
-    for (let i = 0; i < h.length; i += HAZARD_Swiftness) {
+    for (let i = 0; i < h.length; i += HAZARD_STRIDE) {
       const kind = h[i + 1];
       const hx = h[i + 2];
       const hy = h[i + 3];
@@ -408,7 +408,7 @@ export class Bot {
     }
     // Sidestep bullets coming at you.
     const shots = snap.enemyShots;
-    for (let i = 0; i < shots.length; i += ENEMY_SHOT_Swiftness) {
+    for (let i = 0; i < shots.length; i += ENEMY_SHOT_STRIDE) {
       const dx = this.local.x - shots[i + 1];
       const dy = this.local.y - shots[i + 2];
       const d = Math.hypot(dx, dy);
@@ -472,14 +472,14 @@ export class Bot {
     return best;
   }
 
-  /** Charge lanes seen now, plus ones that just vanished because the dash started. As HAZARD_Swiftness-sized records. */
+  /** Charge lanes seen now, plus ones that just vanished because the dash started. As HAZARD_STRIDE-sized records. */
   private rememberLanes(snap: Snapshot): void {
     const h = snap.hazards;
     const seen = new Set<number>();
-    for (let i = 0; i < h.length; i += HAZARD_Swiftness) {
+    for (let i = 0; i < h.length; i += HAZARD_STRIDE) {
       if (h[i + 1] !== HazardKind.Line) continue;
       seen.add(h[i]);
-      this.lanes.set(h[i], { h: h.slice(i, i + HAZARD_Swiftness), until: Infinity });
+      this.lanes.set(h[i], { h: h.slice(i, i + HAZARD_STRIDE), until: Infinity });
     }
     for (const [id, lane] of this.lanes) {
       if (!seen.has(id) && lane.until === Infinity) lane.until = this.clock + 0.8;
@@ -509,7 +509,7 @@ export class Bot {
   /** About to get hit by something a dodge would avoid? */
   private inDanger(snap: Snapshot, me: PlayerState, enemies: EnemyView[]): boolean {
     const h = snap.hazards;
-    for (let i = 0; i < h.length; i += HAZARD_Swiftness) {
+    for (let i = 0; i < h.length; i += HAZARD_STRIDE) {
       const progress = h[i + 7];
       if (h[i + 1] === HazardKind.Circle) {
         const inside = Math.hypot(this.local.x - h[i + 2], this.local.y - h[i + 3]) < h[i + 4] + PLAYER_RADIUS * 0.5;
@@ -520,7 +520,7 @@ export class Bot {
       if ((dashing || lane[7] > 0.7) && this.laneOffset(lane, 0)) return true;
     }
     const shots = snap.enemyShots;
-    for (let i = 0; i < shots.length; i += ENEMY_SHOT_Swiftness) {
+    for (let i = 0; i < shots.length; i += ENEMY_SHOT_STRIDE) {
       if (Math.hypot(this.local.x - shots[i + 1], this.local.y - shots[i + 2]) < 40) return true;
     }
     // Surrounded and hurting.
@@ -540,7 +540,7 @@ export class Bot {
     if (fight?.mission) {
       if (fight.mission.kind === 'sigils') {
         const sigils: Point[] = [];
-        for (let i = 0; i < snap.shrines.length; i += SHRINE_Swiftness) {
+        for (let i = 0; i < snap.shrines.length; i += SHRINE_STRIDE) {
           if (snap.shrines[i + 1] === ShrineKind.Sigil) sigils.push({ x: snap.shrines[i + 2], y: snap.shrines[i + 3] });
         }
         // Spread the team over the sigils.
@@ -556,7 +556,7 @@ export class Bot {
     const hurt = me.hp / me.maxHp;
     if (hurt < 0.75) {
       let best: { p: Point; d: number; crate: boolean } | null = null;
-      for (let i = 0; i < snap.pickups.length; i += PICKUP_Swiftness) {
+      for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
         const p = { x: snap.pickups[i + 2], y: snap.pickups[i + 3] };
         const crate = snap.pickups[i + 1] === PickupKind.Crate;
         // A crate is worth a detour only when you're quite hurt; it has to be shot open first.
@@ -571,7 +571,7 @@ export class Bot {
 
     // Upgrade points: Forges first, then whatever's closest.
     let shrine: { p: Point; score: number } | null = null;
-    for (let i = 0; i < snap.shrines.length; i += SHRINE_Swiftness) {
+    for (let i = 0; i < snap.shrines.length; i += SHRINE_STRIDE) {
       const kind = snap.shrines[i + 1];
       if (kind === ShrineKind.Sigil) continue;
       const p = { x: snap.shrines[i + 2], y: snap.shrines[i + 3] };
@@ -582,7 +582,7 @@ export class Bot {
 
     // Otherwise sweep up gems, and don't wander away from the team.
     let gem: Point | null = null;
-    for (let i = 0; i < snap.gems.length; i += GEM_Swiftness) {
+    for (let i = 0; i < snap.gems.length; i += GEM_STRIDE) {
       const g = { x: snap.gems[i + 1], y: snap.gems[i + 2] };
       if (dist(g) < 350 && (!gem || dist(g) < dist(gem))) gem = g;
     }

@@ -9,23 +9,23 @@ import { MAPS } from '../shared/maps';
 import { Minimap } from './minimap';
 import { RALLY_RADIUS, SHRINES, SHRINE_RADIUS, ShrineKind } from '../shared/objectives';
 import {
-  ENEMY_SHOT_Swiftness,
-  ENEMY_Swiftness,
+  ENEMY_SHOT_STRIDE,
+  ENEMY_STRIDE,
   EnemyFlag,
-  GEM_Swiftness,
-  HAZARD_Swiftness,
+  GEM_STRIDE,
+  HAZARD_STRIDE,
   HazardKind,
-  PICKUP_Swiftness,
-  PROJECTILE_Swiftness,
+  PICKUP_STRIDE,
+  PROJECTILE_STRIDE,
   PickupKind,
   ProjectileKind,
-  SHRINE_Swiftness,
-  ZONE_Swiftness,
+  SHRINE_STRIDE,
+  ZONE_STRIDE,
   ZoneKind,
   type Fx,
   type PlayerState,
   type Snapshot,
-  SUMMON_Swiftness,
+  SUMMON_STRIDE,
   SummonKind,
   AFFIX_SHIFT,
 } from '../shared/protocol';
@@ -36,7 +36,7 @@ const MAX_PARTICLES = 800;
 const DANGER = 0xff1744;
 const STUNNED = 0x90caf9;
 /** Damage numbers: [x, y, amount, crit, type] per hit. */
-const HIT_Swiftness = 5;
+const HIT_STRIDE = 5;
 const CRIT_COLOR = 0xffd740;
 const FIRE = 0xff3d00;
 const HEALTH_GREEN = 0x00e676;
@@ -506,7 +506,7 @@ export class GameRenderer {
     this.renderHazards(sample);
     this.renderZones(b.snap.zones);
     this.renderEnemies(sample, playing);
-    this.renderPoints(this.projectileViews, a.snap.projectiles, a.projectiles, b.snap.projectiles, PROJECTILE_Swiftness, 2, t, this.layers.projectiles, (list, i) =>
+    this.renderPoints(this.projectileViews, a.snap.projectiles, a.projectiles, b.snap.projectiles, PROJECTILE_STRIDE, 2, t, this.layers.projectiles, (list, i) =>
       list[i + 1] === ProjectileKind.Knife
         ? { texture: this.tex.knife, tint: 0xeceff1, rotate: true }
         : list[i + 1] === ProjectileKind.Shuriken || list[i + 1] === ProjectileKind.BigShuriken
@@ -519,14 +519,14 @@ export class GameRenderer {
             ? { texture: this.tex.hex, tint: 0xea80fc, spin: true }
             : { texture: this.tex.bolt, tint: 0xb3e5fc },
     );
-    this.renderPoints(this.summonViews, a.snap.summons, a.summons, b.snap.summons, SUMMON_Swiftness, 2, t, this.layers.projectiles, (list, i) =>
+    this.renderPoints(this.summonViews, a.snap.summons, a.summons, b.snap.summons, SUMMON_STRIDE, 2, t, this.layers.projectiles, (list, i) =>
       list[i + 1] === SummonKind.Treant ? { texture: this.tex.treant, tint: 0x6d8f3a } : { texture: this.tex.wolf, tint: 0xa5d6a7, rotate: true },
     );
-    this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_Swiftness, 1, t, this.layers.enemyShots, () => ({
+    this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_STRIDE, 1, t, this.layers.enemyShots, () => ({
       texture: this.tex.enemyShot,
       tint: 0xd4e157,
     }));
-    this.renderPoints(this.gemViews, a.snap.gems, a.gems, b.snap.gems, GEM_Swiftness, 1, t, this.layers.gems, (list, i) =>
+    this.renderPoints(this.gemViews, a.snap.gems, a.gems, b.snap.gems, GEM_STRIDE, 1, t, this.layers.gems, (list, i) =>
       list[i + 3] ? { texture: this.tex.gemBig, tint: 0xb388ff } : { texture: this.tex.gemSmall, tint: 0x69f0ae },
     );
     this.renderPickups(sample, playing);
@@ -550,8 +550,8 @@ export class GameRenderer {
 
   private renderShrines(snap: Snapshot): void {
     const list = snap.shrines;
-    for (let i = 0; i < list.length; i += SHRINE_Swiftness) {
-      const [id, kind, x, y, progress] = list.slice(i, i + SHRINE_Swiftness);
+    for (let i = 0; i < list.length; i += SHRINE_STRIDE) {
+      const [id, kind, x, y, progress] = list.slice(i, i + SHRINE_STRIDE);
       const view = this.shrineViews.get(id) ?? this.createShrineView(id, kind, x, y);
       view.seen = this.frame;
       const color = SHRINES[kind].color;
@@ -659,7 +659,7 @@ export class GameRenderer {
     for (const child of [...this.pointers.children]) this.release(child as Sprite);
     if (snap.phase !== 'playing') return;
     const targets: { x: number; y: number; color: number }[] = [];
-    for (let i = 0; i < snap.shrines.length; i += SHRINE_Swiftness) {
+    for (let i = 0; i < snap.shrines.length; i += SHRINE_STRIDE) {
       targets.push({ x: snap.shrines[i + 2], y: snap.shrines[i + 3], color: SHRINES[snap.shrines[i + 1]].color });
     }
     if (snap.quest) targets.push({ x: snap.quest.x, y: snap.quest.y, color: QUEST_COLOR });
@@ -700,7 +700,7 @@ export class GameRenderer {
     const marks = this.marks.clear();
     if (!marks.parent) this.layers.enemies.addChild(marks);
     else this.layers.enemies.setChildIndex(marks, this.layers.enemies.children.length - 1);
-    for (let i = 0; i < listB.length; i += ENEMY_Swiftness) {
+    for (let i = 0; i < listB.length; i += ENEMY_STRIDE) {
       const id = listB[i];
       const type = listB[i + 1];
       let x = listB[i + 2];
@@ -770,8 +770,8 @@ export class GameRenderer {
     const venom = this.venom.clear();
     if (!venom.parent) this.layers.hazards.addChildAt(venom, 0);
     const blink = Math.floor(performance.now() / 300) % 2 === 0;
-    for (let i = 0; i < list.length; i += ZONE_Swiftness) {
-      const [id, kind, x, y, r] = list.slice(i, i + ZONE_Swiftness);
+    for (let i = 0; i < list.length; i += ZONE_STRIDE) {
+      const [id, kind, x, y, r] = list.slice(i, i + ZONE_STRIDE);
       if (kind === ZoneKind.Venom) {
         venom.circle(x, y, r).fill({ color: 0x76ff03, alpha: 0.16 });
         continue;
@@ -800,7 +800,7 @@ export class GameRenderer {
   /** Telegraphed attacks: red zones that fill up until they go off. */
   private renderHazards({ b }: Sample): void {
     const list = b.snap.hazards;
-    for (let i = 0; i < list.length; i += HAZARD_Swiftness) {
+    for (let i = 0; i < list.length; i += HAZARD_STRIDE) {
       const id = list[i];
       let view = this.hazardViews.get(id);
       if (!view) {
@@ -809,7 +809,7 @@ export class GameRenderer {
         this.hazardViews.set(id, view);
       }
       view.seen = this.frame;
-      const [kind, x, y, ha, hb, w, progress] = list.slice(i + 1, i + HAZARD_Swiftness);
+      const [kind, x, y, ha, hb, w, progress] = list.slice(i + 1, i + HAZARD_STRIDE);
       const g = view.g.clear();
       g.position.set(x, y);
       if (kind === HazardKind.Circle) {
@@ -840,7 +840,7 @@ export class GameRenderer {
     const now = performance.now();
     const bob = 1 + Math.sin(now / 200) * 0.1;
     const textures = [this.tex.crate, this.tex.heart, this.tex.coin, this.tex.bomb];
-    for (let i = 0; i < list.length; i += PICKUP_Swiftness) {
+    for (let i = 0; i < list.length; i += PICKUP_STRIDE) {
       const id = list[i];
       const kind = list[i + 1];
       let view = this.pickupViews.get(id);
@@ -854,7 +854,7 @@ export class GameRenderer {
       // Only coins move (toward whoever picks them up), so only they need smoothing.
       if (kind === PickupKind.Coin) {
         const prev = a.snap.pickups;
-        for (let j = 0; j < prev.length; j += PICKUP_Swiftness) {
+        for (let j = 0; j < prev.length; j += PICKUP_STRIDE) {
           if (prev[j] !== id) continue;
           x = lerp(prev[j + 2], x, t);
           y = lerp(prev[j + 3], y, t);
@@ -905,13 +905,13 @@ export class GameRenderer {
     listA: number[],
     indexA: Map<number, number>,
     listB: number[],
-    Swiftness: number,
+    stride: number,
     pos: number,
     t: number,
     layer: Container,
     look: (list: number[], i: number) => { texture: Texture; tint: number; rotate?: boolean; spin?: boolean; scale?: number },
   ): void {
-    for (let i = 0; i < listB.length; i += Swiftness) {
+    for (let i = 0; i < listB.length; i += stride) {
       const id = listB[i];
       const bx = listB[i + pos];
       const by = listB[i + pos + 1];
@@ -1126,7 +1126,7 @@ export class GameRenderer {
    * blue magic, white true); damage you take (0 = evaded) floats up off you.
    */
   addDamageNumbers(hits: number[], taken: number[], me: Point): void {
-    for (let i = 0; i < hits.length; i += HIT_Swiftness) {
+    for (let i = 0; i < hits.length; i += HIT_STRIDE) {
       const crit = hits[i + 3] === 1;
       const color = crit ? CRIT_COLOR : DAMAGE_COLORS[DAMAGE_TYPES[hits[i + 4]] ?? 'physical'];
       this.addNumber(hits[i], hits[i + 1] - 18, crit ? `${hits[i + 2]}!` : String(hits[i + 2]), color, crit ? 0.8 : 0.55);

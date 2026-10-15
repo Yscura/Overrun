@@ -338,15 +338,15 @@ export const AFFIX_SHIFT = 5;
 // shrines:     [id, kind, x, y, progress, ...]
 // zones:       [id, kind, x, y, r, ...]  venom puddles, burning ground and mines
 // summons:     [id, kind, x, y, ...]  wolves and treants
-export const ENEMY_Swiftness = 5;
-export const PROJECTILE_Swiftness = 4;
-export const ENEMY_SHOT_Swiftness = 3;
-export const GEM_Swiftness = 4;
-export const PICKUP_Swiftness = 5;
-export const HAZARD_Swiftness = 8;
-export const SHRINE_Swiftness = 5;
-export const ZONE_Swiftness = 5;
-export const SUMMON_Swiftness = 4;
+export const ENEMY_STRIDE = 5;
+export const PROJECTILE_STRIDE = 4;
+export const ENEMY_SHOT_STRIDE = 3;
+export const GEM_STRIDE = 4;
+export const PICKUP_STRIDE = 5;
+export const HAZARD_STRIDE = 8;
+export const SHRINE_STRIDE = 5;
+export const ZONE_STRIDE = 5;
+export const SUMMON_STRIDE = 4;
 
 export interface Snapshot {
   t: 'snap';

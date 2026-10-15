@@ -56,6 +56,12 @@ export function getProfile(store: Record<string, Profile>, name: string): Profil
   const key = name.toLowerCase();
   const profile = (store[key] ??= { points: 0, ranks: {} });
   profile.ranks ??= {};
+  // For a while the movement-speed prestige was saved as "Swiftness"; its id is "stride".
+  const ranks = profile.ranks as Record<string, number | undefined>;
+  if (ranks.Swiftness) {
+    ranks.stride = (ranks.stride ?? 0) + ranks.Swiftness;
+    delete ranks.Swiftness;
+  }
   profile.points = Math.max(0, Number(profile.points) || 0);
   return profile;
 }

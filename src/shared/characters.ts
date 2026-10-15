@@ -256,7 +256,7 @@ export function playerStats(upgrades: Upgrades, character: CharacterId, prestige
   return {
     damageMult: c.damageMult * (1 + 0.1 * lv('might')) * (1 + rank('power')),
     cooldownMult: (1 - 0.08 * lv('haste')) / (1 + rank('fury')),
-    speed: c.speed * (1 + 0.08 * lv('swift')) * (1 + rank('Swiftness')),
+    speed: c.speed * (1 + 0.08 * lv('swift')) * (1 + rank('stride')),
     maxHp: Math.round((c.maxHp + 20 * lv('vitality')) * (1 + rank('fortitude'))),
     magnet: magnetRadius(upgrades),
     regen: c.regen + 0.5 * lv('regen'),

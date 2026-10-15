@@ -1,6 +1,6 @@
 // Decides which sounds a snapshot calls for: your own actions, what happens around you, and big moments.
 
-import { HAZARD_Swiftness, HazardKind, type Snapshot } from '../shared/protocol';
+import { HAZARD_STRIDE, HazardKind, type Snapshot } from '../shared/protocol';
 import type { Sound } from './audio';
 
 export class SoundCues {
@@ -61,7 +61,7 @@ export class SoundCues {
 
     // A warning tone when a charge lane or bomb circle appears near you.
     const current = new Set<number>();
-    for (let i = 0; i < snap.hazards.length; i += HAZARD_Swiftness) {
+    for (let i = 0; i < snap.hazards.length; i += HAZARD_STRIDE) {
       const id = snap.hazards[i];
       current.add(id);
       if (this.seenHazards.has(id)) continue;
