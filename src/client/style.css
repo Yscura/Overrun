@@ -3160,3 +3160,150 @@ body:has(#lobby:not(.hidden)) #sound-control {
 .bestiary > .prestige-hint {
   margin-top: 18px;
 }
+
+/* --- End of a run: the DEFEAT / VICTORY splash, then the post-game screen --- */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: radial-gradient(ellipse at center, rgba(40, 0, 0, 0.55), rgba(5, 5, 8, 0.9) 70%);
+  animation: splash-fade 0.6s ease-out both;
+}
+
+.splash-title {
+  font-size: clamp(64px, 12vw, 150px);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: #ff1744;
+  text-shadow: 0 0 30px rgba(255, 23, 68, 0.7), 0 0 80px rgba(255, 23, 68, 0.35), 0 4px 0 #4a0010;
+  animation: splash-slam 0.9s cubic-bezier(0.2, 1.4, 0.4, 1) 0.15s both;
+}
+
+.splash-title.victory {
+  color: #ffd54f;
+  text-shadow: 0 0 30px rgba(255, 213, 79, 0.7), 0 0 80px rgba(255, 213, 79, 0.35), 0 4px 0 #5a4300;
+}
+
+.splash:has(.splash-title.victory) {
+  background: radial-gradient(ellipse at center, rgba(40, 32, 0, 0.5), rgba(5, 5, 8, 0.9) 70%);
+}
+
+.splash-sub {
+  margin: 0 0 18px;
+  font-size: 18px;
+  color: #c5cad3;
+  animation: splash-rise 0.6s ease-out 0.9s both;
+}
+
+.splash-continue {
+  min-width: 200px;
+  padding: 14px 28px;
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  animation: splash-rise 0.6s ease-out 1.3s both;
+}
+
+@keyframes splash-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Slams in from huge and blurry, overshoots a little, settles. */
+@keyframes splash-slam {
+  0% {
+    opacity: 0;
+    transform: scale(2.6);
+    filter: blur(14px);
+    letter-spacing: 0.5em;
+  }
+  60% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    transform: scale(1);
+    letter-spacing: 0.14em;
+  }
+}
+
+@keyframes splash-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+.postgame-panel {
+  width: min(1000px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  text-align: left;
+}
+
+.postgame-head {
+  text-align: center;
+}
+
+#gameover-title {
+  margin-bottom: 6px;
+  color: #ff1744;
+}
+
+.postgame-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.postgame-chip {
+  min-width: 110px;
+  padding: 10px 14px;
+  text-align: center;
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.postgame-chip-value {
+  font-size: 22px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.postgame-chip-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.postgame-chip.prestige .postgame-chip-value {
+  color: #b388ff;
+}
+
+.postgame-chip.gold .postgame-chip-value {
+  color: #ffd54f;
+}
+
+.postgame-foot {
+  margin-top: 18px;
+  text-align: center;
+}
+
+.postgame-foot #change-hero {
+  min-width: 220px;
+}
+
+.postgame-foot #change-hero:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

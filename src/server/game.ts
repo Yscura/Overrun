@@ -835,7 +835,7 @@ export class Game {
         }
         break;
       case 'lobby':
-        if (this.phase === 'gameover') this.backToLobby();
+        if (this.phase === 'gameover' && this.canRunLobby(p)) this.backToLobby();
         break;
       case 'addbot':
         if (this.phase === 'lobby' && !p.bot && this.canRunLobby(p)) this.addBot();
@@ -2292,7 +2292,7 @@ export class Game {
     if (p.hp <= 0) {
       p.hp = 0;
       p.downed = true;
-      this.log(`${p.name} is down!`, 'danger');
+      this.log('An ally has fallen', 'danger');
       p.revive = 0;
       p.epoch++; // Pin the client to where the server says they went down.
     }

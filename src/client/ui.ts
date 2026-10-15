@@ -226,7 +226,13 @@ export class UI {
   private waiting = $('waiting');
   private gameover = $('gameover');
   private survived = $('survived');
-  private results = $('results');
+  private postgameSummary = $('postgame-summary');
+  private postgameRows = $('postgame-rows');
+  private postgameNote = $('postgame-note');
+  private backToLobby = $<HTMLButtonElement>('change-hero');
+  private splash = $('splash');
+  /** You've pressed Continue on the DEFEAT / VICTORY splash (reset when the next run ends). */
+  private splashDone = false;
   private devPanel = $('dev-panel');
   private spectateBar = $('spectate');
   private spectateList = $('spectate-list');
@@ -259,7 +265,11 @@ export class UI {
   constructor() {
     // The host starts the game; everyone else says they're ready.
     this.startButton.addEventListener('click', () => (this.amHost ? this.onStart() : this.onReady()));
-    $('change-hero').addEventListener('click', () => this.onLobby());
+    this.backToLobby.addEventListener('click', () => this.onLobby());
+    $('splash-continue').addEventListener('click', () => {
+      this.splashDone = true;
+      if (this.latest) this.update(this.latest.snap, this.latest.myId);
+    });
     $('room-profile').addEventListener('click', () => this.onOpenProfile());
     $('room-leave').addEventListener('click', () => this.onLeave());
     this.pauseReady.addEventListener('click', () => this.onReady());
@@ -340,7 +350,7 @@ export class UI {
 
   /** Out of the room (left it, or the connection dropped): hide everything that belongs to a game. */
   leaveRoom(): void {
-    for (const panel of [this.lobby, this.hud, this.levelup, this.gameover, this.pauseMenu, this.spectateBar, this.devPanel, this.scoreboard]) {
+    for (const panel of [this.lobby, this.hud, this.levelup, this.gameover, this.splash, this.pauseMenu, this.spectateBar, this.devPanel, this.scoreboard]) {
       panel.classList.add('hidden');
     }
     document.body.classList.remove('paused');
@@ -369,7 +379,11 @@ export class UI {
     if (this.scoreboardOpen) this.renderScoreboard(false);
     const me = snap.players.find((p) => p.id === myId);
     this.lobby.classList.toggle('hidden', snap.phase !== 'lobby');
-    this.gameover.classList.toggle('hidden', snap.phase !== 'gameover');
+    // Run over: first the big DEFEAT / VICTORY, then (after Continue) the post-game screen.
+    const over = snap.phase === 'gameover';
+    if (!over) this.splashDone = false;
+    this.splash.classList.toggle('hidden', !over || this.splashDone);
+    this.gameover.classList.toggle('hidden', !over || !this.splashDone);
     this.hud.classList.toggle('hidden', snap.phase === 'lobby');
     // God mode: the testing cheats.
     this.devPanel.classList.toggle('hidden', snap.phase !== 'playing' || me?.name.toLowerCase() !== DEV_NAME);
@@ -423,7 +437,7 @@ export class UI {
       this.renderOptions(null, {});
     }
 
-    if (snap.result) this.renderResult(snap.result);
+    if (snap.result && over) this.renderResult(snap.result, snap, me);
   }
 
   // --- Lobby ---
@@ -659,7 +673,7 @@ export class UI {
     const ratio = Math.max(0, Math.min(1, me.hp / me.maxHp));
     this.heroHpFill.style.width = `${ratio * 100}%`;
     this.heroHpFill.classList.toggle('low', ratio <= 0.35);
-    this.heroHpText.textContent = me.downed ? 'DOWN' : `${me.hp} / ${me.maxHp}`;
+    this.heroHpText.textContent = me.downed ? 'FALLEN' : `${me.hp} / ${me.maxHp}`;
     this.hero.classList.toggle('down', me.downed);
   }
 
@@ -827,10 +841,10 @@ export class UI {
     const hp = el('div', 'meter hp score-hp');
     const fill = el('div', `meter-fill${p.hp / p.maxHp <= 0.35 ? ' low' : ''}`);
     fill.style.width = `${Math.max(0, Math.min(100, (p.hp / p.maxHp) * 100))}%`;
-    hp.append(fill, el('span', '', p.downed ? 'DOWN' : `${p.hp} / ${p.maxHp}`));
+    hp.append(fill, el('span', '', p.downed ? 'FALLEN' : `${p.hp} / ${p.maxHp}`));
     names.append(hp);
     who.append(portrait(p.character, p.color), names);
-    this.share(who, () => `(${p.name}) ${hero.name}, ${hero.title} · ${p.downed ? 'down' : `${p.hp}/${p.maxHp} HP`}`);
+    this.share(who, () => `(${p.name}) ${hero.name}, ${hero.title} · ${p.downed ? 'fallen' : `${p.hp}/${p.maxHp} HP`}`);
 
     const numbers = el('div', 'score-numbers');
     for (const [label, value, said] of [
@@ -1031,28 +1045,43 @@ export class UI {
 
   // --- Game over ---
 
-  private renderResult(result: GameResult): void {
-    const key = JSON.stringify(result);
+  private renderResult(result: GameResult, snap: Snapshot, me: PlayerState | undefined): void {
+    const amHost = !!me?.host;
+    // Only the host takes everyone back to the lobby.
+    this.backToLobby.disabled = !amHost;
+    const host = snap.players.find((p) => p.host);
+    this.postgameNote.textContent = amHost ? '' : `Waiting for ${host?.name ?? 'the host'} to go back to the lobby.`;
+
+    const key = `${JSON.stringify(result)}|${snap.players.map((p) => p.id).join(',')}`;
     if (key === this.shown.result) return;
     this.shown.result = key;
-    this.gameoverTitle.textContent = result.victory ? 'VICTORY' : 'OVERRUN';
-    this.gameoverTitle.classList.toggle('victory', result.victory);
+    const title = result.victory ? 'VICTORY' : 'DEFEAT';
+    for (const node of [this.gameoverTitle, $('splash-title')]) {
+      node.textContent = title;
+      node.classList.toggle('victory', result.victory);
+    }
+    $('splash-sub').textContent = result.victory
+      ? `${result.boss} defeated in ${formatTime(result.time)}`
+      : `Overrun at ${formatTime(result.time)}`;
     this.survived.textContent = result.victory
       ? `You defeated ${result.boss} in ${formatTime(result.time)}!` + (result.unlockedMap ? ` ${result.unlockedMap} is now unlocked.` : '')
       : `Your team survived ${formatTime(result.time)} and reached level ${result.level}.`;
-    const earned = [result.prestige > 0 ? `${result.prestige} prestige` : '', result.gold > 0 ? `${result.gold} gold` : ''].filter(Boolean);
-    if (earned.length) this.survived.textContent += ` Everyone earned ${earned.join(' and ')}.`;
-    const header = el('tr');
-    header.append(el('th', '', 'Player'), el('th', '', 'Hero'), el('th', '', 'Kills'));
-    const rows = [...result.players]
-      .sort((x, y) => y.kills - x.kills)
-      .map((p) => {
-        const row = el('tr');
-        const name = el('td');
-        name.append(colorDot(p.color), p.name);
-        row.append(name, el('td', '', CHARACTERS[p.character].name), el('td', '', String(p.kills)));
-        return row;
-      });
-    this.results.replaceChildren(header, ...rows);
+
+    // The run in numbers, then what everyone takes home.
+    const chip = (label: string, value: string, cls = '') => {
+      const c = el('div', `postgame-chip ${cls}`);
+      c.append(el('div', 'postgame-chip-value', value), el('div', 'postgame-chip-label', label));
+      return c;
+    };
+    const kills = snap.players.reduce((sum, p) => sum + p.kills, 0);
+    this.postgameSummary.replaceChildren(
+      chip('Time', formatTime(result.time)),
+      chip('Team level', String(result.level)),
+      chip('Kills', exact(kills)),
+      chip('Prestige gained', `+${result.prestige}`, 'prestige'),
+      chip('Gold gained', `+${result.gold}`, 'gold'),
+    );
+    const myId = this.latest?.myId;
+    this.postgameRows.replaceChildren(...[...snap.players].sort((a, b) => b.damageDealt - a.damageDealt).map((p) => this.scoreRow(p, p.id === myId)));
   }
 }

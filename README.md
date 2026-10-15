@@ -165,7 +165,7 @@ Forges come on a fixed schedule: 6 per run, at 2:15, 3:36, 4:57, 6:07, 7:12 and 
 - **Altar** (cyan): a 20-second team-wide effect: Deep Freeze, Frenzy (double damage), Haste or Vacuum.
 - **Quest** (yellow): starts a quest: get the whole team to a rally point, or chase down a gold thief. Success drops a pile of gems.
 Stand inside a downed teammate's red circle to revive them (a green arc fills around its edge). Downed teammates get a
-red cross above them, on the minimap and as an arrow at the screen edge when they're out of view. The run ends when everyone is down.
+red cross above them, on the minimap and as an arrow at the screen edge when they're out of view. The chat announces "An ally has fallen". The run ends when everyone has fallen.
 
 ## Balance testing with bots
 

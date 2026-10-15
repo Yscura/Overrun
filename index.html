@@ -80,7 +80,7 @@
     </div>
 
     <div id="spectate" class="hidden">
-      <div class="spectate-title">You're down. Watch a teammate:</div>
+      <div class="spectate-title">You have fallen. Watch an ally:</div>
       <div id="spectate-list"></div>
     </div>
 
@@ -246,13 +246,25 @@
       </div>
     </div>
 
+    <!-- The moment a run ends: DEFEAT (or VICTORY) in the middle of the screen, then Continue. -->
+    <div id="splash" class="splash hidden">
+      <div id="splash-title" class="splash-title">DEFEAT</div>
+      <p id="splash-sub" class="splash-sub"></p>
+      <button id="splash-continue" class="primary splash-continue">Continue</button>
+    </div>
+
+    <!-- After Continue: how the run went. -->
     <div id="gameover" class="overlay hidden">
-      <div class="panel">
-        <h1 id="gameover-title">OVERRUN</h1>
-        <p id="survived"></p>
-        <table id="results"></table>
-        <div class="buttons">
+      <div class="panel postgame-panel">
+        <div class="postgame-head">
+          <h1 id="gameover-title">DEFEAT</h1>
+          <p id="survived"></p>
+          <div id="postgame-summary" class="postgame-summary"></div>
+        </div>
+        <div id="postgame-rows" class="postgame-rows"></div>
+        <div class="postgame-foot">
           <button id="change-hero" class="primary">Back to lobby</button>
+          <p id="postgame-note" class="start-note"></p>
         </div>
       </div>
     </div>
