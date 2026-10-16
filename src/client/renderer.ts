@@ -2,7 +2,7 @@ import { Application, BitmapFont, BitmapText, Container, Graphics, Rectangle, Sp
 import { TIERS, TIER_IDS } from '../shared/artifacts';
 import { CHARACTER_IDS, type CharacterId, REWIND_SECONDS } from '../shared/characters';
 import { BOMB, BOSS_INTRO, COIN, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
-import { DAMAGE_COLORS, DAMAGE_TYPES } from '../shared/upgrades';
+import { DAMAGE_COLORS, DAMAGE_TYPES, type DamageType } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
 import { NO_ROTATE, drawEnemy, shade } from './enemyArt';
 import { TILE, decorations, drawGate, lavaField, drawWalls, groundTile } from './mapArt';
@@ -39,7 +39,8 @@ const DANGER = 0xff1744;
 const STUNNED = 0x90caf9;
 /** Damage numbers: [x, y, amount, crit, type] per hit. */
 const HIT_STRIDE = 5;
-const CRIT_COLOR = 0xffd740;
+/** Crit numbers per damage type: yellow for physical, a deep blue for magic (Jeweled Gauntlet). True damage can't crit. */
+const CRIT_COLORS: Record<DamageType, number> = { physical: 0xffd740, magic: 0x2979ff, true: 0xffd740 };
 const FIRE = 0xff3d00;
 /** Boss telegraphs: venom pools, meteors to stack in, marks to spread out from. */
 const VENOM = 0x9ccc65;
@@ -1617,12 +1618,13 @@ export class GameRenderer {
 
   /**
    * Your hits ([x, y, amount, crit, type, ...]) float up off enemies in their damage type's color (orange physical,
-   * blue magic, white true); damage you take (0 = evaded) floats up off you.
+   * blue magic, white true; crits bigger, yellow or deep blue); damage you take (0 = evaded) floats up off you.
    */
   addDamageNumbers(hits: number[], taken: number[], me: Point): void {
     for (let i = 0; i < hits.length; i += HIT_STRIDE) {
       const crit = hits[i + 3] === 1;
-      const color = crit ? CRIT_COLOR : DAMAGE_COLORS[DAMAGE_TYPES[hits[i + 4]] ?? 'physical'];
+      const type = DAMAGE_TYPES[hits[i + 4]] ?? 'physical';
+      const color = crit ? CRIT_COLORS[type] : DAMAGE_COLORS[type];
       this.addNumber(hits[i], hits[i + 1] - 18, crit ? `${hits[i + 2]}!` : String(hits[i + 2]), color, crit ? 0.8 : 0.55);
     }
     for (const amount of taken) {
