@@ -182,7 +182,7 @@ export class GameRenderer {
   };
   private tex!: {
     wolf: Texture;
-    treant: Texture;
+    bear: Texture;
     enemies: Texture[];
     enemyFlash: Texture[];
     tokens: Record<CharacterId, Texture>;
@@ -277,9 +277,33 @@ export class GameRenderer {
       mine: this.texture(new Graphics().circle(0, 0, 9).fill(0x37474f).stroke({ width: 2, color: 0xffab40 }).circle(0, 0, 3).fill(0xff1744)),
       enemyShot: this.texture(new Graphics().circle(0, 0, 10).fill({ color: 0xffffff, alpha: 0.3 }).circle(0, 0, 6).fill(0xffffff)),
       blade: this.texture(new Graphics().poly([0, -14, 5, 0, 0, 14, -5, 0]).fill(0xffffff)),
-      // Wolves point where they run; treants are a leafy crown.
-      wolf: this.texture(new Graphics().poly([14, 0, -9, -8, -4, 0, -9, 8]).fill(0xffffff).stroke({ width: 1.5, color: 0x1b5e20 })),
-      treant: this.texture(this.starShape(new Graphics(), 28, 20, 7).fill(0xffffff).circle(0, 0, 9).fill(0x4e342e)),
+      // Spirit wolves are little wolf heads (like the Wolf Pack icon), in their own colors. The bear points where it
+      // runs; from above: a broad body, head, ears and snout.
+      wolf: this.texture(this.wolfHead()),
+      bear: this.texture(
+        new Graphics()
+          .circle(-2, 0, 30)
+          .fill({ color: 0xffffff, alpha: 0.12 })
+          .ellipse(-4, 0, 22, 17)
+          .fill(0xffffff)
+          .stroke({ width: 2, color: 0x4e342e })
+          .circle(18, -9, 4.5)
+          .circle(18, 9, 4.5)
+          .fill(0xd7ccc8)
+          .stroke({ width: 1.5, color: 0x4e342e })
+          .circle(18, 0, 11)
+          .fill(0xffffff)
+          .stroke({ width: 2, color: 0x4e342e })
+          .ellipse(27, 0, 6, 4.5)
+          .fill(0xd7ccc8)
+          .circle(31, 0, 2)
+          .fill(0x2a1a10)
+          .circle(21, -4.5, 1.6)
+          .circle(21, 4.5, 1.6)
+          .fill(0x2a1a10)
+          .ellipse(-6, 0, 12, 9)
+          .fill({ color: 0x000000, alpha: 0.1 }),
+      ),
       gemSmall: this.texture(new Graphics().poly([0, -7, 5, 0, 0, 7, -5, 0]).fill(0xffffff)),
       gemBig: this.texture(new Graphics().poly([0, -11, 8, 0, 0, 11, -8, 0]).fill(0xffffff)),
       // Loot: a wooden crate, the green cross (healing) and gold coins that come out of it, and bombs. Own colors.
@@ -665,7 +689,7 @@ export class GameRenderer {
             : { texture: this.tex.bolt, tint: 0xb3e5fc },
     );
     this.renderPoints(this.summonViews, a.snap.summons, a.summons, b.snap.summons, SUMMON_STRIDE, 2, t, this.layers.projectiles, (list, i) =>
-      list[i + 1] === SummonKind.Treant ? { texture: this.tex.treant, tint: 0x6d8f3a } : { texture: this.tex.wolf, tint: 0xa5d6a7, rotate: true },
+      list[i + 1] === SummonKind.Bear ? { texture: this.tex.bear, tint: 0xd7a86e, rotate: true } : { texture: this.tex.wolf, tint: 0xffffff },
     );
     this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_STRIDE, 1, t, this.layers.enemyShots, () => ({
       texture: this.tex.enemyShot,
@@ -1193,6 +1217,31 @@ export class GameRenderer {
       this.release(view.sprite);
       this.pickupViews.delete(id);
     }
+  }
+
+  /** A spirit wolf's head, front on, about 26px across: ears up, yellow eyes, a pale muzzle. */
+  private wolfHead(): Graphics {
+    // Drawn on the icons' 32x32 grid, centered and scaled down.
+    const k = 0.8;
+    const p = (x: number, y: number): [number, number] => [(x - 16) * k, (y - 16) * k];
+    const g = new Graphics();
+    g.circle(0, 0, 15).fill({ color: 0xa5d6a7, alpha: 0.18 });
+    g.moveTo(...p(5, 3))
+      .lineTo(...p(12, 10))
+      .lineTo(...p(20, 10))
+      .lineTo(...p(27, 3))
+      .lineTo(...p(27, 16))
+      .bezierCurveTo(...p(27, 22), ...p(22, 28), ...p(16, 30))
+      .bezierCurveTo(...p(10, 28), ...p(5, 22), ...p(5, 16))
+      .closePath()
+      .fill(0x9fb6a4)
+      .stroke({ width: 1.5, color: 0x2e4a36 });
+    g.poly([...p(7.5, 6.5), ...p(11, 10.5), ...p(7.5, 12)]).fill(0x5f7a66);
+    g.poly([...p(24.5, 6.5), ...p(21, 10.5), ...p(24.5, 12)]).fill(0x5f7a66);
+    g.poly([...p(10.5, 21.5), ...p(16, 30), ...p(21.5, 21.5), ...p(16, 23.5)]).fill(0xdfeee2);
+    g.circle(...p(11.5, 16), 2.2 * k).circle(...p(20.5, 16), 2.2 * k).fill(0xffe066);
+    g.poly([...p(14, 21.5), ...p(18, 21.5), ...p(16, 24.5)]).fill(0x2a2f2b);
+    return g;
   }
 
   /** A wooden crate: planks, a cross brace and metal corners. */

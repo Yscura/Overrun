@@ -168,7 +168,7 @@ import {
   fireballStats,
   flamenovaStats,
   timebombStats,
-  treantStats,
+  wildcallStats,
   tumbleStats,
   veilStats,
   wolvesStats,
@@ -241,7 +241,26 @@ const DESYNC_LIMIT = 120;
 const STRIKE = { targets: 7, hop: 0.18, range: 650, damage: 120, perLevel: 8 };
 const INFERNO = { duration: 3, fireballs: 16, spread: 380, radius: 110, damage: 80, perLevel: 5 };
 const ARROW_STORM = { duration: 4, interval: 0.06, damage: 20, perLevel: 2, pierce: 3, jitter: 0.12 };
-const WILD_CALL = { wolves: 6, life: 15 };
+/**
+ * Spirit Bear: slower than the wolves but hits much harder, swiping its target and everything around it. Damage grows
+ * with the team level. R again sends it at the enemy nearest the cursor (within `directRange` of it).
+ */
+const BEAR = {
+  life: 18,
+  speed: 300,
+  damage: 90,
+  perLevel: 6,
+  swipe: 1,
+  splash: 75,
+  splashShare: 0.6,
+  radius: 26,
+  reach: 14,
+  /** Picks its own prey within this distance of the druid... */
+  leash: 520,
+  /** ...and is called back to the druid from beyond this. */
+  tether: 1400,
+  directRange: 380,
+};
 const REWIND = { seconds: REWIND_SECONDS, radius: 220, damage: 150, perLevel: 10 };
 /** Chronobreak keeps this much of each player's past, sampled every HISTORY_STEP seconds. */
 const HISTORY_STEP = 0.1;
@@ -283,6 +302,11 @@ const DANGER_FX = 0xff5252;
  * While the lava closes in, the horde is thinned to fit: room for `full` enemies at the full rim, shrinking with the
  * area (but never below `min` plus `perPlayer` each). At most `perTick` burn up per tick, farthest from the team first.
  */
+/**
+ * A Warlord's arrival makes it a mini-boss fight: the horde out of sight (farther than `clear` from every player)
+ * scatters, and while the Warlord lives the horde only trickles in (`horde` times the usual rate).
+ */
+const WARLORD_FIGHT = { clear: 950, horde: 0.3 };
 const LAVA_CROWD = { full: 160, min: 14, perPlayer: 6, perTick: 4 };
 /** Holy light (Paladin and Cleric): gold rings and pillars. */
 const HOLY = 0xffe082;
@@ -443,7 +467,7 @@ interface Blast {
   puddle?: { r: number; damage: number; life: number };
 }
 
-/** An ally a hero calls in: the druid's wolves and treants. */
+/** An ally a hero calls in: the druid's wolves and spirit bear. */
 interface Summon {
   id: number;
   kind: number;
@@ -461,11 +485,10 @@ interface Summon {
   chase: number;
   ignoreId: number;
   ignoreUntil: number;
-  /** Treants: slam stats, fixed when summoned. */
+  /** Call of the Wild's wolves: bite damage before the druid's damage bonus. */
   damage: number;
-  radius: number;
-  root: number;
-  interval: number;
+  /** The bear: its prey was picked by the druid (R again), so it keeps after it wherever it goes. */
+  ordered: boolean;
   dead: boolean;
 }
 
@@ -1550,6 +1573,7 @@ export class Game {
     // More enemies over time, and more with more players. Fewer while fighting the boss out in the open.
     let perSecond = this.horde().spawnRate * (0.6 + 0.4 * this.players.size);
     if (this.bossPhase === 'fight') perSecond *= BOSS_FIGHT_HORDE;
+    else if (this.warlord()) perSecond *= WARLORD_FIGHT.horde;
     this.spawnAcc += perSecond * dt;
     while (this.spawnAcc >= 1) {
       this.spawnAcc -= 1;
@@ -1558,11 +1582,25 @@ export class Game {
     // Warlords every few minutes, but not right before the final boss.
     if (this.time >= this.nextBossAt) {
       this.nextBossAt += BOSS_INTERVAL;
-      if (this.time < this.bossTime - 30) {
-        this.spawnEnemy(EnemyType.Warlord, alive);
-        this.banner('A Warlord approaches!', 'danger');
-      }
+      if (this.time < this.bossTime - 30) this.warlordArrives(alive);
     }
+  }
+
+  /** The mini-boss: the horde out of sight scatters so the team can focus on the Warlord. */
+  private warlordArrives(alive: Player[]): void {
+    const far = (e: Enemy) => alive.every((p) => dist2(p.x, p.y, e.x, e.y) > WARLORD_FIGHT.clear ** 2);
+    for (const e of this.enemies) {
+      if (e.dead || this.isBoss(e) || e.missionTarget || e.id === this.quest?.targetId || !far(e)) continue;
+      e.dead = true;
+      if (e.hazard) e.hazard.dead = true;
+    }
+    this.spawnEnemy(EnemyType.Warlord, alive);
+    this.banner('A Warlord approaches!', 'danger');
+  }
+
+  /** The Warlord that's out, if any. */
+  private warlord(): Enemy | undefined {
+    return this.enemies.find((e) => e.type === EnemyType.Warlord && !e.dead);
   }
 
   /**
@@ -3293,16 +3331,14 @@ export class Game {
       ignoreId: 0,
       ignoreUntil: 0,
       damage: 0,
-      radius: 0,
-      root: 0,
-      interval: 0,
+      ordered: false,
       dead: false,
     };
     this.summons.push(m);
     return m;
   }
 
-  /** Wolves hunt enemies near their druid and bite; treants stand their ground and slam. */
+  /** Wolves hunt enemies near their druid and bite; the bear does too, but slower and harder (or what it's sent at). */
   private updateSummons(dt: number): void {
     for (const m of this.summons) {
       const owner = this.players.get(m.owner);
@@ -3311,21 +3347,14 @@ export class Game {
       if (m.dead || !owner) continue;
       m.timer -= dt;
       const stats = this.stats(owner);
-      if (m.kind === SummonKind.Treant) {
-        if (m.timer > 0) continue;
-        m.timer = m.interval;
-        for (const e of this.grid.query(m.x, m.y, m.radius + MAX_ENEMY_RADIUS, this.near)) {
-          if (e.dead || dist2(e.x, e.y, m.x, m.y) >= (m.radius + ENEMY_TYPES[e.type].radius) ** 2) continue;
-          this.damageEnemy(e, m.damage, owner, 'physical');
-          this.stun(e, m.root);
-        }
-        this.fx.push({ k: 'ring', x: Math.round(m.x), y: Math.round(m.y), r: m.radius, c: 0x8bc34a, snd: 'slam' });
+      if (m.kind === SummonKind.Bear) {
+        this.updateBear(m, owner, stats, dt);
         continue;
       }
-      // Wolves: pack wolves use the Wolf Pack's level; Call of the Wild's grow with the team level.
+      // Wolves: pack wolves use the Wolf Pack's level; Call of the Wild's were set by the ability's level.
       const level = owner.upgrades.wolves ?? 0;
       const s = wolvesStats(Math.max(1, level));
-      const damage = (m.pack ? s.damage : 20 + 1.5 * this.level) * stats.damageMult;
+      const damage = (m.pack ? s.damage : m.damage) * stats.damageMult;
       // Keep hunting the same prey until it dies or gets well away from the druid; chasing too long without a
       // bite means it's out of reach for now.
       let target = m.prey;
@@ -3390,6 +3419,77 @@ export class Game {
       }
     }
     this.summons = this.summons.filter((m) => !m.dead);
+  }
+
+  /** The Spirit Bear: hunts the enemy nearest it around its druid, or chases down whatever it was sent after. */
+  private updateBear(m: Summon, owner: Player, stats: PlayerStats, dt: number): void {
+    let target = m.prey;
+    if (target && (target.dead || target.burrowed || (!m.ordered && dist2(target.x, target.y, owner.x, owner.y) > (BEAR.leash + WOLF.keepSlack) ** 2))) target = null;
+    if (!target) {
+      m.ordered = false;
+      let best = Infinity;
+      for (const e of this.grid.query(owner.x, owner.y, BEAR.leash, this.near)) {
+        if (e.dead || dist2(e.x, e.y, owner.x, owner.y) > BEAR.leash ** 2) continue;
+        const d = dist2(e.x, e.y, m.x, m.y);
+        if (d < best) {
+          best = d;
+          target = e;
+        }
+      }
+    }
+    m.prey = target;
+    // Nothing to fight: pad along beside the druid.
+    const tx = target ? target.x : owner.x - 60;
+    const ty = target ? target.y : owner.y + 30;
+    const d = Math.hypot(tx - m.x, ty - m.y);
+    const reach = target ? BEAR.radius + ENEMY_TYPES[target.type].radius + BEAR.reach : 6;
+    const close = target ? reach * 0.7 : reach;
+    if (d > close) {
+      const step = Math.min(d - close, ((BEAR.speed * stats.speed) / CHARACTERS[owner.character].speed) * dt);
+      m.x += ((tx - m.x) / d) * step;
+      m.y += ((ty - m.y) / d) * step;
+    }
+    if (target && m.timer <= 0 && dist2(m.x, m.y, target.x, target.y) <= reach * reach) {
+      m.timer = BEAR.swipe * stats.cooldownMult;
+      const damage = (BEAR.damage + BEAR.perLevel * this.level) * stats.damageMult;
+      this.damageEnemy(target, damage, owner, 'physical');
+      this.splash(target.x, target.y, BEAR.splash * stats.area, damage * BEAR.splashShare, owner, 'physical', target);
+      const a = Math.atan2(target.y - m.y, target.x - m.x);
+      this.fx.push({ k: 'slash', x: Math.round(m.x), y: Math.round(m.y), r: Math.round(reach + BEAR.splash * 0.6), a: round2(a), arc: 1.8, c: 0xffcc80 });
+      owner.sounds.push('bite');
+    }
+    if (dist2(m.x, m.y, owner.x, owner.y) > BEAR.tether ** 2) {
+      m.x = owner.x;
+      m.y = owner.y;
+      m.prey = null;
+      m.ordered = false;
+    }
+  }
+
+  /** R again while the bear is out: send it at the enemy nearest the cursor. */
+  private directBear(p: Player, bear: Summon, reach: number): void {
+    const x = p.x + Math.cos(p.aim) * reach;
+    const y = p.y + Math.sin(p.aim) * reach;
+    this.rebuildGrid();
+    let target: Enemy | null = null;
+    let best = BEAR.directRange ** 2;
+    for (const e of this.grid.query(x, y, BEAR.directRange, this.near)) {
+      const d = dist2(e.x, e.y, x, y);
+      if (!e.dead && !e.burrowed && d < best) {
+        best = d;
+        target = e;
+      }
+    }
+    if (!target) return;
+    bear.prey = target;
+    bear.ordered = true;
+    this.fx.push({ k: 'ring', x: Math.round(target.x), y: Math.round(target.y), r: ENEMY_TYPES[target.type].radius + 18, c: 0xffcc80 });
+    p.sounds.push('roar');
+  }
+
+  /** A player's Spirit Bear, if it's out. */
+  private bearOf(p: Player): Summon | undefined {
+    return this.summons.find((m) => m.owner === p.id && m.kind === SummonKind.Bear && !m.dead);
   }
 
   /** Projectiles fanned out around the aim direction. */
@@ -3572,7 +3672,10 @@ export class Game {
     e.dead = true;
     if (e.hazard) e.hazard.dead = true;
     if (by) by.kills++;
-    if (e.type === EnemyType.Warlord) this.dropArtifact('warlord', e.x, e.y);
+    if (e.type === EnemyType.Warlord) {
+      this.dropArtifact('warlord', e.x, e.y);
+      if (!this.warlord()) this.banner('The Warlord has fallen!', 'good');
+    }
     else if (e.affix) this.dropArtifact('champion', e.x, e.y);
     if (this.bosses.includes(e)) this.bossDied(e);
     else if (this.quest?.kind === 'hunt' && e.id === this.quest.targetId) this.completeQuest(e.x, e.y);
@@ -3692,6 +3795,8 @@ export class Game {
     if (slot === 'e' && p.abilityCd <= 0) {
       const level = p.upgrades[hero.ability] ?? 0;
       if (level > 0) p.abilityCd = this.castAbility(p, hero.ability, level, reach, stats) * stats.cooldownMult;
+    } else if (slot === 'r' && this.bearOf(p)) {
+      this.directBear(p, this.bearOf(p)!, reach);
     } else if (slot === 'r' && p.ultCd <= 0) {
       this.castUltimate(p);
       p.ultCd = hero.ultimate.cooldown * stats.ultCooldown;
@@ -3894,21 +3999,15 @@ export class Game {
         p.sounds.push('arrow');
         return s.cooldown;
       }
-      case 'treant': {
-        const s = treantStats(level);
-        const d = Math.min(reach, s.maxRange);
-        for (let i = 0; i < s.count; i++) {
-          const side = s.count > 1 ? (i === 0 ? -1 : 1) * 90 : 0;
-          const x = p.x + dirX * d - dirY * side;
-          const y = p.y + dirY * d + dirX * side;
-          const spot = pushOut(this.walls, clamp(x, 30, this.map.width - 30), clamp(y, 30, this.map.height - 30), 26);
-          const m = this.summon(p, SummonKind.Treant, spot.x, spot.y, s.duration * stats.duration);
-          m.damage = s.damage * stats.damageMult;
-          m.radius = s.radius * stats.area;
-          m.root = s.root * stats.duration;
-          m.interval = s.interval;
-          m.timer = 0.3;
+      case 'wildcall': {
+        const s = wildcallStats(level);
+        const count = s.count + stats.projectiles;
+        for (let i = 0; i < count; i++) {
+          const a = (i / count) * Math.PI * 2;
+          const m = this.summon(p, SummonKind.Wolf, p.x + Math.cos(a) * 40, p.y + Math.sin(a) * 40, s.duration * stats.duration);
+          m.damage = s.damage;
         }
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 160, c: 0x8bc34a });
         p.sounds.push('summon');
         return s.cooldown;
       }
@@ -4025,13 +4124,15 @@ export class Game {
         p.arrowStorm = ARROW_STORM.duration * stats.duration;
         p.ultTimer = 0;
         break;
-      case 'wildcall':
-        for (let i = 0; i < WILD_CALL.wolves + stats.projectiles; i++) {
-          const a = (i / WILD_CALL.wolves) * Math.PI * 2;
-          this.summon(p, SummonKind.Wolf, p.x + Math.cos(a) * 40, p.y + Math.sin(a) * 40, WILD_CALL.life * stats.duration);
-        }
-        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 160, c: 0x8bc34a });
+      case 'bear': {
+        // It lumbers out beside you and goes for the nearest enemy (R again to point it somewhere else).
+        const spot = pushOut(this.walls, p.x + Math.cos(p.aim) * 50, p.y + Math.sin(p.aim) * 50, BEAR.radius);
+        const m = this.summon(p, SummonKind.Bear, spot.x, spot.y, BEAR.life * stats.duration);
+        m.timer = 0.3;
+        this.fx.push({ k: 'ring', x: Math.round(spot.x), y: Math.round(spot.y), r: 140, c: 0xffcc80, snd: 'slam' });
+        p.sounds.push('roar');
         break;
+      }
       case 'rewind': {
         // Back to where you were REWIND.seconds ago, with the most HP you've had since.
         const past = p.history[0] ?? { x: p.x, y: p.y, hp: p.hp };
@@ -4579,6 +4680,10 @@ export class Game {
               },
             }
           : null,
+      warlord: (() => {
+        const w = this.bossPhase === 'waiting' ? this.warlord() : undefined;
+        return w ? { hp: Math.ceil(Math.max(0, w.hp)), maxHp: Math.ceil(w.maxHp) } : null;
+      })(),
       pause: this.pause && (this.pause.kind === 'choose' ? { ...this.pause, timeLeft: round1(this.pause.timeLeft) } : { ...this.pause, ready: [...this.pause.ready] }),
       timeScale: round2(this.pause ? 0 : this.timeScale()),
       time: Math.round(this.time * 1000) / 1000,
@@ -4622,7 +4727,7 @@ export class Game {
       dodgeCooldown: stats.dodgeCooldown,
       ability: { cd: round1(p.abilityCd), cooldown: round1(this.abilityCooldown(p) * stats.cooldownMult) },
       relic: this.relicState(p),
-      ultimate: { cd: round1(p.ultCd), cooldown: round1(hero.ultimate.cooldown * stats.ultCooldown), active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil, p.wrath, hero.ultimate.id === 'elixir' ? p.elixir : 0)) },
+      ultimate: { cd: round1(p.ultCd), cooldown: round1(hero.ultimate.cooldown * stats.ultCooldown), active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil, p.wrath, hero.ultimate.id === 'elixir' ? p.elixir : 0, this.bearOf(p)?.life ?? 0)) },
       hits: this.takeHits(p),
       taken: p.taken.splice(0),
       sounds: [...new Set(p.sounds.splice(0))], // One of each per snapshot is plenty.
@@ -4664,8 +4769,8 @@ export class Game {
         return flamenovaStats(level).cooldown;
       case 'tumble':
         return tumbleStats(level).cooldown;
-      case 'treant':
-        return treantStats(level).cooldown;
+      case 'wildcall':
+        return wildcallStats(level).cooldown;
       case 'timebomb':
         return timebombStats(level).cooldown;
       case 'leap':

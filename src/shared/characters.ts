@@ -29,7 +29,7 @@ export type UltimateId =
   | 'rally'
   | 'inferno'
   | 'arrowstorm'
-  | 'wildcall'
+  | 'bear'
   | 'rewind'
   | 'elixir'
   | 'wrath'
@@ -186,8 +186,14 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     damageMult: 1,
     dodgeCooldown: 3.5,
     startWeapon: 'wolves',
-    ability: 'treant',
-    ultimate: { id: 'wildcall', damage: 'physical', name: 'Call of the Wild', text: 'Six more spirit wolves join the hunt for 15s.', cooldown: 70 },
+    ability: 'wildcall',
+    ultimate: {
+      id: 'bear',
+      damage: 'physical',
+      name: 'Spirit Bear',
+      text: 'A great spirit bear fights beside you for 18s: slower than the wolves, but every swipe mauls its target and everything around it. Press R again to send it at the enemy nearest your cursor.',
+      cooldown: 70,
+    },
     trait: 'Toughest hero: regenerates and fights with a wolf pack',
     unlockCost: 500,
   },

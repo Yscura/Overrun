@@ -179,24 +179,29 @@
             <p class="hint">Progress is saved per name: a new name starts a fresh profile, and switching back gets your old one back.</p>
           </div>
           <div id="profile-totals" class="profile-totals"></div>
-          <div class="prestige-head">
-            <h2>Prestige</h2>
-            <button id="respec" class="link">Refund all</button>
+          <!-- Heroes, artifacts and prestige each get a tab. -->
+          <div class="profile-tabs" role="tablist">
+            <button class="profile-tab" role="tab" data-tab="heroes">Heroes</button>
+            <button class="profile-tab" role="tab" data-tab="artifacts">Artifacts <span id="artifact-found" class="tab-count"></span></button>
+            <button class="profile-tab" role="tab" data-tab="prestige">Prestige <span id="prestige-unspent" class="tab-count"></span></button>
           </div>
-          <p class="prestige-hint">Permanent upgrades, kept between runs. Every team level you reach in a run earns a point (more on harder maps).</p>
-          <div id="prestige"></div>
-          <div class="prestige-head">
-            <h2>Artifacts <span id="artifact-found" class="section-note"></span></h2>
+          <div class="profile-panel" data-panel="heroes">
+            <p class="prestige-hint">Pick a hero to see their kit and how they've done for you. New heroes are bought with gold from crates.</p>
+            <div class="profile-heroes">
+              <div id="hero-shop"></div>
+              <div id="profile-hero" class="profile-hero"></div>
+            </div>
           </div>
-          <p class="prestige-hint">Relics dropped by elites, warlords and final bosses, kept between runs. Click one you own to take it into your runs (one at a time). Duplicates turn into gold.</p>
-          <div id="artifact-inventory" class="artifact-inventory"></div>
-          <div class="prestige-head">
-            <h2>Heroes</h2>
+          <div class="profile-panel" data-panel="artifacts">
+            <p class="prestige-hint">Relics dropped by elites, warlords and final bosses, kept between runs. Click one you own to take it into your runs (one at a time). Duplicates turn into gold.</p>
+            <div id="artifact-inventory" class="artifact-inventory"></div>
           </div>
-          <p class="prestige-hint">Pick a hero to see their kit and how they've done for you. New heroes are bought with gold from crates.</p>
-          <div class="profile-heroes">
-            <div id="hero-shop"></div>
-            <div id="profile-hero" class="profile-hero"></div>
+          <div class="profile-panel" data-panel="prestige">
+            <div class="prestige-head">
+              <p class="prestige-hint">Permanent upgrades, kept between runs. Every team level you reach in a run earns a point (more on harder maps).</p>
+              <button id="respec" class="link">Refund all</button>
+            </div>
+            <div id="prestige"></div>
           </div>
           <p id="profile-note" class="hint"></p>
           <div class="menu-row"><button class="secondary" data-back>Back</button></div>

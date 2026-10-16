@@ -14,6 +14,8 @@ import { heroDetail, heroPortrait, statGrid } from './heroView';
 import { portraitHtml } from './portraits';
 
 export type Screen = 'name' | 'home' | 'multiplayer' | 'profile' | 'settings' | 'bestiary';
+/** The profile page's tabs. */
+type ProfileTab = 'heroes' | 'artifacts' | 'prestige';
 
 const NAME_KEY = 'overrun.name';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -67,6 +69,8 @@ export class Menu {
     bestiary: $('screen-bestiary'),
   };
   private profile: ProfileState | null = null;
+  /** The profile tab that's open (the last one you looked at). */
+  private profileTab: ProfileTab = 'heroes';
   /** The hero shown on the profile page (your favorite until you pick another). */
   private profileHero: CharacterId | null = null;
   /** An enemy's picture, from the game's sprites (set by main once the renderer is up). */
@@ -120,6 +124,10 @@ export class Menu {
     codeInput.addEventListener('input', () => (codeInput.value = codeInput.value.toUpperCase()));
 
     $('respec').addEventListener('click', () => this.onRespec());
+    for (const tab of document.querySelectorAll<HTMLElement>('.profile-tab')) {
+      tab.addEventListener('click', () => this.showProfileTab(tab.dataset.tab as ProfileTab));
+    }
+    this.showProfileTab(this.profileTab);
 
     const settingsName = $<HTMLInputElement>('settings-name');
     $('settings-name-save').addEventListener('click', () => {
@@ -223,7 +231,16 @@ export class Menu {
     );
   }
 
-  // --- Profile: prestige shop and heroes ---
+  // --- Profile: heroes, artifacts and the prestige shop, one tab each ---
+
+  private showProfileTab(tab: ProfileTab): void {
+    this.profileTab = tab;
+    for (const t of document.querySelectorAll<HTMLElement>('.profile-tab')) {
+      t.classList.toggle('active', t.dataset.tab === tab);
+      t.setAttribute('aria-selected', String(t.dataset.tab === tab));
+    }
+    for (const p of document.querySelectorAll<HTMLElement>('.profile-panel')) p.classList.toggle('hidden', p.dataset.panel !== tab);
+  }
 
   setProfile(profile: ProfileState): void {
     this.profile = profile;
@@ -244,6 +261,7 @@ export class Menu {
     totals.children[3].classList.add('gold');
     totals.children[4].classList.add('prestige');
     $('profile-totals').replaceChildren(totals);
+    $('prestige-unspent').textContent = profile.points > 0 ? String(profile.points) : '';
     this.renderPrestige(profile);
     this.renderArtifacts(profile);
     this.renderHeroShop(profile);
@@ -251,7 +269,7 @@ export class Menu {
 
   /** Every artifact in the game: the ones you own (click to equip), and the ones still to find. */
   private renderArtifacts(profile: ProfileState): void {
-    $('artifact-found').textContent = `· ${profile.artifacts.length} / ${ALL_ARTIFACTS.length} found`;
+    $('artifact-found').textContent = `${profile.artifacts.length}/${ALL_ARTIFACTS.length}`;
     $('artifact-inventory').replaceChildren(
       ...ALL_ARTIFACTS.map((id) => {
         const def = ARTIFACTS[id];

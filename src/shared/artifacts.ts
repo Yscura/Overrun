@@ -156,7 +156,7 @@ const ARTIFACT_DEFS = {
 
   // --- Epic: build-defining ---
   heartOfTheMountain: { name: 'Heart of the Mountain', tier: 'epic', icon: 'vitality', flavor: 'The mountain does not fall.', effects: { maxHp: 100 } },
-  vampireFang: { name: 'Vampire Fang', tier: 'epic', icon: 'lifesteal', flavor: 'It hungers, so you hunger.', effects: { omnivamp: 0.02, damage: 0.08 } },
+  vampireFang: { name: 'Vampire Fangs', tier: 'epic', icon: 'lifesteal', flavor: 'It hungers, so you hunger.', effects: { omnivamp: 0.02, damage: 0.08 } },
   berserkersMask: {
     name: "Berserker's Mask",
     tier: 'epic',

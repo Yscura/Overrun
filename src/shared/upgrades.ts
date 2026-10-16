@@ -2,7 +2,7 @@ import { PICKUP_BASE_RADIUS } from './constants';
 
 export type Role = 'ranged' | 'melee';
 /** Hero abilities (cast with E). They level up like weapons but only their own hero can get them. */
-export type AbilityId = 'meteor' | 'leap' | 'warcry' | 'veil' | 'flamenova' | 'tumble' | 'treant' | 'timebomb' | 'toxicpool' | 'consecrate' | 'prayer';
+export type AbilityId = 'meteor' | 'leap' | 'warcry' | 'veil' | 'flamenova' | 'tumble' | 'wildcall' | 'timebomb' | 'toxicpool' | 'consecrate' | 'prayer';
 export type WeaponId =
   | 'bolt'
   | 'knives'
@@ -442,20 +442,15 @@ export function tumbleStats(level: number) {
   };
 }
 
-/** Oakhart: a treant at your cursor that slams the ground, rooting enemies around it. */
-export function treantStats(level: number) {
+/** Oakenhart's E: spirit wolves answer the call and hunt alongside the pack for a while. */
+export function wildcallStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   const evolved = level >= EVOLVED_LEVEL;
   return {
-    duration: 8 + n,
-    damage: 25 + 10 * n,
-    radius: 150 + 10 * n,
-    root: evolved ? 1.2 : 0.6,
-    interval: 1.5,
-    /** Evolved: two treants. */
-    count: evolved ? 2 : 1,
-    cooldown: Math.max(10, 16 - 1.2 * n),
-    maxRange: 450,
+    count: 3 + Math.floor(n / 2) + (evolved ? 2 : 0),
+    damage: 16 + 6 * n,
+    duration: (7 + n) * (evolved ? 1.5 : 1),
+    cooldown: Math.max(13, 20 - 1.6 * n),
   };
 }
 
@@ -817,16 +812,16 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     },
     evolution: { name: 'Hail of Arrows', text: 'Twice the arrows, and each pierces 3 enemies.' },
   },
-  treant: {
-    name: 'Treant',
+  wildcall: {
+    name: 'Call of the Wild',
     kind: 'weapon',
     damage: 'physical',
     owner: 'druid',
     describe: (level) => {
-      const s = treantStats(level);
-      return `[E] Summon a treant at your cursor for ${s.duration}s. It slams the ground for ${s.damage} damage every ${s.interval}s, rooting enemies around it. ${s.cooldown.toFixed(1)}s cooldown.`;
+      const s = wildcallStats(level);
+      return `[E] ${s.count} more spirit wolves join the hunt for ${s.duration}s, biting for ${s.damage} damage. ${s.cooldown.toFixed(1)}s cooldown.`;
     },
-    evolution: { name: 'Ancient Grove', text: 'Two treants, and their roots hold twice as long.' },
+    evolution: { name: 'Alpha Howl', text: 'Two more wolves, and they stay half again as long.' },
   },
   timebomb: {
     name: 'Time Bomb',

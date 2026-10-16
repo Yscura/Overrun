@@ -3824,3 +3824,82 @@ body:has(#lobby:not(.hidden)) #sound-control {
 .tooltip .tip-active {
   color: #ffe082;
 }
+
+/* A Warlord's bar: the boss bar, smaller. */
+#boss-bar.mini {
+  width: min(360px, 60vw);
+}
+
+#boss-bar.mini .meter.boss {
+  height: 14px;
+}
+
+#boss-bar.mini .boss-name {
+  font-size: 13px;
+}
+
+/* Profile tabs: Heroes, Artifacts, Prestige. */
+.profile-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin: 20px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.profile-tab {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 170px;
+  justify-content: center;
+  padding: 13px 28px;
+  margin-bottom: -1px;
+  font: inherit;
+  font-weight: 800;
+  font-size: 19px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+}
+
+.profile-tab:hover {
+  color: var(--text);
+  background: #151820;
+}
+
+.profile-tab.active {
+  color: var(--text);
+  background: #13202a;
+  border-color: var(--border);
+  border-bottom: 2px solid var(--accent);
+}
+
+.tab-count {
+  padding: 1px 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--muted);
+  background: #1b1f27;
+  border-radius: 999px;
+}
+
+.tab-count:empty {
+  display: none;
+}
+
+.profile-panel .prestige-head {
+  justify-content: space-between;
+}
+
+.profile-panel .prestige-head .prestige-hint {
+  margin: 0 0 10px;
+}
+
+/* Same height on every tab, so the page doesn't jump around when switching. */
+.profile-panel {
+  min-height: min(520px, 55vh);
+}

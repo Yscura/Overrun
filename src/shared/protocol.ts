@@ -376,7 +376,7 @@ export interface BossFight {
 export const PickupKind = { Crate: 0, Heart: 1, Coin: 2, Bomb: 3, Artifact: 4 } as const;
 export const ProjectileKind = { Bolt: 0, Knife: 1, Shuriken: 2, Hex: 3, BigShuriken: 4, Fireball: 5, Arrow: 6 } as const;
 /** Allies some heroes call in. */
-export const SummonKind = { Wolf: 0, Treant: 1 } as const;
+export const SummonKind = { Wolf: 0, Bear: 1 } as const;
 /** Things players leave on the ground. */
 export const ZoneKind = { Venom: 0, Mine: 1, Fire: 2, Holy: 3, Toxic: 4 } as const;
 /** Telegraphed danger zones: a bomb circle or a charger's path. */
@@ -409,7 +409,7 @@ export const AFFIX_SHIFT = 9;
 // hazards:     [id, kind, x, y, a, b, c, progress, ...]  circle: a = radius; line: a = angle, b = length, c = width. progress 0..1
 // shrines:     [id, kind, x, y, progress, ...]
 // zones:       [id, kind, x, y, r, ...]  venom puddles, burning ground and mines
-// summons:     [id, kind, x, y, ...]  wolves and treants
+// summons:     [id, kind, x, y, ...]  wolves and the spirit bear
 export const ENEMY_STRIDE = 5;
 export const PROJECTILE_STRIDE = 4;
 export const ENEMY_SHOT_STRIDE = 3;
@@ -435,6 +435,8 @@ export interface Snapshot {
   arena: ArenaState | null;
   lava: LavaState | null;
   bossFight: BossFight | null;
+  /** A Warlord (the mini-boss) is out: its health, for the bar at the top of the screen. */
+  warlord: { hp: number; maxHp: number } | null;
   pause: Pause | null;
   /** Game speed: below 1 while easing back in from a pause. */
   timeScale: number;

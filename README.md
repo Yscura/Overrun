@@ -72,7 +72,7 @@ growing if the boss fight drags on. Hordes are kept smallish (`HORDE_DENSITY`): 
 **Champions.** From about 2 minutes in, a few percent of enemies spawn as champions: bigger, with a colored ring,
 4x the health, 1.5x the damage and 5x the XP, plus an affix: **Hasted** (yellow, much faster), **Vampiric** (red,
 heals by hitting you), **Volatile** (orange, leaves a bomb when it dies) or **Splitting** (green, splits in three).
-**Warlords** still show up every 2 minutes.
+**Warlords** still show up every 2 minutes as a mini-boss fight: the horde out of sight scatters when one arrives, only trickles in (30% of the usual rate) until it dies, and it gets a health bar at the top of the screen (tuned in `WARLORD_FIGHT` in `src/server/game.ts`).
 
 **Getting to the boss.** Boss arenas are walled off by a big gate until 9:00. Then the gate opens, and a burning zone
 sweeps in from the map's far corners, closing in on the arena over 45 seconds and burning anyone it catches. The fight
@@ -157,7 +157,7 @@ Pick a hero in the lobby. Ranged and melee heroes are offered different weapons:
 | Torvald, the Tank | Melee | Ground Slam | War Cry: taunt enemies, take less damage | Rally (90s): heal, shield, revive | Takes 25% less damage |
 | Ignis, the Pyromancer | Ranged | Fireball | Flame Nova: fire ring that leaves the ground burning | Inferno (60s): fireballs rain around you | +25% damage, 30% bigger areas, 70 HP |
 | Sylva, the Ranger | Ranged | Longbow | Tumble: roll toward the cursor and loose a fan of arrows | Arrow Storm (50s): 4s of rapid fire at the cursor | +15% damage, fast, dodges every 1.4s |
-| Oakhart, the Druid | Melee | Wolf Pack (druid only) | Treant: summons a tree that slams and roots | Call of the Wild (70s): 6 more wolves for 15s | 200 HP, regenerates |
+| Oakhart, the Druid | Melee | Wolf Pack (druid only) | Call of the Wild: more spirit wolves join the hunt for a while | Spirit Bear (70s): a slow, hard-hitting bear fights beside you for 18s; R again sends it at the enemy nearest your cursor | 200 HP, regenerates |
 | Vex, the Chronobreaker | Melee | Spirit Blades | Time Bomb: detonates at the cursor and stuns | Chronobreak (60s): rewind 4s, restore HP, explode | +15% damage |
 | Vessa, the Alchemist | Ranged | Flask Toss: splash and acid puddles | Toxic Pool: a wide, long-lasting pool of poison at the cursor | Grand Elixir (75s): heal 30%, then 8s of +25% damage, faster attacks, speed and armor | +15% damage |
 | Aldric, the Paladin | Melee | Judgment Hammer (magic) | Consecration: hallowed ground that burns enemies and heals allies | Avenging Wrath (70s): 8s of light pillars, half damage taken | 150 HP, armored |

@@ -61,7 +61,7 @@ const PASSIVE_PRIORITY: Partial<Record<UpgradeId, number>> = {
 };
 
 /** Which E abilities are aimed at a spot (and how far they reach). */
-const TARGETED_E: Partial<Record<string, number>> = { meteor: 650, timebomb: 600, treant: 450, leap: 340, toxicpool: 550 };
+const TARGETED_E: Partial<Record<string, number>> = { meteor: 650, timebomb: 600, leap: 340, toxicpool: 550 };
 
 export class Bot {
   private snap: Snapshot | null = null;
@@ -291,7 +291,7 @@ export class Bot {
         shadowstrike: near(650) >= 6 || !!boss,
         inferno: near(380) >= 10 || !!(boss && boss.d < 380),
         arrowstorm: near(600) >= 10 || !!boss,
-        wildcall: near(450) >= 10 || !!boss,
+        bear: near(450) >= 8 || !!boss,
         rewind: hpShare < 0.35,
         elixir: near(400) >= 10 || !!boss || hpShare < 0.5,
         wrath: near(350) >= 8 || !!(boss && boss.d < 400),

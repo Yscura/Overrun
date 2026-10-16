@@ -14,7 +14,7 @@ import {
 import { ARTIFACTS, TIERS, artifact, artifactSummary, describeActive, describeArtifact, type ArtifactId } from '../shared/artifacts';
 import { MAX_PLAYERS } from '../shared/constants';
 import { MODES } from '../shared/modes';
-import { MISSIONS } from '../shared/enemies';
+import { ENEMY_TYPES, EnemyType, MISSIONS } from '../shared/enemies';
 import { MAPS, inZone, mapBossName } from '../shared/maps';
 import { EVENTS, QUESTS } from '../shared/objectives';
 import { DEV_NAME, type ArtifactFind, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot } from '../shared/protocol';
@@ -214,6 +214,17 @@ export class UI {
   private bossBars = $('boss-bars');
   private bossStatus = $('boss-status');
   private missionChip = $('mission-chip');
+  /** The Warlord's health bar (the mini-boss), built once. */
+  private warlordView = (() => {
+    const name = el('div', 'boss-name', ENEMY_TYPES[EnemyType.Warlord].name);
+    const meter = el('div', 'meter boss');
+    const fill = el('div', 'meter-fill');
+    const hp = el('span');
+    meter.append(fill, hp);
+    const wrap = el('div', 'boss-one');
+    wrap.append(name, meter);
+    return { fill, hp, wrap };
+  })();
   /** One health bar per final boss. */
   private bossViews: { name: HTMLElement; fill: HTMLElement; hp: HTMLElement }[] = [];
   private bossChip = $('boss-chip');
@@ -667,8 +678,22 @@ export class UI {
   /** The boss health bar during the fight, otherwise a countdown to the boss or a warning to get to the arena. */
   private renderBoss(snap: Snapshot, me: PlayerState | undefined): void {
     const fight = snap.bossFight;
-    this.bossBar.classList.toggle('hidden', !fight);
+    // A Warlord out (and no final boss yet): the same bar, smaller, for a mini-boss fight.
+    const warlord = !fight && snap.phase === 'playing' ? snap.warlord : null;
+    this.bossBar.classList.toggle('hidden', !fight && !warlord);
+    this.bossBar.classList.toggle('mini', !!warlord);
     this.missionChip.classList.toggle('hidden', !fight?.mission);
+    if (warlord) {
+      const v = this.warlordView;
+      if (this.bossBars.firstChild !== v.wrap) {
+        this.bossBars.replaceChildren(v.wrap);
+        this.bossViews = []; // The final boss's bars get rebuilt when it comes.
+      }
+      v.fill.style.width = `${(warlord.hp / warlord.maxHp) * 100}%`;
+      v.hp.textContent = `${warlord.hp.toLocaleString('en-US')} / ${warlord.maxHp.toLocaleString('en-US')}`;
+      this.bossStatus.classList.remove('urgent');
+      this.bossStatus.textContent = 'Mini-boss · the horde holds back while it lives';
+    }
     if (fight) {
       if (this.bossViews.length !== fight.bosses.length) {
         this.bossViews = fight.bosses.map(() => {
