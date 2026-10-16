@@ -1,3 +1,4 @@
+import { ARTIFACTS, OMNIVAMP_CAP, type ArtifactEffects, type ArtifactId } from './artifacts';
 import { PRESTIGE_BONUS, type PrestigeId, type PrestigeRanks } from './prestige';
 import {
   ALL_UPGRADES,
@@ -327,29 +328,38 @@ export function offerableUpgrades(upgrades: Upgrades, character: CharacterId): U
 /** Roughly how many level-up picks it takes to fill every slot and max everything, not counting the starting levels. */
 export const UPGRADE_PICKS = (WEAPON_SLOTS + 1 + PASSIVE_SLOTS) * MAX_LEVEL - 2; // +1 for the E ability; weapon and ability start at 1.
 
-/** A player's stats: their character's base stats with passive upgrades and prestige ranks applied. */
-export function playerStats(upgrades: Upgrades, character: CharacterId, prestige: PrestigeRanks = {}) {
+/** A player's stats: their character's base stats with passive upgrades, prestige ranks and their artifact applied. */
+export function playerStats(upgrades: Upgrades, character: CharacterId, prestige: PrestigeRanks = {}, artifact: ArtifactId | null = null) {
   const c = CHARACTERS[character];
   const lv = (id: UpgradeId) => upgrades[id] ?? 0;
   const rank = (id: PrestigeId) => (prestige[id] ?? 0) * PRESTIGE_BONUS[id];
+  const effects: ArtifactEffects = artifact ? ARTIFACTS[artifact].effects : {};
+  const a = (key: Exclude<keyof ArtifactEffects, 'secondWind'>) => effects[key] ?? 0;
   return {
-    damageMult: c.damageMult * (1 + 0.1 * lv('might')) * (1 + rank('power')),
-    cooldownMult: (1 - 0.08 * lv('haste')) / (1 + rank('fury')),
-    speed: c.speed * (1 + 0.08 * lv('swift')) * (1 + rank('stride')),
-    maxHp: Math.round((c.maxHp + 20 * lv('vitality')) * (1 + rank('fortitude'))),
-    magnet: magnetRadius(upgrades),
-    regen: c.regen + 0.5 * lv('regen'),
-    armor: Math.min(0.6, c.armor + 0.06 * lv('armor') + rank('resolve')),
-    dodgeCooldown: c.dodgeCooldown,
-    critChance: 0.06 * lv('crit'),
-    lifesteal: 0.005 * lv('lifesteal'),
+    damageMult: c.damageMult * (1 + 0.1 * lv('might')) * (1 + rank('power')) * (1 + a('damage')),
+    cooldownMult: (1 - 0.08 * lv('haste')) / (1 + rank('fury')) / (1 + a('attackSpeed')),
+    speed: c.speed * (1 + 0.08 * lv('swift')) * (1 + rank('stride')) * (1 + a('speed')),
+    maxHp: Math.max(1, Math.round((c.maxHp + 20 * lv('vitality') + a('maxHp')) * (1 + rank('fortitude')) * (1 + a('maxHpPct')))),
+    magnet: magnetRadius(upgrades) * (1 + a('magnet')),
+    regen: c.regen + 0.5 * lv('regen') + a('regen'),
+    armor: Math.min(0.6, c.armor + 0.06 * lv('armor') + rank('resolve') + a('armor')),
+    /** Multiplier on damage taken after armor (artifacts with a drawback). */
+    damageTaken: 1 + a('damageTaken'),
+    dodgeCooldown: c.dodgeCooldown * (1 - a('dodge')),
+    /** Multiplier on the ultimate's cooldown. */
+    ultCooldown: 1 - a('ultimate'),
+    critChance: 0.06 * lv('crit') + a('crit'),
+    lifesteal: 0.005 * lv('lifesteal') + a('omnivamp'),
     /** Most Vampirism can heal, as a share of max HP per second. */
-    lifestealCap: 0.01 * lv('lifesteal'),
-    area: (1 + 0.1 * lv('area')) * (c.areaMult ?? 1),
-    duration: 1 + 0.12 * lv('duration'),
-    projectiles: lv('multishot'),
-    evasion: 0.03 * lv('evasion'),
-    xpMult: 1 + 0.1 * lv('wisdom'),
+    lifestealCap: 0.01 * lv('lifesteal') + a('omnivamp') * OMNIVAMP_CAP,
+    area: (1 + 0.1 * lv('area')) * (c.areaMult ?? 1) * (1 + a('area')),
+    duration: 1 + 0.12 * lv('duration') + a('duration'),
+    projectiles: lv('multishot') + a('projectiles'),
+    evasion: 0.03 * lv('evasion') + a('evasion'),
+    xpMult: 1 + 0.1 * lv('wisdom') + a('xp'),
+    goldMult: 1 + a('gold'),
+    /** Once per run, a fatal blow leaves you at this share of max HP instead (0: no). */
+    secondWind: effects.secondWind ?? 0,
     /** Extra damage per damage type: attunement (more weapons of a type) and Arcana for magic. */
     typeDamage: typeDamage(upgrades),
   };
@@ -396,16 +406,16 @@ export function offerWeight(id: UpgradeId, character: CharacterId): number {
 export type PlayerStats = ReturnType<typeof playerStats>;
 
 /** Spirit Blades as they spin: shared so the client draws them exactly where the server hits with them. */
-export function orbitLayout(upgrades: Upgrades, character: CharacterId) {
+export function orbitLayout(upgrades: Upgrades, character: CharacterId, artifact: ArtifactId | null = null) {
   const level = upgrades.orbit ?? 0;
   if (!level) return null;
   const s = orbitStats(level);
-  const stats = playerStats(upgrades, character);
+  const stats = playerStats(upgrades, character, {}, artifact);
   return { ...s, count: s.count + stats.projectiles, radius: s.radius * stats.area };
 }
 
 /** Radiant Field's radius, or 0 without one. */
-export function fieldRadius(upgrades: Upgrades, character: CharacterId): number {
+export function fieldRadius(upgrades: Upgrades, character: CharacterId, artifact: ArtifactId | null = null): number {
   const level = upgrades.field ?? 0;
-  return level ? fieldStats(level).radius * playerStats(upgrades, character).area : 0;
+  return level ? fieldStats(level).radius * playerStats(upgrades, character, {}, artifact).area : 0;
 }

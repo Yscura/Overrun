@@ -1,12 +1,14 @@
 // The main menu: your name, the home screen with the modes, multiplayer (create or join a lobby), your profile
 // (prestige shop and heroes) and settings. Profile and settings can also be opened on top of a lobby.
 
+import { ARTIFACTS, type ArtifactId } from '../shared/artifacts';
 import { CHARACTERS, CHARACTER_IDS, heroAvailable, type CharacterId } from '../shared/characters';
 import { MAPS } from '../shared/maps';
 import { MODES, MODE_IDS, type ModeId } from '../shared/modes';
 import { PRESTIGE, PRESTIGE_IDS, prestigeCost, type PrestigeId } from '../shared/prestige';
 import type { ProfileState, RoomInfo } from '../shared/protocol';
 import type { Sound } from './audio';
+import { ALL_ARTIFACTS, artifactIcon, effectLines, tierTag } from './artifactView';
 import { renderBestiary } from './bestiary';
 import { heroDetail, heroPortrait, statGrid } from './heroView';
 import { portraitHtml } from './portraits';
@@ -51,6 +53,8 @@ export class Menu {
   onPrestige: (id: PrestigeId) => void = () => {};
   onRespec: () => void = () => {};
   onUnlock: (character: CharacterId) => void = () => {};
+  /** Take an artifact into your runs (null: none). */
+  onEquip: (artifact: ArtifactId | null) => void = () => {};
 
   private overlay = $('menu');
   private status = $('menu-status');
@@ -241,7 +245,35 @@ export class Menu {
     totals.children[4].classList.add('prestige');
     $('profile-totals').replaceChildren(totals);
     this.renderPrestige(profile);
+    this.renderArtifacts(profile);
     this.renderHeroShop(profile);
+  }
+
+  /** Every artifact in the game: the ones you own (click to equip), and the ones still to find. */
+  private renderArtifacts(profile: ProfileState): void {
+    $('artifact-found').textContent = `· ${profile.artifacts.length} / ${ALL_ARTIFACTS.length} found`;
+    $('artifact-inventory').replaceChildren(
+      ...ALL_ARTIFACTS.map((id) => {
+        const def = ARTIFACTS[id];
+        const owned = profile.artifacts.includes(id);
+        const equipped = profile.equipped === id;
+        const card = el('button', `artifact-card${owned ? '' : ' unknown'}${equipped ? ' equipped' : ''}`) as HTMLButtonElement;
+        card.disabled = !owned;
+        const head = el('div', 'artifact-card-head');
+        const names = el('div', 'artifact-card-names');
+        names.append(el('div', 'artifact-name', owned ? def.name : '???'), tierTag(def.tier));
+        head.append(artifactIcon(id, 40, owned), names);
+        if (equipped) head.append(el('span', 'artifact-equipped', 'Equipped'));
+        card.append(head);
+        if (owned) card.append(effectLines(id), el('p', 'artifact-flavor', def.flavor));
+        else card.append(el('p', 'artifact-flavor', 'Not found yet.'));
+        if (owned) {
+          card.title = equipped ? 'Click to unequip' : 'Click to equip';
+          card.addEventListener('click', () => this.onEquip(equipped ? null : id));
+        }
+        return card;
+      }),
+    );
   }
 
   /** The corner card: your favorite hero's portrait, your name, and your gold and prestige. */

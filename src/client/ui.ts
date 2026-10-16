@@ -11,12 +11,13 @@ import {
   type CharacterId,
   type UltimateId,
 } from '../shared/characters';
+import { ARTIFACTS, TIERS, artifact, artifactSummary, describeActive, describeArtifact, type ArtifactId } from '../shared/artifacts';
 import { MAX_PLAYERS } from '../shared/constants';
 import { MODES } from '../shared/modes';
 import { MISSIONS } from '../shared/enemies';
 import { MAPS, inZone, mapBossName } from '../shared/maps';
 import { EVENTS, QUESTS } from '../shared/objectives';
-import { DEV_NAME, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot } from '../shared/protocol';
+import { DEV_NAME, type ArtifactFind, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot } from '../shared/protocol';
 import {
   EVOLVED_LEVEL,
   MAX_LEVEL,
@@ -34,6 +35,7 @@ import {
   isBonus,
   type ChoiceId,
 } from '../shared/upgrades';
+import { artifactIcon, sortArtifacts, tierColor } from './artifactView';
 import type { Sound } from './audio';
 import { iconEl, ultIconEl } from './icons';
 import { heroDetail } from './heroView';
@@ -97,6 +99,8 @@ interface Tip {
   icon?: ChoiceId;
   /** Ultimates have their own icons. */
   ult?: UltimateId;
+  /** Artifacts are drawn in their tier's frame. */
+  artifact?: ArtifactId;
   tags: { text: string; cls: string }[];
   lines: { text: string; cls?: string }[];
 }
@@ -177,6 +181,8 @@ export class UI {
   onSpectate: (id: number | null) => void = () => {};
   private spectating: number | null = null;
   onRemoveBot: (id: number) => void = () => {};
+  /** Take an artifact into the run (null: none). */
+  onEquip: (artifact: ArtifactId | null) => void = () => {};
 
   private lobby = $('lobby');
   private roomMode = $('room-mode');
@@ -186,6 +192,10 @@ export class UI {
   private startNote = $('start-note');
   private maps = $('maps');
   private characters = $('characters');
+  private artifactPicker = $('artifact-picker');
+  private artifactCount = $('artifact-count');
+  private lootToasts = $('loot-toasts');
+  private postgameLoot = $('postgame-loot');
   private heroDetail = $('hero-detail');
   /** The chat sits under the player list while you're in the lobby. */
   readonly lobbyChatDock = $('lobby-chat-dock');
@@ -219,6 +229,7 @@ export class UI {
   private heroDodge = $('hero-dodge');
   private heroDodgeFill = $('hero-dodge-fill');
   private slots = $('loadout-slots');
+  private abilityQ = $('ability-q');
   private abilityE = $('ability-e');
   private abilityR = $('ability-r');
   private levelup = $('levelup');
@@ -260,7 +271,7 @@ export class UI {
   private latest: { snap: Snapshot; myId: number | null } | null = null;
 
   // Only rebuild DOM when the content actually changed (snapshots arrive 30 times a second).
-  private shown = { spectate: '', pauseList: '', players: '', maps: '', characters: '', heroDetail: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
+  private shown = { spectate: '', pauseList: '', players: '', maps: '', characters: '', artifacts: '', heroDetail: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
   private bannerTimer = 0;
 
   constructor() {
@@ -376,6 +387,8 @@ export class UI {
   }
 
   update(snap: Snapshot, myId: number | null): void {
+    // A new screen (lobby, run, results): a tooltip from the old one would otherwise hang around until the mouse moves.
+    if (this.latest && this.latest.snap.phase !== snap.phase) this.tooltip.classList.add('hidden');
     this.latest = { snap, myId };
     if (this.scoreboardOpen) this.renderScoreboard(false);
     const me = snap.players.find((p) => p.id === myId);
@@ -400,6 +413,7 @@ export class UI {
       this.renderPlayerList(snap);
       if (me && snap.me) {
         this.renderCharacters(me, snap.me.heroes, snap.me.gold);
+        this.renderArtifactPicker(me, snap.me.artifacts);
         this.renderHeroDetail(me, snap.me.heroes, snap.me.gold);
       }
     }
@@ -498,6 +512,76 @@ export class UI {
     );
   }
 
+  /** An artifact's tooltip: tier, effects (drawbacks in red) and flavor. */
+  private artifactTip(id: ArtifactId, extra?: string): Tip {
+    const def = ARTIFACTS[id];
+    return {
+      title: def.name,
+      artifact: id,
+      tags: [
+        { text: TIERS[def.tier].name, cls: `tip-tier tier-${def.tier}` },
+        ...(def.active ? [{ text: `Q · ${def.active.cooldown}s cooldown`, cls: 'tip-level' }] : []),
+      ],
+      lines: [
+        ...describeArtifact(id).map((l) => ({ text: l.text, cls: l.bad ? 'tip-bad' : 'tip-good' })),
+        ...(def.active ? [{ text: `Q · ${def.active.name}`, cls: 'tip-active-head' }, ...describeActive(id).map((text) => ({ text, cls: 'tip-active' }))] : []),
+        { text: def.flavor, cls: 'tip-flavor' },
+        ...(extra ? [{ text: extra, cls: 'tip-note' }] : []),
+      ],
+    };
+  }
+
+  /** Your artifacts: click one to take it into the run (or the empty slot for none). Locked in, you can only look. */
+  private renderArtifactPicker(me: PlayerState, owned: ArtifactId[]): void {
+    const lockedIn = !!me.ready && !me.host;
+    const key = `${me.artifact}|${lockedIn}|${owned.join(',')}`;
+    if (key === this.shown.artifacts) return;
+    this.shown.artifacts = key;
+    this.artifactCount.textContent = owned.length ? `${owned.length} owned` : '';
+    this.artifactPicker.classList.toggle('locked-in', lockedIn);
+    const tile = (id: ArtifactId | null) => {
+      const t = el('button', `artifact-tile${id === me.artifact ? ' selected' : ''}`) as HTMLButtonElement;
+      t.append(artifactIcon(id, 38));
+      if (id) this.tip(t, () => this.artifactTip(id));
+      else t.title = 'No artifact';
+      t.addEventListener('click', () => {
+        if (!lockedIn && id !== me.artifact) this.onEquip(id);
+      });
+      return t;
+    };
+    const desc = el('div', 'artifact-desc');
+    if (me.artifact) {
+      const def = ARTIFACTS[me.artifact];
+      const name = el('span', 'artifact-desc-name', def.name);
+      name.style.color = tierColor(def.tier);
+      desc.append(name, el('span', 'artifact-desc-text', artifactSummary(me.artifact)));
+    } else {
+      desc.append(
+        el('span', 'artifact-desc-text', owned.length ? 'No artifact equipped.' : 'Elites, warlords and final bosses drop artifacts. Find one to equip it here.'),
+      );
+    }
+    this.artifactPicker.replaceChildren(...(owned.length ? [tile(null), ...sortArtifacts(owned).map(tile)] : []), desc);
+  }
+
+  /** Artifacts you just found: a toast for each, for a few seconds. */
+  showFinds(found: ArtifactFind[]): void {
+    for (const find of found) {
+      const def = ARTIFACTS[find.id];
+      const toast = el('div', 'loot-toast');
+      toast.style.setProperty('--tier', tierColor(def.tier));
+      const text = el('div', 'loot-toast-text');
+      text.append(
+        el('div', 'loot-toast-label', find.salvage ? `Duplicate · salvaged for ${find.salvage} gold` : `New ${TIERS[def.tier].name.toLowerCase()} artifact!`),
+        el('div', 'loot-toast-name', def.name),
+        el('div', 'loot-toast-effects', artifactSummary(find.id)),
+      );
+      toast.append(artifactIcon(find.id, 44), text);
+      this.lootToasts.append(toast);
+      window.setTimeout(() => toast.classList.add('out'), 5000);
+      window.setTimeout(() => toast.remove(), 5600);
+    }
+  }
+
   /** The selected hero up close: art, role, stats, trait, and the starting weapon and abilities with their icons. */
   private renderHeroDetail(me: PlayerState, unlocked: CharacterId[], gold: number): void {
     const id = this.viewing ?? me.character;
@@ -546,7 +630,7 @@ export class UI {
   }
 
   private renderPlayerList(snap: Snapshot): void {
-    const key = `${this.amHost}|${snap.players.map((p) => `${p.id}:${p.name}:${p.character}:${p.bot}:${p.host}:${p.ready}`).join('|')}`;
+    const key = `${this.amHost}|${snap.players.map((p) => `${p.id}:${p.name}:${p.character}:${p.artifact}:${p.bot}:${p.host}:${p.ready}`).join('|')}`;
     if (key === this.shown.players) return;
     this.shown.players = key;
     this.addBot.classList.toggle('hidden', !this.amHost);
@@ -560,6 +644,12 @@ export class UI {
         if (p.host) top.append(el('span', 'player-tag host', 'Host'));
         who.append(top, el('span', 'player-hero', `${CHARACTERS[p.character].name}, ${CHARACTERS[p.character].title}`));
         li.append(portrait(p.character, p.color, 'portrait small'), who);
+        if (p.artifact) {
+          const relic = artifactIcon(p.artifact, 26);
+          const artifactId = p.artifact;
+          this.tip(relic, () => this.artifactTip(artifactId));
+          li.append(relic);
+        }
         if (!p.host) li.append(el('span', `player-tag${p.ready ? ' ready' : ''}`, p.bot ? 'Bot' : p.ready ? 'Locked in' : 'Picking…'));
         if (p.bot && this.amHost) {
           const remove = el('button', 'remove-bot', '×') as HTMLButtonElement;
@@ -642,6 +732,7 @@ export class UI {
       this.shown.hero = key;
       this.heroPortrait.innerHTML = portraitHtml(me.character, me.color);
       this.heroName.textContent = `${CHARACTERS[me.character].name} · ${me.name}`;
+
     }
     const ratio = Math.max(0, Math.min(1, me.hp / me.maxHp));
     this.heroHpFill.style.width = `${ratio * 100}%`;
@@ -654,9 +745,10 @@ export class UI {
   private renderAbilities(me: PlayerState, snap: Snapshot): void {
     const hero = CHARACTERS[me.character];
     const level = snap.me!.upgrades[hero.ability] ?? 0;
-    const key = `${me.character}|${level}`;
+    const key = `${me.character}|${level}|${me.artifact}`;
     if (key !== this.shown.abilities) {
       this.shown.abilities = key;
+      this.renderRelicSlot(me);
       this.abilityE.querySelector('.ability-name')!.replaceChildren(iconEl(hero.ability, 34), el('span', 'icon-label', upgradeName(hero.ability, level)));
       this.abilityE.querySelector('.ability-level')!.replaceChildren(pips(level));
       const eType = typeOf(hero.ability);
@@ -698,9 +790,40 @@ export class UI {
       slot.classList.toggle('ready', cd <= 0 && !me.downed);
       slot.classList.toggle('active', active > 0);
     };
-    const { ability, ultimate } = snap.me!;
+    const { ability, ultimate, relic } = snap.me!;
+    if (relic) show(this.abilityQ, relic.cd, relic.cooldown, relic.active);
     show(this.abilityE, ability.cd, ability.cooldown);
     show(this.abilityR, ultimate.cd, ultimate.cooldown, ultimate.active);
+  }
+
+  /** The Q slot: your artifact (empty without one). Passive-only artifacts show there too, but can't be pressed. */
+  private renderRelicSlot(me: PlayerState): void {
+    const slot = this.abilityQ;
+    const id = me.artifact;
+    const active = id ? artifact(id).active : undefined;
+    slot.classList.toggle('empty', !id);
+    slot.classList.toggle('passive', !!id && !active);
+    slot.classList.remove('cooling', 'ready', 'active');
+    slot.querySelector('.ability-time')!.textContent = '';
+    slot.style.setProperty('--tier', id ? tierColor(ARTIFACTS[id].tier) : 'var(--border)');
+    const name = slot.querySelector('.ability-name')!;
+    if (!id) {
+      name.replaceChildren(artifactIcon(null, 34), el('span', 'icon-label', 'No artifact'));
+      this.tip(slot, () => ({
+        title: 'Artifact',
+        tags: [{ text: 'Q', cls: 'tip-level' }],
+        lines: [{ text: 'Equip an artifact in the lobby to bring it into the run. Some can be activated with Q.' }],
+      }));
+      return;
+    }
+    name.replaceChildren(artifactIcon(id, 34), el('span', 'icon-label', active ? active.name : ARTIFACTS[id].name));
+    slot.querySelector('.ability-level')!.replaceChildren(el('span', 'relic-note', active ? ARTIFACTS[id].name : 'Passive'));
+    this.tip(slot, () => this.artifactTip(id));
+    this.share(slot, () => {
+      const relic = this.latest?.snap.me?.relic;
+      const state = !relic ? '' : ` · ${relic.cd > 0 ? `${Math.ceil(relic.cd)}s cooldown` : 'ready'}`;
+      return `${ARTIFACTS[id].name}: ${artifactSummary(id)}${state}`;
+    });
   }
 
   /** A compact row of passive slots above the weapon slots (the E ability has its own slot). Empty slots show as "?". */
@@ -770,6 +893,10 @@ export class UI {
     if (tip.ult) {
       title = el('div', 'tip-title');
       title.append(ultIconEl(tip.ult, 24), el('span', 'icon-label', tip.title));
+    }
+    if (tip.artifact) {
+      title = el('div', 'tip-title');
+      title.append(artifactIcon(tip.artifact, 26), el('span', 'icon-label', tip.title));
     }
     const tags = el('div', 'tip-tags');
     tags.append(...tip.tags.map((t) => el('span', t.cls, t.text)));
@@ -867,6 +994,14 @@ export class UI {
     const ownedP = ownedPassives(p.upgrades);
     passives.append(...ownedP.map((id) => tile(id, 'passive')));
     if (ownedP.length === 0) passives.append(el('span', 'score-none', 'No passives yet'));
+    if (p.artifact) {
+      const relic = el('div', 'score-tile score-artifact');
+      relic.append(artifactIcon(p.artifact, 30));
+      const artifactId = p.artifact;
+      this.tip(relic, () => this.artifactTip(artifactId));
+      this.share(relic, () => `(${p.name}) ${ARTIFACTS[artifactId].name}: ${artifactSummary(artifactId)}`);
+      passives.prepend(relic);
+    }
     build.append(weapons, passives, el('div', 'score-stats', this.statLine(p)));
 
     row.append(who, numbers, build);
@@ -875,7 +1010,7 @@ export class UI {
 
   /** Their stats from upgrades, listing only what differs from a fresh hero (plus speed and armor). */
   private statLine(p: PlayerState): string {
-    const s = playerStats(p.upgrades, p.character, p.prestige);
+    const s = playerStats(p.upgrades, p.character, p.prestige, p.artifact);
     const base = playerStats({}, p.character);
     const parts: string[] = [];
     if (s.damageMult !== base.damageMult) parts.push(`Damage +${percent(s.damageMult / base.damageMult - 1)}`);
@@ -890,6 +1025,7 @@ export class UI {
     if (s.evasion) parts.push(`Evasion ${percent(s.evasion)}`);
     if (s.xpMult !== 1) parts.push(`XP +${percent(s.xpMult - 1)}`);
     if (s.regen) parts.push(`Regen ${s.regen.toFixed(1)}/s`);
+    if (s.damageTaken !== 1) parts.push(`Damage taken ${s.damageTaken > 1 ? '+' : '-'}${percent(Math.abs(s.damageTaken - 1))}`);
     parts.push(`Armor ${percent(s.armor)}`, `Speed ${Math.round(s.speed)}`);
     const total = p.damageByType.reduce((a, b) => a + b, 0);
     if (total > 0) {
@@ -1054,6 +1190,26 @@ export class UI {
       chip('Prestige gained', `+${result.prestige}`, 'prestige'),
       chip('Gold gained', `+${result.gold}`, 'gold'),
     );
+    // What you found this run (yours are the ones under your name).
+    const mine = result.players.find((r) => r.name === me?.name);
+    const loot = mine?.loot ?? [];
+    this.postgameLoot.classList.toggle('hidden', loot.length === 0);
+    this.postgameLoot.replaceChildren();
+    if (loot.length > 0) {
+      this.postgameLoot.append(el('div', 'postgame-loot-title', `Artifacts found · ${loot.length}`));
+      const row = el('div', 'postgame-loot-row');
+      for (const find of loot) {
+        const def = ARTIFACTS[find.id];
+        const card = el('div', `postgame-loot-card${find.salvage ? ' salvaged' : ''}`);
+        card.style.setProperty('--tier', tierColor(def.tier));
+        const text = el('div', 'postgame-loot-text');
+        text.append(el('div', 'postgame-loot-name', def.name), el('div', 'postgame-loot-note', find.salvage ? `Duplicate: +${find.salvage} gold` : `New · ${TIERS[def.tier].name}`));
+        card.append(artifactIcon(find.id, 34), text);
+        this.tip(card, () => this.artifactTip(find.id));
+        row.append(card);
+      }
+      this.postgameLoot.append(row);
+    }
     const myId = this.latest?.myId;
     this.postgameRows.replaceChildren(...[...snap.players].sort((a, b) => b.damageDealt - a.damageDealt).map((p) => this.scoreRow(p, p.id === myId)));
   }

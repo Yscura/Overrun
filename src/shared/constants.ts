@@ -54,5 +54,7 @@ export const COIN = { min: 5, max: 9, value: 3, radius: 7, speed: 520 };
  */
 export const BOMB = { radius: 14, blast: 170, damage: 30 };
 export const HEART_RADIUS = 12;
+/** Artifacts lying on the ground: touch one to pick it up. */
+export const ARTIFACT_RADIUS = 16;
 /** Fraction of max HP a heart restores. */
 export const HEART_HEAL = 0.2;

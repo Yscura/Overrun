@@ -8,7 +8,7 @@ import { MODES, isModeId } from '../shared/modes';
 import { DEV_NAME, type ClientMessage, type ServerMessage } from '../shared/protocol';
 import { MAPS } from '../shared/maps';
 import { Game } from './game';
-import { buyHero, buyPrestige, getProfile, profileState, refundPrestige } from './profiles';
+import { buyHero, buyPrestige, equipArtifact, getProfile, profileState, refundPrestige } from './profiles';
 import { loadProgress, saveProgress } from './progress';
 import { Rooms, type Room } from './rooms';
 
@@ -152,13 +152,20 @@ wss.on('connection', (ws) => {
       case 'prestige':
       case 'respec':
       case 'unlock':
+      case 'equip':
         // In a room the game handles these (it also re-equips you); in the menu we do it here.
         if (session.room && session.playerId !== null) {
           session.room.game.handleMessage(session.playerId, msg);
         } else if (session.name) {
           const profile = getProfile(progress.profiles, session.name);
           const changed =
-            msg.t === 'prestige' ? buyPrestige(profile, msg.id) : msg.t === 'unlock' ? buyHero(profile, msg.character, allHeroes()) : (refundPrestige(profile), true);
+            msg.t === 'prestige'
+              ? buyPrestige(profile, msg.id)
+              : msg.t === 'unlock'
+                ? buyHero(profile, msg.character, allHeroes())
+                : msg.t === 'equip'
+                  ? equipArtifact(profile, msg.artifact, allHeroes())
+                  : (refundPrestige(profile), true);
           if (changed) save();
         }
         sendProfile();

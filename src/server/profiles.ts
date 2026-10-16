@@ -1,10 +1,11 @@
 // A player's progress between runs (prestige, gold, bought heroes), and the things you can do with it.
 // Profiles are kept by lowercased name and saved in data/progress.json.
 
+import { ARTIFACT_IDS, TIERS, artifact, isArtifactId, type ArtifactId } from '../shared/artifacts';
 import { CHARACTERS, CHARACTER_IDS, heroAvailable, isCharacterId, type CharacterId } from '../shared/characters';
 import { ENEMY_TYPES, isBossType } from '../shared/enemies';
 import { PRESTIGE, isPrestigeId, prestigeCost, prestigeSpent, type PrestigeRanks } from '../shared/prestige';
-import type { HeroRecord, ProfileState } from '../shared/protocol';
+import type { ArtifactFind, HeroRecord, ProfileState } from '../shared/protocol';
 
 export interface Profile {
   /** Unspent prestige points. */
@@ -22,6 +23,43 @@ export interface Profile {
   bosses?: string[];
   /** How each hero's finished runs went (runs started are in `played`). */
   records?: Record<string, Omit<HeroRecord, 'runs'>>;
+  /** Artifacts they own (by id), and the one they take into runs. */
+  artifacts?: string[];
+  artifact?: string | null;
+}
+
+/** The artifacts they own (ids that no longer exist are skipped; all of them for testing setups). */
+export function ownedArtifacts(profile: Profile, all = false): ArtifactId[] {
+  return all ? [...ARTIFACT_IDS] : (profile.artifacts ?? []).filter(isArtifactId);
+}
+
+/** The artifact they take into runs, if they (still) own it. */
+export function equippedArtifact(profile: Profile, all = false): ArtifactId | null {
+  const id = profile.artifact;
+  return isArtifactId(id) && ownedArtifacts(profile, all).includes(id) ? id : null;
+}
+
+/** Equips an owned artifact (or none, with null). False if they don't own it. */
+export function equipArtifact(profile: Profile, id: unknown, all = false): boolean {
+  if (id === null) {
+    profile.artifact = null;
+    return true;
+  }
+  if (!isArtifactId(id) || !ownedArtifacts(profile, all).includes(id)) return false;
+  profile.artifact = id;
+  return true;
+}
+
+/** They found an artifact: it goes in their inventory, or, if they already have it, it's salvaged for gold. */
+export function giveArtifact(profile: Profile, id: ArtifactId): ArtifactFind {
+  profile.artifacts ??= [];
+  if (!profile.artifacts.includes(id)) {
+    profile.artifacts.push(id);
+    return { id, salvage: 0 };
+  }
+  const salvage = TIERS[artifact(id).tier].salvage;
+  profile.gold = (profile.gold ?? 0) + salvage;
+  return { id, salvage };
 }
 
 /** A run ended: add it to the hero's record. */
@@ -125,5 +163,7 @@ export function profileState(name: string, profile: Profile, allHeroes: boolean)
     ),
     // Testing setups see every boss, like every hero.
     bosses: allHeroes ? ENEMY_TYPES.filter((_, t) => isBossType(t)).map((e) => e.name) : (profile.bosses ?? []),
+    artifacts: ownedArtifacts(profile, allHeroes),
+    equipped: equippedArtifact(profile, allHeroes),
   };
 }

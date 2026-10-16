@@ -661,13 +661,22 @@ export class Bot {
     if (hurt < 0.75) {
       let best: { p: Point; d: number; crate: boolean } | null = null;
       for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
+        const kind = snap.pickups[i + 1];
+        if (kind !== PickupKind.Heart && kind !== PickupKind.Crate) continue;
         const p = { x: snap.pickups[i + 2], y: snap.pickups[i + 3] };
-        const crate = snap.pickups[i + 1] === PickupKind.Crate;
+        const crate = kind === PickupKind.Crate;
         // A crate is worth a detour only when you're quite hurt; it has to be shot open first.
         const d = dist(p) + (crate ? 250 : 0);
         if ((!crate || hurt < 0.6) && dist(p) < 1600 && (!best || d < best.d)) best = { p, d, crate };
       }
       if (best) return { point: best.p, weight: best.crate && dist(best.p) < 200 ? 0.2 : 1.5 + (hurt < 0.4 ? 1 : 0) };
+    }
+
+    // Artifacts on the ground: worth a short walk (whoever touches one finds one for every person in the team).
+    for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
+      if (snap.pickups[i + 1] !== PickupKind.Artifact) continue;
+      const p = { x: snap.pickups[i + 2], y: snap.pickups[i + 3] };
+      if (dist(p) < 700) return { point: p, weight: 1.3 };
     }
 
     // Quests.

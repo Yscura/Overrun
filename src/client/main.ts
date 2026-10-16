@@ -73,6 +73,7 @@ async function main() {
   menu.onPrestige = (id) => net.send({ t: 'prestige', id });
   menu.onRespec = () => net.send({ t: 'respec' });
   menu.onUnlock = (character) => net.send({ t: 'unlock', character });
+  menu.onEquip = (artifact) => net.send({ t: 'equip', artifact });
 
   // --- Chat and event log ---
   const chat = new Chat();
@@ -111,6 +112,7 @@ async function main() {
   ui.onAddBot = () => net.send({ t: 'addbot' });
   ui.onSpectate = (id) => renderer.spectate(id);
   ui.onRemoveBot = (id) => net.send({ t: 'removebot', id });
+  ui.onEquip = (artifact) => net.send({ t: 'equip', artifact });
 
   /** Back to the menu: drop everything about the room we were in. */
   const leftRoom = () => {
@@ -183,6 +185,7 @@ async function main() {
       }
     }
     if (snap.me) renderer.addDamageNumbers(snap.me.hits, snap.me.taken, local);
+    if (snap.me?.found.length) ui.showFinds(snap.me.found);
     ui.update(snap, myId);
     chat.dock(snap.phase === 'lobby' ? ui.lobbyChatDock : null);
   };

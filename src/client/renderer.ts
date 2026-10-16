@@ -1,4 +1,5 @@
 import { Application, BitmapFont, BitmapText, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
+import { TIERS, TIER_IDS } from '../shared/artifacts';
 import { CHARACTER_IDS, type CharacterId, REWIND_SECONDS } from '../shared/characters';
 import { BOMB, BOSS_INTRO, COIN, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
 import { DAMAGE_COLORS, DAMAGE_TYPES } from '../shared/upgrades';
@@ -199,6 +200,7 @@ export class GameRenderer {
     heart: Texture;
     coin: Texture;
     bomb: Texture;
+    artifact: Texture;
     particle: Texture;
   };
   private aimArrow!: Sprite;
@@ -290,6 +292,25 @@ export class GameRenderer {
           .stroke({ width: 1.5, color: 0x8d5b00 })
           .circle(0, 0, COIN.radius * 0.55)
           .stroke({ width: 1.2, color: 0xffecb3 }),
+      ),
+      // An artifact: a faceted crystal in a halo, white so it can be tinted its tier's color.
+      artifact: this.texture(
+        new Graphics()
+          .circle(0, 0, 30)
+          .fill({ color: 0xffffff, alpha: 0.12 })
+          .circle(0, 0, 22)
+          .fill({ color: 0xffffff, alpha: 0.2 })
+          .poly([0, -17, 12, -3, 0, 15, -12, -3])
+          .fill(0xffffff)
+          .stroke({ width: 2, color: 0x303030 })
+          .poly([0, -17, 12, -3, 0, -3])
+          .fill(0xe0e0e0)
+          .poly([0, -3, 12, -3, 0, 15])
+          .fill(0x9e9e9e)
+          .poly([-12, -3, 0, -3, 0, 15])
+          .fill(0xc8c8c8)
+          .circle(-4, -8, 2.5)
+          .fill(0xffffff),
       ),
       bomb: this.texture(
         new Graphics()
@@ -1123,7 +1144,7 @@ export class GameRenderer {
     const list = b.snap.pickups;
     const now = performance.now();
     const bob = 1 + Math.sin(now / 200) * 0.1;
-    const textures = [this.tex.crate, this.tex.heart, this.tex.coin, this.tex.bomb];
+    const textures = [this.tex.crate, this.tex.heart, this.tex.coin, this.tex.bomb, this.tex.artifact];
     for (let i = 0; i < list.length; i += PICKUP_STRIDE) {
       const id = list[i];
       const kind = list[i + 1];
@@ -1151,6 +1172,11 @@ export class GameRenderer {
       } else if (kind === PickupKind.Bomb) {
         // The fuse fizzes: a nervous little pulse.
         view.sprite.scale.set(1 + Math.sin(now / 90 + id) * 0.05);
+      } else if (kind === PickupKind.Artifact) {
+        // Floats and glows in its tier's color.
+        view.sprite.tint = TIERS[TIER_IDS[list[i + 4]] ?? 'common'].color;
+        view.sprite.scale.set(1 + Math.sin(now / 260 + id) * 0.08);
+        y += Math.sin(now / 400 + id) * 4;
       } else {
         view.sprite.tint = list[i + 4] ? 0xffcdd2 : 0xffffff;
       }
@@ -1162,6 +1188,7 @@ export class GameRenderer {
         if (view.type === PickupKind.Crate) this.burst(view.sprite.x, view.sprite.y, 0x8d6e63, 14);
         else if (view.type === PickupKind.Heart) this.burst(view.sprite.x, view.sprite.y, HEALTH_GREEN, 10);
         else if (view.type === PickupKind.Coin) this.burst(view.sprite.x, view.sprite.y, 0xffc107, 3);
+        else if (view.type === PickupKind.Artifact) this.burst(view.sprite.x, view.sprite.y, view.sprite.tint as number, 24);
       }
       this.release(view.sprite);
       this.pickupViews.delete(id);
@@ -1452,7 +1479,7 @@ export class GameRenderer {
   private drawBars(g: Graphics, p: PlayerState): void {
     g.clear();
     // Radiant Field: a faint, flickering aura at its damage radius.
-    const field = p.downed ? 0 : fieldRadius(p.upgrades, p.character);
+    const field = p.downed ? 0 : fieldRadius(p.upgrades, p.character, p.artifact);
     if (field) {
       const flicker = 0.5 + 0.5 * Math.sin(performance.now() / 90);
       g.circle(0, 0, field).fill({ color: 0xffca28, alpha: 0.06 + 0.03 * flicker }).stroke({ width: 2, color: 0xffca28, alpha: 0.25 });
@@ -1499,7 +1526,7 @@ export class GameRenderer {
   }
 
   private updateBlades(view: PlayerView, p: PlayerState, time: number): void {
-    const stats = p.downed ? null : orbitLayout(p.upgrades, p.character);
+    const stats = p.downed ? null : orbitLayout(p.upgrades, p.character, p.artifact);
     const count = stats?.count ?? 0;
     while (view.blades.length < count) {
       const blade = new Sprite(this.tex.blade);

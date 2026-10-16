@@ -14,8 +14,10 @@ import {
   type CharacterId,
   type PlayerStats,
 } from '../shared/characters';
+import { DROPS, TIERS, TIER_IDS, artifact as artifactDef, rollArtifact, rollTier, type ArtifactId, type DropSource, type Tier } from '../shared/artifacts';
 import { WallIndex, blocksShot, moveCircle, overlapsWall, pushOut, type PassFlags } from '../shared/collision';
 import {
+  ARTIFACT_RADIUS,
   BOSS_INTERVAL,
   CHOOSE_TIME,
   BOMB,
@@ -130,6 +132,7 @@ import {
   ProjectileKind,
   ZoneKind,
   type ActiveEvent,
+  type ArtifactFind,
   type ChoiceReason,
   type ClientMessage,
   type DevAction,
@@ -195,7 +198,20 @@ import {
 } from '../shared/upgrades';
 import { Bot } from './bot';
 import { FlowField } from './navigation';
-import { buyHero, buyPrestige, getProfile, noteBoss, notePlayed, noteRun, refundPrestige, type Profile } from './profiles';
+import {
+  buyHero,
+  buyPrestige,
+  equipArtifact,
+  equippedArtifact,
+  getProfile,
+  giveArtifact,
+  noteBoss,
+  notePlayed,
+  noteRun,
+  ownedArtifacts,
+  refundPrestige,
+  type Profile,
+} from './profiles';
 import { SpatialGrid } from './spatialGrid';
 
 const SEPARATION_SPEED = 150;
@@ -248,6 +264,9 @@ const WOLF = {
   crowding: 140,
 };
 const CHRONO = { radius: 900, stun: 4 };
+/** Invulnerability after an artifact's second wind saves you. */
+const SECOND_WIND_IFRAMES = 1.5;
+
 /** Bloodrage: also heavy lifesteal (share of damage dealt, up to `lifestealCap` of max HP per second) and no dying. */
 const RAGE = { duration: 8, damage: 1.6, cooldown: 0.7, regen: 0.04, lifesteal: 0.06, lifestealCap: 0.08 };
 const RALLY = { radius: 700, heal: 0.4, guard: 6, reduction: 0.5 };
@@ -373,6 +392,16 @@ interface Player {
   lastChat: number;
   /** Ticks of their recent pings (to keep spam down). */
   pings: number[];
+  /** The artifact they took into this run (bots have none). */
+  artifact: ArtifactId | null;
+  /** Artifacts they found this run (for the post-game screen), and since the last snapshot (for their toast). */
+  loot: ArtifactFind[];
+  found: ArtifactFind[];
+  /** Their artifact's second wind has been used up this run. */
+  secondWindUsed: boolean;
+  /** Their artifact's Q: seconds of cooldown left, and of its speed boost (frenzy). */
+  relicCd: number;
+  frenzy: number;
 }
 
 /** Venom puddles and mines on the ground. */
@@ -595,7 +624,7 @@ interface Pickup {
   y: number;
   hp: number;
   flashUntil: number;
-  /** Coins: how much gold. */
+  /** Coins: how much gold. Artifacts: the tier (index into TIER_IDS). */
   value: number;
   /** Coins: flying toward this player once they come close. */
   target: Player | null;
@@ -849,6 +878,12 @@ export class Game {
       bot: null,
       lastChat: -1e9,
       pings: [],
+      artifact: null,
+      loot: [],
+      found: [],
+      secondWindUsed: false,
+      relicCd: 0,
+      frenzy: 0,
     };
     if (isCharacterId(character) && (isBot || this.canPlay(player, character))) player.character = character;
     this.resetPlayer(player, this.players.size);
@@ -978,6 +1013,14 @@ export class Game {
         break;
       case 'unlock':
         this.unlockHero(p, msg.character);
+        break;
+      case 'equip':
+        // Like heroes: only between runs, and not once you've locked in.
+        if (this.phase !== 'playing' && !p.bot && !this.lobbyReady.has(p.id) && equipArtifact(p.profile, msg.artifact, this.allHeroes(p))) {
+          p.artifact = equippedArtifact(p.profile, this.allHeroes(p));
+          p.hp = this.stats(p).maxHp;
+          this.options.onProfiles?.();
+        }
         break;
       case 'pause':
         // Anyone can pause, except in the middle of picking upgrades.
@@ -1221,6 +1264,12 @@ export class Game {
   private equip(p: Player): void {
     const hero = CHARACTERS[p.character];
     p.upgrades = { [hero.startWeapon]: 1, [hero.ability]: 1 };
+    p.artifact = p.bot ? null : equippedArtifact(p.profile, this.allHeroes(p));
+    p.loot = [];
+    p.found = [];
+    p.secondWindUsed = false;
+    p.relicCd = 0;
+    p.frenzy = 0;
     p.abilityCd = 0;
     p.ultCd = 0;
     p.rage = 0;
@@ -1265,12 +1314,19 @@ export class Game {
       unlockedMap,
       time: this.time,
       level: this.level,
-      players: [...this.players.values()].map((p) => ({ name: p.name, color: p.color, character: p.character, kills: p.kills })),
+      players: [...this.players.values()].map((p) => ({ name: p.name, color: p.color, character: p.character, kills: p.kills, artifact: p.artifact, loot: [...p.loot] })),
     };
   }
 
   private victory(): void {
     if (this.phase !== 'playing') return;
+    // The spoils: artifacts still lying around are found, and the boss leaves one for everyone.
+    for (const c of this.pickups) {
+      if (c.kind !== PickupKind.Artifact || c.dead) continue;
+      c.dead = true;
+      this.grantArtifacts(TIER_IDS[c.value]);
+    }
+    this.grantArtifacts(rollTier('boss', this.mapIndex));
     let unlockedMap: string | null = null;
     if (this.mapIndex + 1 < MAPS.length && this.unlocked < this.mapIndex + 2) {
       this.unlocked = this.mapIndex + 2;
@@ -1286,7 +1342,7 @@ export class Game {
 
   /** A player's stats, including their buffs and the active Altar event. */
   private stats(p: Player): PlayerStats {
-    const stats = playerStats(p.upgrades, p.character, p.profile.ranks);
+    const stats = playerStats(p.upgrades, p.character, p.profile.ranks, p.artifact);
     if (p.rage > 0) {
       stats.damageMult *= RAGE.damage;
       stats.cooldownMult *= RAGE.cooldown;
@@ -1301,6 +1357,11 @@ export class Game {
       stats.armor = 1 - (1 - stats.armor) * (1 - ELIXIR.reduction);
     }
     if (p.guard > 0) stats.armor = 1 - (1 - stats.armor) * (1 - p.guardReduction);
+    const frenzy = p.frenzy > 0 && p.artifact ? artifactDef(p.artifact).active?.frenzy : undefined;
+    if (frenzy) {
+      stats.cooldownMult /= 1 + frenzy.attackSpeed;
+      stats.speed *= 1 + frenzy.speed;
+    }
     if (p.veil > 0) stats.speed *= 1 + veilStats(p.upgrades.veil ?? 1).speed;
     switch (this.event?.kind) {
       case 'frenzy':
@@ -1448,6 +1509,7 @@ export class Game {
     this.updateGems(dt);
     this.updateHearts();
     this.updateCoins(dt);
+    this.updateArtifacts();
     this.enemies = this.enemies.filter((e) => !e.dead);
     this.pickups = this.pickups.filter((c) => !c.dead);
     if (this.players.size > 0 && this.alivePlayers().length === 0) this.endGame(false);
@@ -2784,6 +2846,8 @@ export class Game {
     p.rage = Math.max(0, p.rage - dt);
     p.elixir = Math.max(0, p.elixir - dt);
     p.guard = Math.max(0, p.guard - dt);
+    p.relicCd = Math.max(0, p.relicCd - dt);
+    p.frenzy = Math.max(0, p.frenzy - dt);
     this.updateUltimates(p, dt);
     if (p.downed) {
       p.history = []; // Chronobreak can't take you back to before you went down.
@@ -2825,7 +2889,7 @@ export class Game {
       p.taken.push(0); // Shown as "EVADE".
       return false;
     }
-    const taken = amount * (1 - stats.armor);
+    const taken = amount * (1 - stats.armor) * stats.damageTaken;
     p.hp -= taken;
     p.damageTaken += taken;
     if (continuous || taken < 1) p.takenAcc += taken;
@@ -2834,6 +2898,15 @@ export class Game {
     // God mode for testing: damage lands, but never below 1 HP.
     // God mode (testing) and Bloodrage: damage lands, but never below 1 HP.
     if (p.god || p.rage > 0) p.hp = Math.max(1, p.hp);
+    if (p.hp <= 0 && stats.secondWind > 0 && !p.secondWindUsed) {
+      // Their artifact catches them, once per run.
+      p.secondWindUsed = true;
+      p.hp = stats.maxHp * stats.secondWind;
+      p.invuln = SECOND_WIND_IFRAMES;
+      this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 160, c: TIERS.legendary.color, snd: 'pop' });
+      this.banner(`${p.name}'s ${p.artifact ? artifactDef(p.artifact).name : 'artifact'} flares: back from the brink!`, 'good');
+      p.sounds.push('revived');
+    }
     if (p.hp <= 0) {
       p.hp = 0;
       p.downed = true;
@@ -3420,7 +3493,7 @@ export class Game {
   }
 
   private orbitHits(p: Player, stats: PlayerStats): void {
-    const s = orbitLayout(p.upgrades, p.character);
+    const s = orbitLayout(p.upgrades, p.character, p.artifact);
     if (!s) return;
     for (let i = 0; i < s.count; i++) {
       // Clients draw the blades with this same formula.
@@ -3499,6 +3572,8 @@ export class Game {
     e.dead = true;
     if (e.hazard) e.hazard.dead = true;
     if (by) by.kills++;
+    if (e.type === EnemyType.Warlord) this.dropArtifact('warlord', e.x, e.y);
+    else if (e.affix) this.dropArtifact('champion', e.x, e.y);
     if (this.bosses.includes(e)) this.bossDied(e);
     else if (this.quest?.kind === 'hunt' && e.id === this.quest.targetId) this.completeQuest(e.x, e.y);
     else if (ENEMY_TYPES[e.type].xp > 0) this.dropGem(e.x, e.y, Math.round(ENEMY_TYPES[e.type].xp * this.horde().xp * (e.affix ? CHAMPION.xp : 1)));
@@ -3619,8 +3694,88 @@ export class Game {
       if (level > 0) p.abilityCd = this.castAbility(p, hero.ability, level, reach, stats) * stats.cooldownMult;
     } else if (slot === 'r' && p.ultCd <= 0) {
       this.castUltimate(p);
-      p.ultCd = hero.ultimate.cooldown;
+      p.ultCd = hero.ultimate.cooldown * stats.ultCooldown;
+    } else if (slot === 'q' && p.relicCd <= 0) {
+      this.useArtifact(p, stats);
     }
+  }
+
+  /** Q: the equipped artifact's active effect (see ArtifactActive). Its parts combine, in this order. */
+  private useArtifact(p: Player, stats: PlayerStats): void {
+    const a = p.artifact ? artifactDef(p.artifact).active : undefined;
+    if (!a || !p.artifact) return;
+    p.relicCd = a.cooldown;
+    const color = TIERS[artifactDef(p.artifact).tier].color;
+    // Casts arrive between ticks, so bring the enemy lookup up to date first.
+    this.rebuildGrid();
+    const sounds: SoundId[] = [];
+    if (a.blink) {
+      // Through enemies and fences, not walls.
+      const to = moveCircle(this.walls, p.x, p.y, Math.cos(p.aim) * a.blink, Math.sin(p.aim) * a.blink, PLAYER_RADIUS, { thin: true, thick: false });
+      p.x = to.x;
+      p.y = to.y;
+      if (p.inArena) this.keepInArena(p, PLAYER_RADIUS);
+      p.epoch++;
+      sounds.push('leap');
+    }
+    if (a.invuln) {
+      p.invuln = Math.max(p.invuln, a.invuln);
+      sounds.push('veil');
+    }
+    if (a.blast) {
+      const r = a.blast.radius * stats.area;
+      const damage = a.blast.power * this.enemyHp(EnemyType.Grunt) * stats.damageMult;
+      const push = a.blast.push ?? 0;
+      for (const e of this.grid.query(p.x, p.y, r + MAX_ENEMY_RADIUS, this.splashNear)) {
+        if (e.dead || dist2(e.x, e.y, p.x, p.y) >= (r + ENEMY_TYPES[e.type].radius) ** 2) continue;
+        this.damageEnemy(e, damage, p, 'true');
+        // A pull stops short of the middle instead of flinging them past you.
+        const d = Math.sqrt(dist2(e.x, e.y, p.x, p.y));
+        if (push) this.knockback(e, p.x, p.y, push > 0 ? push : -Math.min(-push, Math.max(0, d - 30)));
+      }
+      this.hitCratesAround(p.x, p.y, r, damage, p);
+      this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: color, snd: 'explode' });
+      sounds.push('nova');
+    }
+    if (a.stun) {
+      const r = a.stun.radius * stats.area;
+      for (const e of this.grid.query(p.x, p.y, r + MAX_ENEMY_RADIUS, this.splashNear)) {
+        if (!e.dead && dist2(e.x, e.y, p.x, p.y) < (r + ENEMY_TYPES[e.type].radius) ** 2) this.stun(e, a.stun.duration * stats.duration);
+      }
+      if (!a.blast) this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0x80d8ff });
+      sounds.push('rewind');
+    }
+    if (a.heal) {
+      p.hp = Math.min(stats.maxHp, p.hp + stats.maxHp * a.heal);
+      sounds.push('heal');
+    }
+    if (a.rally) {
+      for (const ally of this.players.values()) {
+        if (dist2(ally.x, ally.y, p.x, p.y) >= a.rally.radius ** 2) continue;
+        const maxHp = this.stats(ally).maxHp;
+        if (ally.downed) {
+          this.log(`${ally.name} was revived by ${p.name}'s ${artifactDef(p.artifact).name}`, 'good');
+          ally.downed = false;
+          ally.revive = 0;
+          ally.hp = maxHp * a.rally.heal;
+        } else {
+          ally.hp = Math.min(maxHp, ally.hp + maxHp * a.rally.heal);
+        }
+      }
+      this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: a.rally.radius, c: color });
+      sounds.push('revived');
+    }
+    if (a.guard) {
+      p.guardReduction = Math.max(p.guard > 0 ? p.guardReduction : 0, a.guard.reduction);
+      p.guard = Math.max(p.guard, a.guard.duration);
+      sounds.push('warcry');
+    }
+    if (a.frenzy) {
+      p.frenzy = a.frenzy.duration;
+      sounds.push('roar');
+    }
+    if (!a.blast && !a.rally) this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 70, c: color });
+    p.sounds.push(sounds[0] ?? 'ult');
   }
 
   /** Casts a hero ability and returns its cooldown. */
@@ -4159,7 +4314,10 @@ export class Game {
       if (d < PLAYER_RADIUS + COIN.radius) {
         c.dead = true;
         this.runGold += c.value;
-        for (const q of this.players.values()) q.profile.gold = (q.profile.gold ?? 0) + c.value;
+        for (const q of this.players.values()) {
+          const gold = c.value * this.stats(q).goldMult;
+          q.profile.gold = (q.profile.gold ?? 0) + Math.floor(gold) + (Math.random() < gold % 1 ? 1 : 0);
+        }
         p.sounds.push('coin');
         continue;
       }
@@ -4167,6 +4325,48 @@ export class Game {
       c.x += ((p.x - c.x) / d) * step;
       c.y += ((p.y - c.y) / d) * step;
     }
+  }
+
+  /** An elite or warlord died: maybe an artifact drops where it fell. */
+  private dropArtifact(source: DropSource, x: number, y: number): void {
+    if (Math.random() >= DROPS[source].chance) return;
+    const tier = rollTier(source, this.mapIndex);
+    this.addPickup(PickupKind.Artifact, x, y, 0, TIER_IDS.indexOf(tier));
+    this.log(`${tier === 'epic' || tier === 'legendary' ? 'An' : 'A'} ${TIERS[tier].name.toLowerCase()} artifact dropped!`, 'good');
+  }
+
+  /** Artifacts on the ground: whoever touches one finds an artifact of its tier for every person in the team. */
+  private updateArtifacts(): void {
+    const lava = this.map.lava;
+    for (const c of this.pickups) {
+      if (c.kind !== PickupKind.Artifact || c.dead) continue;
+      // Closing lava sweeps them along, so none end up out of reach.
+      if (lava) {
+        const d = Math.hypot(c.x - lava.x, c.y - lava.y);
+        const max = Math.max(0, this.lavaR - 60);
+        if (d > max) {
+          c.x = lava.x + ((c.x - lava.x) / d) * max;
+          c.y = lava.y + ((c.y - lava.y) / d) * max;
+        }
+      }
+      if (!this.alivePlayers().some((p) => dist2(p.x, p.y, c.x, c.y) < (PLAYER_RADIUS + ARTIFACT_RADIUS) ** 2)) continue;
+      c.dead = true;
+      this.grantArtifacts(TIER_IDS[c.value]);
+    }
+  }
+
+  /** Every person in the team finds an artifact of this tier (each rolls their own). Duplicates become gold. */
+  private grantArtifacts(tier: Tier): void {
+    const people = this.humans();
+    for (const p of people) {
+      const find = giveArtifact(p.profile, rollArtifact(tier, ownedArtifacts(p.profile)));
+      p.loot.push(find);
+      p.found.push(find);
+      p.sounds.push('relic');
+      const name = artifactDef(find.id).name;
+      this.log(`${p.name} found ${name} (${TIERS[tier].name})${find.salvage ? `: a duplicate, salvaged for ${find.salvage} gold` : ''}`, 'good');
+    }
+    if (people.length > 0) this.options.onProfiles?.();
   }
 
   private updateHearts(): void {
@@ -4267,6 +4467,7 @@ export class Game {
       kills: p.kills,
       upgrades: p.upgrades,
       prestige: p.profile.ranks,
+      artifact: p.artifact,
       damageDealt: Math.round(p.damageDealt),
       damageByType: p.damageByType.map(Math.round) as [number, number, number],
       damageTaken: Math.round(p.damageTaken),
@@ -4275,7 +4476,7 @@ export class Game {
       hurt: p.hurtUntil > this.time,
       inArena: p.inArena,
       bot: p.bot !== null,
-      ult: round2(1 - p.ultCd / CHARACTERS[p.character].ultimate.cooldown),
+      ult: round2(1 - p.ultCd / (CHARACTERS[p.character].ultimate.cooldown * this.stats(p).ultCooldown)),
       host: !p.bot && p === host,
       ready: p.bot !== null || this.lobbyReady.has(p.id),
       veiled: p.veil > 0,
@@ -4318,7 +4519,7 @@ export class Game {
     const gems: number[] = [];
     for (const g of this.gems) gems.push(g.id, Math.round(g.x), Math.round(g.y), g.value >= 5 ? 1 : 0);
     const pickups: number[] = [];
-    for (const c of this.pickups) pickups.push(c.id, c.kind, Math.round(c.x), Math.round(c.y), c.flashUntil > this.time ? 1 : 0);
+    for (const c of this.pickups) pickups.push(c.id, c.kind, Math.round(c.x), Math.round(c.y), c.kind === PickupKind.Artifact ? c.value : c.flashUntil > this.time ? 1 : 0);
     const hazards: number[] = [];
     for (const h of this.hazards) {
       hazards.push(h.id, h.kind, Math.round(h.x), Math.round(h.y), round2(h.a), Math.round(h.b), Math.round(h.c), round2(Math.min(1, h.t / h.duration)));
@@ -4420,7 +4621,8 @@ export class Game {
       speed: stats.speed,
       dodgeCooldown: stats.dodgeCooldown,
       ability: { cd: round1(p.abilityCd), cooldown: round1(this.abilityCooldown(p) * stats.cooldownMult) },
-      ultimate: { cd: round1(p.ultCd), cooldown: hero.ultimate.cooldown, active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil, p.wrath, hero.ultimate.id === 'elixir' ? p.elixir : 0)) },
+      relic: this.relicState(p),
+      ultimate: { cd: round1(p.ultCd), cooldown: round1(hero.ultimate.cooldown * stats.ultCooldown), active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil, p.wrath, hero.ultimate.id === 'elixir' ? p.elixir : 0)) },
       hits: this.takeHits(p),
       taken: p.taken.splice(0),
       sounds: [...new Set(p.sounds.splice(0))], // One of each per snapshot is plenty.
@@ -4429,7 +4631,15 @@ export class Game {
       god: p.god,
       gold: p.profile.gold ?? 0,
       heroes: this.allHeroes(p) ? CHARACTER_IDS : (p.profile.heroes ?? []).filter(isCharacterId),
+      artifacts: p.bot ? [] : ownedArtifacts(p.profile, this.allHeroes(p)),
+      found: p.found.splice(0),
     };
+  }
+
+  /** The artifact's Q for the HUD, or null if it has none. */
+  private relicState(p: Player): MeState['relic'] {
+    const active = p.artifact ? artifactDef(p.artifact).active : undefined;
+    return active ? { cd: round1(p.relicCd), cooldown: active.cooldown, active: round1(p.frenzy) } : null;
   }
 
   /** This tick's damage numbers as [x, y, amount, crit, ...], biggest first, skipping tiny ticks. */

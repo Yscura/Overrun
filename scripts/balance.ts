@@ -7,6 +7,7 @@
 //   --heroes a,b,...  one bot per hero (default: mage,bruiser,assassin,tank)
 //   --runs N          runs per map (default 1)
 //   --prestige N      every prestige upgrade at rank N for all bots (default 0)
+//   --artifact ID     every bot takes this artifact into the run (see src/shared/artifacts.ts)
 //   --skill 0..1      how sharp the bots are (default 0.8)
 //   --boss-time S     final boss arrives after S seconds (default: the real timer)
 //   --god             bots can't die (they take damage but stop at 1 HP), so every run reaches the boss;
@@ -17,6 +18,7 @@
 // The bots play decently but below a good human, so compare runs against each other (before/after a
 // change, hero vs hero) rather than reading the absolute survival times literally.
 
+import { ARTIFACTS, ARTIFACT_IDS, isArtifactId } from '../src/shared/artifacts';
 import { CHARACTERS, isCharacterId, type CharacterId } from '../src/shared/characters';
 import { MAPS } from '../src/shared/maps';
 import { PRESTIGE_IDS } from '../src/shared/prestige';
@@ -43,6 +45,11 @@ const mapArg = arg('map', '0');
 const maps = mapArg === 'all' ? MAPS.map((_, i) => i) : [Number(mapArg)];
 const runs = Number(arg('runs', '1'));
 const prestige = Number(arg('prestige', '0'));
+const artifact = arg('artifact', '');
+if (artifact && !isArtifactId(artifact)) {
+  console.error(`Unknown artifact "${artifact}". Artifacts: ${ARTIFACT_IDS.join(', ')}`);
+  process.exit(1);
+}
 const skill = Number(arg('skill', '0.8'));
 const bossTime = arg('boss-time', '') ? Number(arg('boss-time', '')) : undefined;
 const log = flag('log');
@@ -71,7 +78,7 @@ for (const map of maps) {
     heroes.forEach((hero, i) => {
       // God mode is the server's "dev" name: damage still lands but never takes you below 1 HP.
       const name = god ? 'dev' : `bot${i + 1}`;
-      profiles[name] = { points: 0, ranks };
+      profiles[name] = { points: 0, ranks, ...(artifact ? { artifacts: [artifact], artifact } : {}) };
       let bot: Bot | null = null;
       const id = game.addPlayer(name, hero, (text) => bot?.receive(text));
       if (id === null) throw new Error('Too many bots (4 max)');
@@ -140,6 +147,8 @@ for (const map of maps) {
       `\n${MAPS[map].name}, run ${run}: ${victory ? 'VICTORY' : result ? 'DEFEAT' : 'TIMED OUT'} at ${fmt(g.time)}, level ${g.level}${fight}` +
         ` | gold ${g.runGold} | enemies avg ${Math.round(enemySum / Math.max(1, samples))}, peak ${peakEnemies} | ${((performance.now() - started) / 1000).toFixed(1)}s`,
     );
+    const loot = (result?.players ?? [])[0]?.loot ?? [];
+    if (loot.length) console.log(`  artifacts found (each): ${loot.map((f: any) => `${ARTIFACTS[f.id as keyof typeof ARTIFACTS].name} [${ARTIFACTS[f.id as keyof typeof ARTIFACTS].tier}]`).join(', ')}`);
     const perMinute = [...takenByMinute.entries()].map(([m, t]) => `${m + 1}:${k(t / players.length)}`);
     console.log(`  damage taken per player, by minute: ${perMinute.join(' ')}`);
     for (const p of players) {

@@ -1,5 +1,6 @@
 // Messages sent over the WebSocket, as JSON.
 
+import type { ArtifactId } from './artifacts';
 import type { CharacterId } from './characters';
 import type { MissionKind } from './enemies';
 import type { EventKind, QuestKind } from './objectives';
@@ -37,8 +38,8 @@ export type ClientMessage =
   | { t: 'move'; x: number; y: number; aim: number; epoch: number }
   /** The client has started a dodge dash; the server grants the invulnerability and cooldown. */
   | { t: 'dodge' }
-  /** Cast your ability (E) or ultimate (R). `dist` is how far away the cursor is, for targeted abilities. */
-  | { t: 'cast'; slot: 'e' | 'r'; aim: number; dist: number }
+  /** Cast your ability (E), ultimate (R) or artifact (Q). `dist` is how far away the cursor is, for targeted abilities. */
+  | { t: 'cast'; slot: 'e' | 'r' | 'q'; aim: number; dist: number }
   | { t: 'choose'; index: number }
   /** Buy the next rank of a prestige upgrade (between runs). */
   | { t: 'prestige'; id: PrestigeId }
@@ -46,6 +47,8 @@ export type ClientMessage =
   | { t: 'respec' }
   /** Unlock a hero with prestige points. */
   | { t: 'unlock'; character: CharacterId }
+  /** Equip an artifact you own for your next runs (null: none). In a room, only before the run starts. */
+  | { t: 'equip'; artifact: ArtifactId | null }
   /** Testing cheats, only for a player named "dev" (see DevAction). */
   | { t: 'dev'; action: DevAction }
   /** Pause the game for everyone. */
@@ -127,6 +130,15 @@ export interface ProfileState {
   records: Partial<Record<CharacterId, HeroRecord>>;
   /** Bosses you've reached at least once, by name: their bestiary entries are unlocked. */
   bosses: string[];
+  /** Artifacts you own, and the one you take into runs. */
+  artifacts: ArtifactId[];
+  equipped: ArtifactId | null;
+}
+
+/** An artifact someone found. `salvage`: they already had it, so it became this much gold (0 if it's new). */
+export interface ArtifactFind {
+  id: ArtifactId;
+  salvage: number;
 }
 
 export interface PlayerState {
@@ -166,6 +178,8 @@ export interface PlayerState {
   upgrades: Upgrades;
   /** Permanent prestige ranks (they change their stats). */
   prestige: PrestigeRanks;
+  /** Their equipped artifact (it changes their stats too). */
+  artifact: ArtifactId | null;
   damageDealt: number;
   /** Damage dealt split by type: physical, magic, true. */
   damageByType: [number, number, number];
@@ -188,6 +202,8 @@ export interface MeState {
   ability: AbilityState;
   /** `active` is how long the ultimate's effect still lasts. */
   ultimate: AbilityState & { active: number };
+  /** Your artifact's Q, if it has one; `active` is how long its effect still lasts. */
+  relic: (AbilityState & { active: number }) | null;
   /**
    * Damage numbers since the last snapshot: your hits as [x, y, amount, crit, type, ...] (type indexes DAMAGE_TYPES),
    * and damage you took (0 = evaded).
@@ -206,6 +222,10 @@ export interface MeState {
   gold: number;
   /** Heroes this player has unlocked (beyond the starting four). */
   heroes: CharacterId[];
+  /** Artifacts you own (to equip in the lobby). */
+  artifacts: ArtifactId[];
+  /** Artifacts you found since the last snapshot. */
+  found: ArtifactFind[];
 }
 
 /**
@@ -254,6 +274,7 @@ export type SoundId =
   | 'summon'
   | 'rewind'
   | 'coin'
+  | 'relic'
   | 'roar'
   | 'revive'
   | 'revived'
@@ -297,7 +318,8 @@ export interface GameResult {
   gold: number;
   time: number;
   level: number;
-  players: { name: string; color: number; character: CharacterId; kills: number }[];
+  /** `artifact`: what they had equipped. `loot`: the artifacts they found this run. */
+  players: { name: string; color: number; character: CharacterId; kills: number; artifact: ArtifactId | null; loot: ArtifactFind[] }[];
 }
 
 /**
@@ -350,7 +372,8 @@ export interface BossFight {
   targets: number[];
 }
 
-export const PickupKind = { Crate: 0, Heart: 1, Coin: 2, Bomb: 3 } as const;
+/** Artifact: a relic from an elite or warlord; whoever touches it finds one for every person in the team. */
+export const PickupKind = { Crate: 0, Heart: 1, Coin: 2, Bomb: 3, Artifact: 4 } as const;
 export const ProjectileKind = { Bolt: 0, Knife: 1, Shuriken: 2, Hex: 3, BigShuriken: 4, Fireball: 5, Arrow: 6 } as const;
 /** Allies some heroes call in. */
 export const SummonKind = { Wolf: 0, Treant: 1 } as const;
@@ -382,7 +405,7 @@ export const AFFIX_SHIFT = 9;
 // projectiles: [id, kind, x, y, ...]
 // enemyShots:  [id, x, y, ...]
 // gems:        [id, x, y, big, ...]
-// pickups:     [id, kind, x, y, flash, ...]
+// pickups:     [id, kind, x, y, flash, ...]  for artifacts the last field is the tier (index into TIER_IDS) instead
 // hazards:     [id, kind, x, y, a, b, c, progress, ...]  circle: a = radius; line: a = angle, b = length, c = width. progress 0..1
 // shrines:     [id, kind, x, y, progress, ...]
 // zones:       [id, kind, x, y, r, ...]  venom puddles, burning ground and mines

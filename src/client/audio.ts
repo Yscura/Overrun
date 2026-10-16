@@ -318,6 +318,15 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
     max: 2,
     gap: 0.08,
   },
+  // Found an artifact: a sparkling arpeggio up into a shimmer.
+  relic: {
+    play: (v) => {
+      for (const [i, f] of [659, 831, 988, 1319, 1661].entries()) v.tone({ type: 'sine', from: f, duration: 0.45, volume: 0.06, delay: i * 0.06 });
+      v.tone({ type: 'triangle', from: 1976, duration: 0.7, volume: 0.025, delay: 0.3 });
+      v.noise({ filter: 'highpass', from: 5000, to: 8000, duration: 0.6, volume: 0.03, delay: 0.25 });
+    },
+    max: 1,
+  },
   // Back on your feet: a rising major chord.
   revived: {
     play: (v) => {

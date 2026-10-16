@@ -1,4 +1,5 @@
 import { Container, Graphics } from 'pixi.js';
+import { TIERS, TIER_IDS } from '../shared/artifacts';
 import { ENEMY_TYPES } from '../shared/enemies';
 import { MAPS, enemyColor, zoneRect } from '../shared/maps';
 import { SHRINES, ShrineKind } from '../shared/objectives';
@@ -128,6 +129,11 @@ export class Minimap {
       const y = snap.pickups[i + 3] * s;
       if (kind === PickupKind.Crate) g.rect(x - 2.5, y - 2.5, 5, 5).fill(0xbc8a5f).stroke({ width: 1, color: 0x3e2723 });
       else if (kind === PickupKind.Heart) g.rect(x - 3, y - 1.2, 6, 2.4).rect(x - 1.2, y - 3, 2.4, 6).fill(HEALTH_GREEN);
+      else if (kind === PickupKind.Artifact) {
+        // Artifacts: a diamond in their tier's color, so they're easy to find.
+        const color = TIERS[TIER_IDS[snap.pickups[i + 4]] ?? 'common'].color;
+        g.poly([x, y - 5, x + 4, y, x, y + 5, x - 4, y]).fill(color).stroke({ width: 1, color: 0x000000 });
+      }
     }
 
     // Upgrade points and the quest target, with a pulsing halo so they stand out.

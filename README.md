@@ -13,7 +13,7 @@ Open http://localhost:5173. The main menu has **Singleplayer** (a private game, 
 **Multiplayer** (create a lobby and share its 4-letter code, or join one from the list of open lobbies), the
 **Bestiary** (every enemy with its stats; bosses unlock once you've reached them in a run, win or lose) and **Settings**
 (volume). The card in the top right shows your name and most-played hero and opens your **Profile** (name, prestige
-shop and hero unlocks, also reachable from the lobby). Every tab
+shop, artifacts and hero unlocks, also reachable from the lobby). Every tab
 you open is another player, which is handy for testing co-op alone.
 
 In a lobby the **host** (whoever created it, or the next player if they leave) picks the map, adds bots and starts the
@@ -117,10 +117,28 @@ movement speed), Fortitude (+6% max HP) and Resolve (2% less damage taken). Rank
 "Refund all" gives everything back for free. Prestige is saved per player name in `data/progress.json`, so use the same
 name every time. The later maps are tuned to need a few runs' worth of prestige.
 
+**Artifacts.** Champions (elites with an affix) sometimes drop an artifact, warlords often do, and beating the final
+boss gives everyone one. Whoever touches a dropped artifact finds one of its tier for every person in the team (each
+rolls their own), and any still lying around when the boss dies are found too. They go into your inventory on the
+Profile page, and you pick one to take into your runs in the lobby (one at a time; you can't swap once you've locked
+in). There are four tiers, each with its own color: **common** (a small plain bonus), **rare**, **epic** and
+**legendary**, and some trade a drawback for a big upside (Glass Edge: +22% damage, 15% more damage taken). Later maps
+drop better tiers, and finding one you already own salvages it for gold. Some artifacts can also be activated:
+the **Q** slot left of E shows your artifact, and pressing Q uses its active (Tower Plate braces you, Windstep Anklet
+dashes, Storm Sigil and Eye of the Storm blast the horde, the Crown rallies the team...) on its own cooldown. A run kills about 500 champions and three or
+four warlords, so a winning run finds around four or five.
+
+All of it is in `src/shared/artifacts.ts`: each artifact is one line in `ARTIFACTS` (name, tier, icon, flavor and
+`effects`, such as `{ damage: 0.22, damageTaken: 0.15 }`, plus an optional `active` for Q built from parts like
+`heal`, `guard`, `frenzy`, `blast`, `stun`, `blink`, `invuln` and `rally`), and the descriptions everywhere are written
+from those.
+`DROPS` holds the drop chances and tier odds. Profiles save artifacts by key, so rename one by changing its `name`.
+To try one out: `npm run balance -- --map 1 --god --artifact glassEdge`.
+
 **Walls:** thick walls (stone) block movement and all projectiles. Thin walls (fences) block movement but you can shoot
 over them and dodge through them. Kael's dodge goes through thick walls too. Wraiths fly over everything.
 
-**God mode:** join as `dev` and you take damage but never go down (toggle it with **G**), and every hero is unlocked. A DEV panel (top left) has cheats for testing:
+**God mode:** join as `dev` and you take damage but never go down (toggle it with **G**), and every hero and artifact is unlocked. A DEV panel (top left) has cheats for testing:
 **T** jumps the clock a minute ahead (with the level-ups you'd have earned; during the boss fight it pushes toward
 berserk), **U** gives a free level-up pick, **F** a free Forge pick, and **B** fills your slots and maxes everything.
 
@@ -149,7 +167,7 @@ The first four heroes are free. Ignis, Sylva, Oakhart, Vex, Vessa, Aldric and Se
 click their card in the lobby. `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.
 
 WASD / arrows to move. Aimed weapons (bolts, knives, cleave) go toward your mouse cursor; the rest work on their own.
-Space dodges in the direction you're moving (toward the cursor when standing still): a quick dash during which nothing can hurt you, so you can keep shooting behind you while dashing away. E casts your hero's ability, R their ultimate.
+Space dodges in the direction you're moving (toward the cursor when standing still): a quick dash during which nothing can hurt you, so you can keep shooting behind you while dashing away. E casts your hero's ability, R their ultimate, and Q uses your artifact (if it can be activated).
 **Esc** or **P** pauses the game for everyone; it carries on once every player has pressed Ready. Hold Tab for the scoreboard: everyone's HP, kills, damage dealt and taken, build and stats. M mutes sound (volume slider in
 the top-left corner). All sound effects are synthesized in the browser (`src/client/audio.ts`), so there are no audio files.
 
@@ -217,8 +235,8 @@ npm run balance -- --map all --god          # bots can't die, so every run reach
 Bots (`src/server/bot.ts`, the same ones you can add in the lobby) play like a real client: they only see snapshots and only move, dodge, cast and pick upgrades.
 They kite and dodge telegraphs, use E and R, take upgrade points, hearts and Forges, revive each other and do the boss
 side missions. The report shows how far the team got, the boss fight length, damage taken per minute, and each hero's
-share of the team's damage (1.0 = an even share), downs and kills. Options: `--prestige N` (all prestige upgrades at
-rank N), `--skill 0..1`, `--boss-time S`, `--log`.
+share of the team's damage (1.0 = an even share), downs and kills, and the artifacts found. Options: `--prestige N` (all
+prestige upgrades at rank N), `--artifact ID` (every bot takes that artifact), `--skill 0..1`, `--boss-time S`, `--log`.
 
 The bots play worse than a good human (they lose by the middle of a run in normal mode), so use them to compare: before
 and after a change, or hero against hero. `--god` is the way to look at the late game and the boss fights.
@@ -245,6 +263,7 @@ sent to the server (it only sanity-checks the distance), so moving always feels 
 - `enemies.ts`: enemy stats, when they start spawning and how often, and the special attacks' tuning.
 - `upgrades.ts`: weapons and passives (per-level stats, evolutions, card text, which role can get them) and the XP curve.
 - `prestige.ts`: the permanent upgrades bought between runs, their costs and the points a run pays.
+- `artifacts.ts`: the artifacts (tier, icon, effects), their drop chances and tier odds.
 - `objectives.ts`: upgrade points, Altar events and Quest quests (timings, sizes, rewards).
 - `maps.ts`: the maps (size, walls, theme, enemy mix, boss, arena and its gate, lava) and the boss timing. Walls are
   built from small helpers like `room(...)` (a room with door gaps), `fenceH`/`fenceV`, `pillar`, `arc` (a stretch of

@@ -338,7 +338,7 @@ export const MAPS: MapDef[] = [
     ],
   },
   {
-    name: 'Verdant Ruins',
+    name: 'Desecrated Ruins',
     subtitle: 'Overgrown ruins with a fenced courtyard, and an old colosseum to the east.',
     art: 'ruins',
     width: 4750,

@@ -12,7 +12,7 @@ export class Input {
   private keys = new Set<string>();
   private mouse = { x: 1, y: 0 };
   private dodgePressed = false;
-  private castPressed: 'e' | 'r' | null = null;
+  private castPressed: 'e' | 'r' | 'q' | null = null;
   /** Cheat keys pressed since the last frame, in order (two quick presses shouldn't drop one). */
   private devPressed: DevAction[] = [];
   private pausePressed = false;
@@ -27,6 +27,7 @@ export class Input {
       }
       if (!e.repeat && e.code === 'KeyE') this.castPressed = 'e';
       if (!e.repeat && e.code === 'KeyR') this.castPressed = 'r';
+      if (!e.repeat && e.code === 'KeyQ') this.castPressed = 'q';
       if (!e.repeat && e.code in DEV_KEYS) this.devPressed.push(DEV_KEYS[e.code]);
       if (!e.repeat && (e.code === 'Escape' || e.code === 'KeyP')) this.pausePressed = true;
     });
@@ -62,8 +63,8 @@ export class Input {
     return Math.hypot(this.mouse.x - window.innerWidth / 2, this.mouse.y - window.innerHeight / 2);
   }
 
-  /** 'e' or 'r' once per key press, otherwise null. */
-  consumeCast(): 'e' | 'r' | null {
+  /** 'e', 'r' or 'q' once per key press, otherwise null. */
+  consumeCast(): 'e' | 'r' | 'q' | null {
     const slot = this.castPressed;
     this.castPressed = null;
     return slot;

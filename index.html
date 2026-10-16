@@ -36,6 +36,7 @@
         <div id="quest-chip" class="chip quest hidden"></div>
       </div>
       <div id="banner"></div>
+      <div id="loot-toasts"></div>
       <div id="loadout">
         <div id="hero" class="slot">
           <div id="hero-portrait" class="portrait"></div>
@@ -46,6 +47,13 @@
           </div>
         </div>
         <div id="abilities">
+          <div id="ability-q" class="ability relic">
+            <div class="ability-shade"></div>
+            <span class="ability-key">Q</span>
+            <div class="ability-name"></div>
+            <div class="ability-level"></div>
+            <div class="ability-time"></div>
+          </div>
           <div id="ability-e" class="ability">
             <div class="ability-shade"></div>
             <span class="ability-key">E</span>
@@ -178,6 +186,11 @@
           <p class="prestige-hint">Permanent upgrades, kept between runs. Every team level you reach in a run earns a point (more on harder maps).</p>
           <div id="prestige"></div>
           <div class="prestige-head">
+            <h2>Artifacts <span id="artifact-found" class="section-note"></span></h2>
+          </div>
+          <p class="prestige-hint">Relics dropped by elites, warlords and final bosses, kept between runs. Click one you own to take it into your runs (one at a time). Duplicates turn into gold.</p>
+          <div id="artifact-inventory" class="artifact-inventory"></div>
+          <div class="prestige-head">
             <h2>Heroes</h2>
           </div>
           <p class="prestige-hint">Pick a hero to see their kit and how they've done for you. New heroes are bought with gold from crates.</p>
@@ -231,10 +244,15 @@
           </div>
           <div id="characters"></div>
           <div class="lobby-section-head">
+            <h2>Artifact</h2>
+            <span id="artifact-count" class="section-note"></span>
+          </div>
+          <div id="artifact-picker" class="artifact-picker"></div>
+          <div class="lobby-section-head">
             <h2>Map</h2>
           </div>
           <div id="maps"></div>
-          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge the way you're moving · E ability · R ultimate · hold Tab for the scoreboard · Esc / P to pause · 1 / 2 / 3 to pick upgrades · Enter to chat · Shift+click to ping</p>
+          <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge the way you're moving · E ability · R ultimate · Q artifact · hold Tab for the scoreboard · Esc / P to pause · 1 / 2 / 3 to pick upgrades · Enter to chat · Shift+click to ping</p>
         </main>
 
         <!-- Right: the selected hero up close, and lock in. -->
@@ -262,6 +280,7 @@
           <h1 id="gameover-title">DEFEAT</h1>
           <p id="survived"></p>
           <div id="postgame-summary" class="postgame-summary"></div>
+          <div id="postgame-loot" class="postgame-loot hidden"></div>
         </div>
         <div id="postgame-rows" class="postgame-rows"></div>
         <div class="postgame-foot">

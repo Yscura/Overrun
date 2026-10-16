@@ -3445,3 +3445,382 @@ body:has(#lobby:not(.hidden)) #sound-control {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* --- Artifacts --- */
+
+/* An artifact's icon, framed in its tier's color (--tier). */
+.artifact-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: var(--tier);
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--tier) 30%, #11141a), #0b0d11 72%);
+  border: 2px solid var(--tier);
+  border-radius: 50%;
+  /* A thin inner ring makes it a medallion. */
+  box-shadow:
+    inset 0 0 0 2px #0b0d11,
+    inset 0 0 0 3px color-mix(in srgb, var(--tier) 45%, transparent),
+    0 0 10px -3px var(--tier);
+}
+
+.artifact-icon svg {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+}
+
+.artifact-icon.empty {
+  font-size: 18px;
+  color: #5d6676;
+  background: #0d0f14;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.artifact-icon.unknown {
+  font-size: 18px;
+  background: #0d0f14;
+  box-shadow: none;
+  opacity: 0.7;
+}
+
+.artifact-tier {
+  align-self: flex-start;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tier);
+  border: 1px solid color-mix(in srgb, var(--tier) 60%, transparent);
+  border-radius: 999px;
+}
+
+.artifact-effects {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.artifact-effects .good,
+.tooltip .tip-good {
+  color: #a5d6a7;
+}
+
+.artifact-effects .bad,
+.tooltip .tip-bad {
+  color: #ef9a9a;
+}
+
+.artifact-flavor,
+.tooltip .tip-flavor {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.section-note {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Profile: every artifact, owned ones clickable. */
+.artifact-inventory {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 10px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+
+.artifact-card {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: #0f1115;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.artifact-card:hover:not(:disabled) {
+  border-color: #4a5263;
+  transform: translateY(-2px);
+}
+
+.artifact-card.equipped {
+  border-color: var(--accent);
+  background: #13202a;
+}
+
+.artifact-card.unknown {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.artifact-card-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.artifact-card-names {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.artifact-name {
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.artifact-equipped {
+  align-self: flex-start;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #06202c;
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+/* Lobby: your artifacts in a row, and what the equipped one does. */
+.artifact-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.artifact-tile {
+  display: flex;
+  padding: 3px;
+  background: #0f1115;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.artifact-tile:hover {
+  border-color: #4a5263;
+  transform: translateY(-2px);
+}
+
+.artifact-tile.selected {
+  border-color: var(--accent);
+  background: #13202a;
+}
+
+.artifact-picker.locked-in .artifact-tile:not(.selected) {
+  opacity: 0.5;
+}
+
+.artifact-desc {
+  flex-basis: 100%;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.artifact-desc-name {
+  margin-right: 8px;
+  font-weight: 800;
+}
+
+/* Tooltip tier tags. */
+.tip-tier {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  background: #1b1f27;
+  border-radius: 999px;
+}
+
+.tip-tier.tier-common {
+  color: #b0bec5;
+}
+
+.tip-tier.tier-rare {
+  color: #42a5f5;
+}
+
+.tip-tier.tier-epic {
+  color: #b388ff;
+}
+
+.tip-tier.tier-legendary {
+  color: #ffb300;
+}
+
+.tip-title .artifact-icon {
+  margin-right: 2px;
+}
+
+/* In-game: a toast for each artifact you find. */
+#loot-toasts {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  transform: translateX(-50%);
+}
+
+.loot-toast {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 280px;
+  padding: 10px 16px 10px 10px;
+  background: rgba(14, 16, 21, 0.94);
+  border: 2px solid var(--tier);
+  border-radius: 14px;
+  box-shadow: 0 0 26px -6px var(--tier);
+  animation: loot-in 0.35s ease-out;
+  transition: opacity 0.6s, transform 0.6s;
+}
+
+.loot-toast.out {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+@keyframes loot-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+.loot-toast-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tier);
+}
+
+.loot-toast-name {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.loot-toast-effects {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Post-game: what you found this run. */
+.postgame-loot {
+  margin-bottom: 14px;
+  text-align: center;
+}
+
+.postgame-loot-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.postgame-loot-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.postgame-loot-card {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px 6px 6px;
+  text-align: left;
+  background: #0f1115;
+  border: 1px solid color-mix(in srgb, var(--tier) 55%, var(--border));
+  border-radius: 10px;
+}
+
+.postgame-loot-card.salvaged {
+  opacity: 0.65;
+}
+
+.postgame-loot-name {
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.postgame-loot-note {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.score-tile.score-artifact {
+  width: auto;
+  justify-content: center;
+  padding: 5px;
+  border-top: 2px solid transparent;
+}
+
+/* HUD: the Q slot holds your artifact, framed in its tier's color when it's ready. */
+.ability.relic {
+  border-style: solid;
+}
+
+.ability.relic.ready {
+  border-color: var(--tier);
+  box-shadow: 0 0 12px -4px var(--tier);
+}
+
+.ability.relic.empty {
+  border-style: dashed;
+  opacity: 0.6;
+}
+
+.ability.relic.passive .ability-key {
+  opacity: 0.35;
+}
+
+.ability.relic .ability-name .artifact-icon {
+  flex: none;
+}
+
+.relic-note {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artifact-effects .active-head,
+.tooltip .tip-active-head {
+  margin-top: 6px;
+  font-weight: 800;
+  color: #ffe082;
+}
+
+.artifact-effects .active,
+.tooltip .tip-active {
+  color: #ffe082;
+}
