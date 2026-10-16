@@ -297,16 +297,16 @@ export const MAPS: MapDef[] = [
     enemyWeights: { [EnemyType.Wraith]: 0, [EnemyType.Bombardier]: 0.3, [EnemyType.Charger]: 0.5, [EnemyType.Spitter]: 0.7 },
     // Greens and blues of the forest.
     enemyColors: {
-      [EnemyType.Grunt]: 0x66bb6a,
+      [EnemyType.Grunt]: 0xa5e05a,
       [EnemyType.Runner]: 0x4dd0e1,
-      [EnemyType.Brute]: 0x5c6bc0,
-      [EnemyType.Spitter]: 0xd4e157,
+      [EnemyType.Brute]: 0x7986cb,
+      [EnemyType.Spitter]: 0xfff176,
       [EnemyType.Bombardier]: 0x42a5f5,
-      [EnemyType.Charger]: 0x26a69a,
+      [EnemyType.Charger]: 0x4db6ac,
       [EnemyType.Wraith]: 0xa5d6a7,
       [EnemyType.Warlord]: 0x2e7d32,
     },
-    theme: { background: 0x1d3a1b, grid: 0x274a25, wall: 0x6b7a5c, wallEdge: 0x3b4a32, fence: 0x9c7b4f, outside: 0x07110a },
+    theme: { background: 0x172e18, grid: 0x1f3a20, wall: 0x6b7a5c, wallEdge: 0x3b4a32, fence: 0x9c7b4f, outside: 0x07110a },
     walls: [
       ...riverWalls(RIVER, WOODS.height),
       // The glade, and groves dotted around the woods.

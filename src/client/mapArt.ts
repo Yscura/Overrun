@@ -48,10 +48,11 @@ export function groundTile(map: MapDef): Graphics {
   }
   if (map.art === 'forest') {
     // Lush grass in two greens, and a few tiny flowers.
-    for (let i = 0; i < 90; i++) {
+    // Kept dark and sparse so the horde stands out against it.
+    for (let i = 0; i < 35; i++) {
       const x = rand() * TILE;
       const y = rand() * TILE;
-      g.moveTo(x, y).lineTo(x + (rand() - 0.5) * 5, y - 5 - rand() * 5).stroke({ width: 1.6, color: rand() < 0.5 ? 0x3f7d36 : 0x56973f, alpha: 0.85 });
+      g.moveTo(x, y).lineTo(x + (rand() - 0.5) * 5, y - 5 - rand() * 5).stroke({ width: 1.5, color: rand() < 0.5 ? 0x2c5328 : 0x35612f, alpha: 0.7 });
     }
     for (let i = 0; i < 5; i++) g.circle(rand() * TILE, rand() * TILE, 1.4).fill({ color: rand() < 0.5 ? 0xfff59d : 0xffffff, alpha: 0.7 });
   } else if (map.art === 'canyon') {
@@ -95,7 +96,8 @@ export function decorations(map: MapDef): { still: Graphics; glow: Graphics; top
   const top = new Graphics();
   landmarks(map, still, glow, top, rand);
 
-  const count = Math.round((map.width * map.height) / 21000);
+  // The woods get fewer props, so enemies are easy to spot.
+  const count = Math.round((map.width * map.height) / (map.art === 'forest' ? 40000 : 21000));
   for (let i = 0; i < count; i++) {
     const x = 40 + rand() * (map.width - 80);
     const y = 40 + rand() * (map.height - 80);
@@ -516,7 +518,7 @@ function forestProp(g: Graphics, x: number, y: number, roll: number, s: number, 
     // A bright grass tuft.
     for (let i = 0; i < 6; i++) {
       const bx = x + (rand() - 0.5) * 16 * s;
-      g.moveTo(bx, y).lineTo(bx + (rand() - 0.5) * 10, y - (9 + rand() * 11) * s).stroke({ width: 2, color: rand() < 0.5 ? 0x4caf50 : 0x7cb342, cap: 'round' });
+      g.moveTo(bx, y).lineTo(bx + (rand() - 0.5) * 10, y - (9 + rand() * 11) * s).stroke({ width: 2, color: rand() < 0.5 ? 0x33692e : 0x3f7a35, cap: 'round' });
     }
   } else if (roll < 0.46) {
     // Wildflowers.
@@ -538,8 +540,8 @@ function forestProp(g: Graphics, x: number, y: number, roll: number, s: number, 
     }
   } else if (roll < 0.68) {
     // A bush.
-    for (let i = 0; i < 4; i++) g.circle(x + (rand() - 0.5) * 20 * s, y + (rand() - 0.5) * 12 * s, (9 + rand() * 6) * s).fill(i % 2 ? 0x2e7d32 : 0x388e3c);
-    g.circle(x - 4 * s, y - 5 * s, 5 * s).fill({ color: 0x81c784, alpha: 0.5 });
+    // Low ground cover: flat and dark, so it can't be mistaken for an enemy.
+    for (let i = 0; i < 4; i++) g.ellipse(x + (rand() - 0.5) * 22 * s, y + (rand() - 0.5) * 10 * s, (11 + rand() * 6) * s, (6 + rand() * 3) * s).fill({ color: i % 2 ? 0x1f4a1f : 0x24522a, alpha: 0.8 });
   } else if (roll < 0.78) {
     // A fern.
     for (let i = 0; i < 7; i++) {
