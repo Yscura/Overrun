@@ -386,12 +386,18 @@ export class Bot {
       vy += ((enemies[0].y - this.local.y) / enemies[0].d) * 0.8;
     }
 
-    // Get out of bomb circles and charge lanes.
+    // Get out of bomb circles and charge lanes, and play the bosses' mechanics.
     const h = snap.hazards;
     for (let i = 0; i < h.length; i += HAZARD_STRIDE) {
       const kind = h[i + 1];
       const hx = h[i + 2];
       const hy = h[i + 3];
+      const boss = this.bossMechanic(snap, me, kind, hx, hy, h[i + 4], h[i + 5], h[i + 6], h[i + 7]);
+      if (boss) {
+        vx += boss.x;
+        vy += boss.y;
+        continue;
+      }
       if (kind === HazardKind.Circle) {
         const r = h[i + 4] + PLAYER_RADIUS + 15;
         const d = Math.hypot(this.local.x - hx, this.local.y - hy);
@@ -523,10 +529,92 @@ export class Bot {
   }
 
   /** About to get hit by something a dodge would avoid? */
+  /**
+   * How to move for one of the bosses' telegraphs: get out of cones, pools, tethers and other people's marks; carry
+   * your own mark away from the team; stack in meteors; hide behind a pillar from Glacial Wrath. Null for the rest.
+   */
+  private bossMechanic(snap: Snapshot, me: PlayerState, kind: number, hx: number, hy: number, a: number, b: number, c: number, progress: number): Point | null {
+    const dx = this.local.x - hx;
+    const dy = this.local.y - hy;
+    const d = Math.hypot(dx, dy) || 1;
+    const away = (k: number) => ({ x: (dx / d) * k, y: (dy / d) * k });
+    switch (kind) {
+      case HazardKind.Cone: {
+        const off = Math.atan2(Math.sin(Math.atan2(dy, dx) - a), Math.cos(Math.atan2(dy, dx) - a));
+        if (d > b + 50 || Math.abs(off) > c / 100 + 0.3) return { x: 0, y: 0 };
+        // Step out sideways, around behind the boss.
+        const side = a + (off >= 0 ? 1 : -1) * Math.PI * 0.6;
+        return { x: Math.cos(side) * 4, y: Math.sin(side) * 4 };
+      }
+      case HazardKind.Pool:
+        return d < a + PLAYER_RADIUS + 20 ? away(3) : { x: 0, y: 0 };
+      case HazardKind.Ring:
+        // Back off from the boss while it gathers; dodge through the ring itself (see inDanger).
+        return progress < 1 && d < c ? away(1.5) : { x: 0, y: 0 };
+      case HazardKind.Mark: {
+        if (b !== me.id) return d < a + PLAYER_RADIUS + 30 ? away(3) : { x: 0, y: 0 };
+        // Mine: get away from the others.
+        const others = snap.players.filter((p) => p.id !== me.id && !p.downed && Math.hypot(p.x - this.local.x, p.y - this.local.y) < a * 2.5);
+        if (others.length === 0) return { x: 0, y: 0 };
+        const cx = others.reduce((s, p) => s + p.x, 0) / others.length;
+        const cy = others.reduce((s, p) => s + p.y, 0) / others.length;
+        const od = Math.hypot(this.local.x - cx, this.local.y - cy) || 1;
+        return { x: ((this.local.x - cx) / od) * 4, y: ((this.local.y - cy) / od) * 4 };
+      }
+      case HazardKind.Share:
+        // Stack up inside.
+        return d > a * 0.5 ? { x: (-dx / d) * 3, y: (-dy / d) * 3 } : { x: 0, y: 0 };
+      case HazardKind.Beam: {
+        const ex = hx + Math.cos(a) * b;
+        const ey = hy + Math.sin(a) * b;
+        const t = b > 0 ? Math.max(0, Math.min(1, ((this.local.x - hx) * (ex - hx) + (this.local.y - hy) * (ey - hy)) / (b * b))) : 0;
+        const px = this.local.x - (hx + (ex - hx) * t);
+        const py = this.local.y - (hy + (ey - hy) * t);
+        const pd = Math.hypot(px, py) || 1;
+        return pd < c / 2 + PLAYER_RADIUS + 40 ? { x: (px / pd) * 4, y: (py / pd) * 4 } : { x: 0, y: 0 };
+      }
+      case HazardKind.Glacial: {
+        // Behind the nearest pillar, as seen from the boss.
+        let best: Point | null = null;
+        let bestD = Infinity;
+        for (const w of this.walls.walls) {
+          if (w.thin || w.w > 140 || w.h > 140) continue;
+          const cx = w.x + w.w / 2;
+          const cy = w.y + w.h / 2;
+          const fromBoss = Math.hypot(cx - hx, cy - hy);
+          if (fromBoss > 800 || fromBoss < 1) continue;
+          const reach = Math.max(w.w, w.h) / 2 + PLAYER_RADIUS + 14;
+          const spot = { x: cx + ((cx - hx) / fromBoss) * reach, y: cy + ((cy - hy) / fromBoss) * reach };
+          const sd = Math.hypot(spot.x - this.local.x, spot.y - this.local.y);
+          if (sd < bestD) {
+            bestD = sd;
+            best = spot;
+          }
+        }
+        if (!best || bestD < 8) return { x: 0, y: 0 };
+        const dir = this.pathTo(best, TICK_DT);
+        return { x: dir.x * 8, y: dir.y * 8 };
+      }
+    }
+    return null;
+  }
+
   private inDanger(snap: Snapshot, me: PlayerState, enemies: EnemyView[]): boolean {
     const h = snap.hazards;
     for (let i = 0; i < h.length; i += HAZARD_STRIDE) {
       const progress = h[i + 7];
+      // A shockwave about to roll over us: dodge through it.
+      if (h[i + 1] === HazardKind.Ring && progress >= 1) {
+        const gap = Math.hypot(this.local.x - h[i + 2], this.local.y - h[i + 3]) - h[i + 4];
+        if (gap > 0 && gap < 50) return true;
+      }
+      // About to be bitten.
+      if (h[i + 1] === HazardKind.Cone && progress > 0.85) {
+        const dx = this.local.x - h[i + 2];
+        const dy = this.local.y - h[i + 3];
+        const off = Math.atan2(Math.sin(Math.atan2(dy, dx) - h[i + 4]), Math.cos(Math.atan2(dy, dx) - h[i + 4]));
+        if (Math.hypot(dx, dy) < h[i + 5] && Math.abs(off) < h[i + 6] / 100) return true;
+      }
       if (h[i + 1] === HazardKind.Circle) {
         const inside = Math.hypot(this.local.x - h[i + 2], this.local.y - h[i + 3]) < h[i + 4] + PLAYER_RADIUS * 0.5;
         if (inside && progress > 0.75) return true;

@@ -5,7 +5,7 @@ import { DAMAGE_COLORS, DAMAGE_TYPES } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
 import { NO_ROTATE, drawEnemy, shade } from './enemyArt';
 import { TILE, decorations, drawGate, lavaField, drawWalls, groundTile } from './mapArt';
-import { MAPS, enemyColor, zoneRect } from '../shared/maps';
+import { MAPS, mapWalls, enemyColor, zoneRect } from '../shared/maps';
 import { Minimap } from './minimap';
 import { portraitUrl } from './portraits';
 import { RALLY_RADIUS, SHRINES, SHRINE_RADIUS, ShrineKind } from '../shared/objectives';
@@ -40,6 +40,10 @@ const STUNNED = 0x90caf9;
 const HIT_STRIDE = 5;
 const CRIT_COLOR = 0xffd740;
 const FIRE = 0xff3d00;
+/** Boss telegraphs: venom pools, meteors to stack in, marks to spread out from. */
+const VENOM = 0x9ccc65;
+const SHARE = 0xffb300;
+const MARK = 0xe040fb;
 const HEALTH_GREEN = 0x00e676;
 const QUEST_COLOR = 0xffee58;
 const DAMAGE_FONT = 'DamageNumbers';
@@ -820,7 +824,7 @@ export class GameRenderer {
     const pulse = 0.5 + 0.5 * Math.sin(now / 180);
     const marks = this.marks.clear();
     const missionHp = new Map<number, number>();
-    const hpList = b.snap.bossFight?.mission?.hp ?? [];
+    const hpList = b.snap.bossFight?.targets ?? [];
     for (let i = 0; i < hpList.length; i += 2) missionHp.set(hpList[i], hpList[i + 1]);
     if (!marks.parent) this.layers.enemies.addChild(marks);
     else this.layers.enemies.setChildIndex(marks, this.layers.enemies.children.length - 1);
@@ -866,6 +870,26 @@ export class GameRenderer {
       view.sprite.texture = white ? this.tex.enemyFlash[type] : this.tex.enemies[type];
       view.sprite.tint = (flags & EnemyFlag.Stunned) !== 0 ? STUNNED : 0xffffff;
       const r = ENEMY_TYPES[type].radius;
+      // Burrowed: only a mound of churning dirt shows where it is.
+      view.sprite.visible = (flags & EnemyFlag.Hidden) === 0;
+      if (flags & EnemyFlag.Hidden) {
+        marks.ellipse(x, y, r * 0.9, r * 0.6).fill({ color: 0x5d4037, alpha: 0.8 });
+        for (let k = 0; k < 6; k++) {
+          const a = k + now / 150;
+          marks.circle(x + Math.cos(a) * r * 0.6, y + Math.sin(a * 1.3) * r * 0.35, 4).fill(0x8d6e63);
+        }
+      }
+      // A hard shell: thick gray plates. Cracked open: a pulsing red ring.
+      if (flags & EnemyFlag.Shelled) {
+        marks.circle(x, y, r + 10).stroke({ width: 8, color: 0x90a4ae, alpha: 0.8 }).circle(x, y, r + 10).stroke({ width: 2, color: 0x37474f, alpha: 0.9 });
+        for (let k = 0; k < 8; k++) {
+          const a = (k / 8) * Math.PI * 2;
+          marks.moveTo(x + Math.cos(a) * (r + 6), y + Math.sin(a) * (r + 6)).lineTo(x + Math.cos(a) * (r + 14), y + Math.sin(a) * (r + 14)).stroke({ width: 2, color: 0x37474f });
+        }
+      }
+      if (flags & EnemyFlag.Exposed) marks.circle(x, y, r + 8).stroke({ width: 4, color: 0xff1744, alpha: 0.5 + 0.5 * pulse });
+      // A twin shielded by its sibling: a fiery aura.
+      if (flags & EnemyFlag.Linked) marks.circle(x, y, r + 16).fill({ color: 0xff9100, alpha: 0.1 + 0.08 * pulse }).stroke({ width: 3, color: 0xffab40, alpha: 0.6 + 0.3 * pulse });
       // A shimmering bubble on shielded bosses; a gold ring on enemies a side mission needs dead.
       if (flags & EnemyFlag.Shielded) {
         marks.circle(x, y, r + 14).fill({ color: 0xe040fb, alpha: 0.12 + 0.08 * pulse }).stroke({ width: 3, color: 0xea80fc, alpha: 0.5 + 0.4 * pulse });
@@ -970,26 +994,128 @@ export class GameRenderer {
       const [kind, x, y, ha, hb, w, progress] = list.slice(i + 1, i + HAZARD_STRIDE);
       const g = view.g.clear();
       g.position.set(x, y);
-      if (kind === HazardKind.Circle) {
-        g.rotation = 0;
+      g.rotation = 0;
+      this.drawHazard(g, kind, ha, hb, w, progress, b.snap);
+    }
+    for (const [id, view] of this.hazardViews) {
+      if (view.seen === this.frame) continue;
+      view.g.destroy();
+      this.hazardViews.delete(id);
+    }
+  }
+
+  /** One telegraph, drawn around (0, 0) (see HazardKind for what a, b and c mean). */
+  private drawHazard(g: Graphics, kind: number, ha: number, hb: number, w: number, progress: number, snap: Snapshot): void {
+    const now = performance.now();
+    // Little arrows around a circle: pointing in (stack up) or out (spread out).
+    const arrows = (r: number, inward: boolean, color: number) => {
+      for (let k = 0; k < 4; k++) {
+        const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+        const bob = Math.sin(now / 150) * 4;
+        const tip = inward ? r + 6 - bob : r + 26 + bob;
+        const base = inward ? r + 24 - bob : r + 8 + bob;
+        const side = (d: number, off: number) => [Math.cos(a) * d + Math.cos(a + Math.PI / 2) * off, Math.sin(a) * d + Math.sin(a + Math.PI / 2) * off];
+        g.poly([...side(tip, 0), ...side(base, 9), ...side(base, -9)]).fill({ color, alpha: 0.9 });
+      }
+    };
+    switch (kind) {
+      case HazardKind.Circle:
         g.circle(0, 0, ha)
           .fill({ color: DANGER, alpha: 0.1 })
           .stroke({ width: 2, color: DANGER, alpha: 0.7 })
           .circle(0, 0, ha * progress)
           .fill({ color: DANGER, alpha: 0.25 });
-      } else {
+        return;
+      case HazardKind.Line:
         g.rotation = ha;
         g.rect(0, -w / 2, hb, w)
           .fill({ color: DANGER, alpha: 0.08 + 0.12 * progress })
           .stroke({ width: 2, color: DANGER, alpha: 0.6 })
           .rect(0, -w / 2, hb * progress, w)
           .fill({ color: DANGER, alpha: 0.15 });
+        return;
+      case HazardKind.Cone: {
+        // A wedge in front of the boss, filling up until it lands.
+        g.rotation = ha;
+        const half = w / 100;
+        const wedge = (r: number) => g.moveTo(0, 0).arc(0, 0, r, -half, half).lineTo(0, 0);
+        wedge(hb).fill({ color: DANGER, alpha: 0.1 }).stroke({ width: 2, color: DANGER, alpha: 0.75 });
+        wedge(Math.max(1, hb * progress)).fill({ color: DANGER, alpha: 0.25 });
+        return;
       }
-    }
-    for (const [id, view] of this.hazardViews) {
-      if (view.seen === this.frame) continue;
-      view.g.destroy();
-      this.hazardViews.delete(id);
+      case HazardKind.Ring:
+        if (progress < 1) {
+          // Gathering: how far it will roll, and a ring tightening around the boss.
+          g.circle(0, 0, w).stroke({ width: 2, color: DANGER, alpha: 0.3 });
+          g.circle(0, 0, 160 - 90 * progress).stroke({ width: 6, color: DANGER, alpha: 0.5 + 0.4 * progress });
+        } else {
+          g.circle(0, 0, ha).stroke({ width: hb, color: DANGER, alpha: 0.45 }).circle(0, 0, ha).stroke({ width: 3, color: 0xffcdd2, alpha: 0.9 });
+        }
+        return;
+      case HazardKind.Pool: {
+        // Venom: faint while it settles, then a bubbling pool.
+        const armed = hb > 0;
+        g.circle(0, 0, ha).fill({ color: VENOM, alpha: armed ? 0.32 : 0.1 }).stroke({ width: 2, color: VENOM, alpha: 0.75 });
+        if (!armed) g.circle(0, 0, ha * progress).fill({ color: VENOM, alpha: 0.2 });
+        else {
+          for (let k = 0; k < 6; k++) {
+            const a = k * 2.4 + now / 900;
+            const r = ha * (0.2 + ((k * 0.37) % 0.6));
+            g.circle(Math.cos(a) * r, Math.sin(a) * r, 3 + 2 * Math.sin(now / 200 + k)).fill({ color: 0xdcedc8, alpha: 0.6 });
+          }
+        }
+        return;
+      }
+      case HazardKind.Share:
+        // A meteor: stack up inside.
+        g.circle(0, 0, ha).fill({ color: SHARE, alpha: 0.12 }).stroke({ width: 3, color: SHARE, alpha: 0.85 });
+        g.circle(0, 0, ha * progress).fill({ color: SHARE, alpha: 0.22 });
+        arrows(ha, true, SHARE);
+        return;
+      case HazardKind.Mark:
+        // Spread out: whoever it follows should leave the group.
+        g.circle(0, 0, ha).fill({ color: MARK, alpha: 0.1 }).stroke({ width: 3, color: MARK, alpha: 0.85 });
+        g.circle(0, 0, ha * progress).fill({ color: MARK, alpha: 0.2 });
+        arrows(ha, false, MARK);
+        return;
+      case HazardKind.Beam: {
+        // The twins' burning tether.
+        g.rotation = ha;
+        const flicker = 0.5 + 0.5 * Math.sin(now / 60);
+        g.rect(0, -w / 2 - 6, hb, w + 12).fill({ color: FIRE, alpha: 0.2 + 0.1 * flicker });
+        g.rect(0, -w / 2, hb, w).fill({ color: 0xffab40, alpha: 0.55 + 0.2 * flicker });
+        g.rect(0, -2, hb, 4).fill({ color: 0xfff3e0, alpha: 0.9 });
+        return;
+      }
+      case HazardKind.Glacial: {
+        // Frost gathers: everything she can see gets tinted, and the shadows behind walls are safe.
+        g.circle(0, 0, 1500).fill({ color: 0x80deea, alpha: 0.06 + 0.14 * progress });
+        const map = MAPS[snap.map];
+        const reach = 1600;
+        for (const wall of mapWalls(map, !snap.arena?.open)) {
+          if (wall.thin) continue;
+          const cx = wall.x + wall.w / 2 - g.x;
+          const cy = wall.y + wall.h / 2 - g.y;
+          if (cx * cx + cy * cy > 900 * 900) continue;
+          const corners = [
+            [wall.x - g.x, wall.y - g.y],
+            [wall.x + wall.w - g.x, wall.y - g.y],
+            [wall.x + wall.w - g.x, wall.y + wall.h - g.y],
+            [wall.x - g.x, wall.y + wall.h - g.y],
+          ];
+          const far = (c: number[]) => {
+            const d = Math.hypot(c[0], c[1]) || 1;
+            return [c[0] + (c[0] / d) * reach, c[1] + (c[1] / d) * reach];
+          };
+          for (let k = 0; k < 4; k++) {
+            const c1 = corners[k];
+            const c2 = corners[(k + 1) % 4];
+            g.poly([...c1, ...c2, ...far(c2), ...far(c1)]).fill({ color: 0x06121c, alpha: 0.45 });
+          }
+        }
+        g.circle(0, 0, 60 + 200 * (1 - progress)).stroke({ width: 5, color: 0xe0f7fa, alpha: 0.4 + 0.5 * progress });
+        return;
+      }
     }
   }
 

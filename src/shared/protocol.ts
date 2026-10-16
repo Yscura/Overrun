@@ -333,6 +333,8 @@ export interface BossBar {
   enraged: boolean;
   /** Its twin died first: stronger for the rest of the fight. */
   vengeful: boolean;
+  /** What it's up to right now, for the bar: 'shelled', 'exposed', 'burrowed', 'kindred'. */
+  tags: string[];
 }
 
 /** The final boss fight: the bosses' health, the berserk clock and the current side mission. */
@@ -343,8 +345,9 @@ export interface BossFight {
   /** Berserk stacks so far. */
   berserk: number;
   /** While a side mission runs the bosses are shielded. */
-  /** `hp`: the living mission targets' health, as [id, share of max HP, ...]. */
-  mission: { kind: MissionKind; done: number; total: number; hp: number[] } | null;
+  mission: { kind: MissionKind; done: number; total: number } | null;
+  /** Health of what the team should kill (mission targets, eggs, carrion), as [id, share of max HP, ...]. */
+  targets: number[];
 }
 
 export const PickupKind = { Crate: 0, Heart: 1, Coin: 2, Bomb: 3 } as const;
@@ -354,11 +357,25 @@ export const SummonKind = { Wolf: 0, Treant: 1 } as const;
 /** Things players leave on the ground. */
 export const ZoneKind = { Venom: 0, Mine: 1, Fire: 2, Holy: 3, Toxic: 4 } as const;
 /** Telegraphed danger zones: a bomb circle or a charger's path. */
-export const HazardKind = { Circle: 0, Line: 1 } as const;
-/** Bit flags in the enemy list. */
-export const EnemyFlag = { Hit: 1, WindingUp: 2, Stunned: 4, Shielded: 8, Marked: 16 } as const;
+/**
+ * Telegraphed attacks, all [id, kind, x, y, a, b, c, progress] in the snapshot:
+ * - Circle: a = radius. Line (a charge's path): a = angle, b = length, c = width.
+ * - Cone: a = facing, b = length, c = half the angle in hundredths of a radian.
+ * - Ring (a shockwave rolling out once `progress` reaches 1): a = current radius, b = width, c = how far it goes.
+ * - Pool (lingering, hurts once armed): a = radius, b = 1 when armed.
+ * - Share (stack up: its damage is split between everyone inside): a = radius.
+ * - Mark (follows a player; spread out): a = radius, b = the player's id.
+ * - Beam (the twins' tether): a = angle, b = length, c = width.
+ * - Glacial (Rime's line-of-sight blast from (x, y)): hide behind a wall before `progress` reaches 1.
+ */
+export const HazardKind = { Circle: 0, Line: 1, Cone: 2, Ring: 3, Pool: 4, Share: 5, Mark: 6, Beam: 7, Glacial: 8 } as const;
+/**
+ * Bit flags in the enemy list. Hidden: burrowed (untargetable). Shelled: shrugging off damage. Exposed: taking extra
+ * damage. Linked: a twin near its sibling, shrugging off damage. Marked: a side mission or mechanic wants it dead.
+ */
+export const EnemyFlag = { Hit: 1, WindingUp: 2, Stunned: 4, Shielded: 8, Marked: 16, Hidden: 32, Shelled: 64, Exposed: 128, Linked: 256 } as const;
 /** Champions carry their affix (see Affix) in the flags, shifted up by this many bits. */
-export const AFFIX_SHIFT = 5;
+export const AFFIX_SHIFT = 9;
 
 // Entity lists are flat number arrays to keep snapshots small:
 // enemies:     [id, type, x, y, flags, ...]

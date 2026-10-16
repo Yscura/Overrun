@@ -436,11 +436,11 @@ export const MAPS: MapDef[] = [
       wall(KEEP.x - 60, KEEP.y + KEEP.h - 130, 190, 190),
       wall(KEEP.x - 50, KEEP.y + (KEEP.h - KEEP_GATE) / 2 - 120, 120, 120),
       wall(KEEP.x - 50, KEEP.y + (KEEP.h + KEEP_GATE) / 2, 120, 120),
-      // Columns in the throne hall.
-      pillar(3620, 1200, 56),
-      pillar(3620, 1800, 56),
-      pillar(4090, 1200, 56),
-      pillar(4090, 1800, 56),
+      // Columns in the throne hall: cover from the Queen's Glacial Wrath.
+      pillar(3620, 1220, 90),
+      pillar(3620, 1780, 90),
+      pillar(4090, 1220, 90),
+      pillar(4090, 1780, 90),
       // Barracks and a smithy against the north wall, stables and a storehouse against the south.
       ...room(450, 40, 760, 420, ['s'], 180),
       ...room(1750, 40, 560, 380, ['s', 'e']),
@@ -500,6 +500,10 @@ export const MAPS: MapDef[] = [
     walls: [
       ...cliffs(CANYON.width, CANYON.height),
       ...DEN.walls,
+      // Boulders in the den: bait Kharzak's charge into one to crack its shell.
+      boulder(4600 + Math.cos(Math.PI / 3) * 260, 1500 + Math.sin(Math.PI / 3) * 260, 100),
+      boulder(4600 - 260, 1500, 100),
+      boulder(4600 + Math.cos(-Math.PI / 3) * 260, 1500 + Math.sin(-Math.PI / 3) * 260, 100),
       // Mesas and boulders on the canyon floor.
       wall(1400, 1020, 280, 240, 'rock'),
       wall(2300, 1720, 320, 260, 'rock'),

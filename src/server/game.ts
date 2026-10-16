@@ -51,6 +51,7 @@ import {
   BOSS_CHARGE,
   BOSS_ENRAGE_AT,
   BOSS_ENRAGE_SPEEDUP,
+  BOSS_MECHANICS,
   BOSS_MISSIONS,
   BOSS_NOVA,
   BOSS_POWER,
@@ -257,6 +258,8 @@ const ELIXIR = { duration: 8, heal: 0.3, damage: 1.25, cooldown: 0.8, speed: 1.2
 const WRATH = { duration: 8, interval: 0.3, range: 420, radius: 70, damage: 70, perLevel: 5, reduction: 0.5 };
 /** Divine Intervention: everyone up, healed to full and untouchable for a moment. */
 const INTERVENTION = { invuln: 3 };
+/** The flash of a boss's cone attack landing. */
+const DANGER_FX = 0xff5252;
 /**
  * While the lava closes in, the horde is thinned to fit: room for `full` enemies at the full rim, shrinking with the
  * area (but never below `min` plus `perPlayer` each). At most `perTick` burn up per tick, farthest from the team first.
@@ -477,6 +480,18 @@ interface Enemy {
   missionTarget: boolean;
   /** Champions: their affix (see Affix), else Affix.None. */
   affix: number;
+  /** Kharzak: dug in (hidden and untargetable) until its burrow mark lands. */
+  burrowed: boolean;
+  /** Kharzak: its shell is up, shrugging off most damage. */
+  shell: boolean;
+  /** Takes extra damage until this time (a cracked shell). */
+  exposedUntil: number;
+  /** A twin close to its sibling: shrugs off damage. */
+  linked: boolean;
+  /** Stands still (casting or winding up a cone) until this time. */
+  channelUntil: number;
+  /** Grimjaw's carrion: crawls to him and heals him if it gets there. */
+  feeder: boolean;
 }
 
 /** A boss side mission in progress; the bosses are shielded until it's done. */
@@ -524,9 +539,15 @@ interface EnemyShot {
   damage: number;
   life: number;
   dead: boolean;
+  /** Homing shots (Embra's orbs) turn toward this player, at most `turn` radians a second. */
+  target: Player | null;
+  turn: number;
 }
 
-/** A telegraphed attack. Circles explode when the timer runs out; lines just show a charge's path. */
+/**
+ * A telegraphed attack (see HazardKind). Most go off when `t` reaches `duration`; lines just show a charge's path,
+ * pools linger, rings roll outward, and the twins' tether lasts as long as they both live.
+ */
 interface Hazard {
   id: number;
   kind: number;
@@ -544,6 +565,15 @@ interface Hazard {
   /** Thrown by a bombardier (they share a limit on bombs at once). */
   lob: boolean;
   dead: boolean;
+  /** Marks and meteors: the player it follows (0: none), for its first `follow` seconds. */
+  target: number;
+  follow: number;
+  /** Pools: how long they burn once armed. */
+  linger: number;
+  /** Rings: players already hit. */
+  hit: Set<number> | null;
+  /** The boss behind it: Kharzak surfaces where his burrow mark lands. */
+  owner: Enemy | null;
 }
 
 interface Gem {
@@ -690,6 +720,10 @@ export class Game {
   /** How many of BOSS_MISSIONS.at have been triggered. */
   private missionsStarted = 0;
   private lastMission: MissionKind | null = null;
+  /** The twins' burning tether, while they both live. */
+  private tether: Hazard | null = null;
+  /** Mechanics explained once per fight (by key), so the banner isn't repeated. */
+  private hinted = new Set<string>();
 
   private readonly profiles: Record<string, Profile>;
 
@@ -1444,7 +1478,8 @@ export class Game {
 
   private rebuildGrid(): void {
     this.grid.clear();
-    for (const e of this.enemies) this.grid.insert(e);
+    // A burrowed boss can't be hit or touched.
+    for (const e of this.enemies) if (!e.burrowed) this.grid.insert(e);
   }
 
   private spawnEnemies(dt: number, alive: Player[]): void {
@@ -1602,6 +1637,12 @@ export class Game {
       vengeful: false,
       missionTarget: false,
       affix: Affix.None,
+      burrowed: false,
+      shell: false,
+      exposedUntil: 0,
+      linked: false,
+      channelUntil: 0,
+      feeder: false,
     };
     this.enemies.push(enemy);
     return enemy;
@@ -1727,6 +1768,8 @@ export class Game {
       );
       for (const e of this.enemies) if (!stay.has(e)) e.dead = true;
     }
+    this.tether = null;
+    this.hinted.clear();
     const types = this.map.twin !== undefined ? [type, this.map.twin] : [type];
     this.bosses = types.map((t, i) => {
       const offset = types.length > 1 ? (i === 0 ? -160 : 160) : 0;
@@ -1747,6 +1790,7 @@ export class Game {
   /** The berserk clock and side missions. */
   private updateBossFight(dt: number, alive: Player[]): void {
     this.fightTime += dt;
+    if (this.bosses.length === 2) this.updateTwins(dt, alive);
     const stacks = Math.max(0, Math.floor((this.fightTime - BOSS_BERSERK.after) / BOSS_BERSERK.every) + 1);
     if (stacks > this.berserk) {
       this.berserk = stacks;
@@ -1778,8 +1822,15 @@ export class Game {
   }
 
   private startMission(alive: Player[]): void {
-    // Never the same mission twice in a row.
-    const kind = pick(MISSION_KINDS.filter((k) => k !== this.lastMission));
+    // Each boss has its own: a side mission, or Kharzak's shell.
+    const lead = this.bosses.find((b) => !b.dead) ?? this.bosses[0];
+    const phase = NAMED_BOSSES[lead.type]?.phase ?? pick(MISSION_KINDS);
+    if (phase === 'shell') {
+      for (const b of this.bosses) if (!b.dead) b.shell = true;
+      this.banner(`${ENEMY_TYPES[lead.type].name} hardens its shell! Bait its charge into a boulder to crack it!`, 'danger');
+      return;
+    }
+    const kind = phase;
     this.lastMission = kind;
     // Around the arena, or the first living boss out in the open.
     const center = this.map.arena ?? this.map.lava ?? this.bosses.find((b) => !b.dead)!;
@@ -1906,6 +1957,8 @@ export class Game {
   }
 
   private namedBossStep(e: Enemy, alive: Player[], ux: number, uy: number, px: number, py: number, d: number, dt: number, speed: number): [number, number] {
+    // Holding still while it casts or winds up a cone.
+    if (e.channelUntil > this.time) return [0, 0];
     if (e.mode !== Mode.Normal) return this.chargeStep(e, dt, BOSS_CHARGE);
     if (!e.enraged && e.hp < e.maxHp * BOSS_ENRAGE_AT) {
       e.enraged = true;
@@ -1919,7 +1972,11 @@ export class Game {
     if (e.attackTimer > 0) return move;
 
     const mods = this.bossMods(e);
-    const attack = def.attacks[e.attackIndex++ % def.attacks.length];
+    let attack = def.attacks[e.attackIndex++ % def.attacks.length];
+    // Shelled, Kharzak keeps charging (so it can be baited into a rock), with a sting in between.
+    if (e.shell) attack = e.attackIndex % 2 ? 'charge' : 'sting';
+    const M = BOSS_MECHANICS;
+    const scale = this.damageScale(e);
     e.attackTimer = (def.cooldown * (e.enraged ? BOSS_ENRAGE_SPEEDUP : 1)) / mods.haste;
     switch (attack) {
       case 'barrage':
@@ -1959,6 +2016,100 @@ export class Game {
           this.addHazard(HazardKind.Circle, x, y, BOSS_STING.radius * mods.area, 0, 0, delay, BOSS_STING.damage * this.damageScale(e));
         }
         break;
+      case 'pools':
+        // Venom at everyone's feet.
+        for (const p of alive) {
+          const pool = this.addHazard(HazardKind.Pool, p.x, p.y, M.pools.radius * mods.area, 0, 0, M.pools.delay, M.pools.dps * scale);
+          pool.linger = M.pools.life;
+        }
+        break;
+      case 'mark':
+        this.hint('mark', 'A mark follows one of you: move away from the others!');
+        this.addMark(pick(alive), M.mark.radius * mods.area, M.mark.follow, M.mark.follow + M.mark.delay, M.mark.damage * scale);
+        break;
+      case 'frostbomb':
+        this.hint('frostbomb', 'Frost Bomb! Whoever carries it: get away from your friends!');
+        this.addMark(pick(alive), M.frostbomb.radius * mods.area, M.frostbomb.fuse, M.frostbomb.fuse, M.frostbomb.damage * scale);
+        break;
+      case 'eggs': {
+        this.hint('eggs', 'Sylvara lays her eggs: break them before they hatch!');
+        const center = this.map.arena ?? e;
+        const scaleUp = 1 + 0.5 * (this.players.size - 1);
+        const hp = ENEMY_TYPES[EnemyType.Egg].hp * hordeScaling(1).hp * this.map.difficulty * scaleUp;
+        const offset = Math.random() * Math.PI * 2;
+        for (let i = 0; i < M.eggs.count; i++) {
+          const spot = this.missionSpot(center, offset + (i / M.eggs.count) * Math.PI * 2, M.eggs.distance, ENEMY_TYPES[EnemyType.Egg].radius);
+          this.addEnemy(EnemyType.Egg, spot.x, spot.y, hp).attackTimer = M.eggs.hatch;
+        }
+        break;
+      }
+      case 'cleave':
+        this.addCone(e, ux, uy, M.cleave, scale, mods.area);
+        return [0, 0];
+      case 'breath':
+        this.addCone(e, ux, uy, M.breath, scale, mods.area);
+        return [0, 0];
+      case 'sweep':
+        this.addCone(e, ux, uy, M.sweep, scale, mods.area);
+        return [0, 0];
+      case 'shockwave': {
+        this.hint('shockwave', 'Shockwave! Dodge through the ring, or be out of its reach.');
+        const ring = this.addHazard(HazardKind.Ring, e.x, e.y, 0, M.shockwave.width * mods.area, M.shockwave.range * mods.area, M.shockwave.windup, M.shockwave.damage * scale);
+        ring.hit = new Set();
+        e.channelUntil = this.time + M.shockwave.windup;
+        return [0, 0];
+      }
+      case 'feeders': {
+        // Carrion crawl in from the edge of the arena.
+        this.hint('feeders', `Carrion! Kill them before they reach ${ENEMY_TYPES[e.type].name} and heal him.`);
+        const center = this.map.arena;
+        const reach = center ? arenaReach(center) - 50 : 500;
+        const from = center ?? e;
+        for (let i = 0; i < M.feeders.count; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const spot = pushOut(this.walls, from.x + Math.cos(a) * reach, from.y + Math.sin(a) * reach, ENEMY_TYPES[EnemyType.Runner].radius);
+          this.addEnemy(EnemyType.Runner, spot.x, spot.y, this.enemyHp(EnemyType.Runner) * M.feeders.hp).feeder = true;
+        }
+        break;
+      }
+      case 'glacial': {
+        // Everyone she can see when the cast ends gets blasted.
+        this.banner(`${ENEMY_TYPES[e.type].name} begins Glacial Wrath! Hide behind a column!`, 'danger');
+        const cast = this.addHazard(HazardKind.Glacial, e.x, e.y, 0, 0, 0, M.glacial.channel, M.glacial.damage);
+        cast.owner = e;
+        e.channelUntil = this.time + M.glacial.channel;
+        return [0, 0];
+      }
+      case 'burrow': {
+        // Underground, a mark hunts someone; it bursts out where the mark lands.
+        this.hint('burrow', `${ENEMY_TYPES[e.type].name} burrows! Keep moving, it's coming up under one of you.`);
+        const mark = this.addMark(pick(alive), M.burrow.radius * mods.area, M.burrow.hunt, M.burrow.hunt + M.burrow.delay, M.burrow.damage * scale);
+        mark.owner = e;
+        e.burrowed = true;
+        this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: 120, c: 0x8d6e63, snd: 'slam' });
+        return [0, 0];
+      }
+      case 'meteor': {
+        this.hint('meteor', 'Meteor! Stack up inside the circle to share the hit.');
+        const target = pick(alive);
+        const meteor = this.addHazard(HazardKind.Share, target.x, target.y, M.meteor.radius * mods.area, 0, 0, M.meteor.delay, M.meteor.damage * scale);
+        meteor.target = target.id;
+        meteor.follow = M.meteor.follow;
+        break;
+      }
+      case 'orbs': {
+        // Slow orbs that curve after whoever's closest.
+        const target = alive.reduce((a, b) => (dist2(a.x, a.y, e.x, e.y) < dist2(b.x, b.y, e.x, e.y) ? a : b));
+        const aim = Math.atan2(uy, ux);
+        const count = M.orbs.count + (e.enraged ? 1 : 0);
+        for (let i = 0; i < count; i++) {
+          this.addEnemyShot(e.x, e.y, aim + (i - (count - 1) / 2) * 0.7, M.orbs.speed, M.orbs.damage * scale, M.orbs.life);
+          const orb = this.enemyShots[this.enemyShots.length - 1];
+          orb.target = target;
+          orb.turn = M.orbs.turn;
+        }
+        break;
+      }
       case 'summon':
         // Don't pile on: skip the summon while the fight is already crowded.
         if (this.enemies.filter((m) => !m.dead && !this.bosses.includes(m) && !m.missionTarget).length >= BOSS_SUMMON.maxMinions) break;
@@ -1971,6 +2122,104 @@ export class Game {
         break;
     }
     return move;
+  }
+
+  /** Explains a mechanic the first time it shows up in a fight. */
+  private hint(key: string, text: string): void {
+    if (this.hinted.has(key)) return;
+    this.hinted.add(key);
+    this.banner(text, 'danger');
+  }
+
+  /** A circle that follows a player for `follow` seconds and goes off on everyone in it after `duration`. */
+  private addMark(p: Player, radius: number, follow: number, duration: number, damage: number): Hazard {
+    const mark = this.addHazard(HazardKind.Mark, p.x, p.y, radius, p.id, 0, duration, damage);
+    mark.target = p.id;
+    mark.follow = follow;
+    return mark;
+  }
+
+  /** A telegraphed cone in front of the boss, which holds still until it lands. */
+  private addCone(e: Enemy, ux: number, uy: number, cfg: { length: number; half: number; windup: number; damage: number }, scale: number, area: number): void {
+    this.addHazard(HazardKind.Cone, e.x, e.y, Math.atan2(uy, ux), cfg.length * area, Math.round(Math.min(Math.PI, cfg.half * area) * 100), cfg.windup, cfg.damage * scale);
+    e.channelUntil = this.time + cfg.windup;
+  }
+
+  /** Is there a thick wall between two points? (Rime can't see you behind a column.) */
+  private lineBlocked(x1: number, y1: number, x2: number, y2: number): boolean {
+    const steps = Math.ceil(Math.hypot(x2 - x1, y2 - y1) / 10);
+    for (let i = 1; i < steps; i++) {
+      if (blocksShot(this.walls, x1 + ((x2 - x1) * i) / steps, y1 + ((y2 - y1) * i) / steps)) return true;
+    }
+    return false;
+  }
+
+  /** An egg hatches into a few runners. */
+  private hatch(egg: Enemy): void {
+    egg.dead = true;
+    for (let i = 0; i < BOSS_MECHANICS.eggs.hatchlings; i++) {
+      const a = (i / BOSS_MECHANICS.eggs.hatchlings) * Math.PI * 2;
+      const spot = pushOut(this.walls, egg.x + Math.cos(a) * 30, egg.y + Math.sin(a) * 30, ENEMY_TYPES[EnemyType.Runner].radius);
+      this.addEnemy(EnemyType.Runner, spot.x, spot.y, this.enemyHp(EnemyType.Runner));
+    }
+    this.fx.push({ k: 'ring', x: Math.round(egg.x), y: Math.round(egg.y), r: 70, c: 0x9ccc65, snd: 'pop' });
+  }
+
+  /** A carrion reaching Grimjaw is eaten, healing him. True if it got there. */
+  private feed(e: Enemy, boss: Enemy): boolean {
+    if (dist2(e.x, e.y, boss.x, boss.y) > (ENEMY_TYPES[e.type].radius + ENEMY_TYPES[boss.type].radius + 4) ** 2) return false;
+    e.dead = true;
+    boss.hp = Math.min(boss.maxHp, boss.hp + boss.maxHp * BOSS_MECHANICS.feeders.heal);
+    this.fx.push({ k: 'ring', x: Math.round(boss.x), y: Math.round(boss.y), r: 110, c: 0x66bb6a, snd: 'pop' });
+    this.log(`${ENEMY_TYPES[boss.type].name} feeds and heals`, 'danger');
+    return true;
+  }
+
+  /** Kharzak's charge hit a rock: the shell cracks, it's stunned, and takes extra damage for a while. */
+  private crackShell(e: Enemy): void {
+    const cfg = BOSS_MECHANICS.shell;
+    e.shell = false;
+    e.mode = Mode.Normal;
+    e.attackTimer = cfg.stun + 1;
+    e.stunUntil = this.time + cfg.stun;
+    e.exposedUntil = this.time + cfg.stun + cfg.exposed;
+    this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: 220, c: 0xffd54f, snd: 'slam' });
+    this.banner(`${ENEMY_TYPES[e.type].name}'s shell cracks! Hit it while it's exposed!`, 'good');
+  }
+
+  /**
+   * The twins: a burning tether between them hurts anyone standing in it, and while they're close they're kindred,
+   * shrugging off damage.
+   */
+  private updateTwins(dt: number, alive: Player[]): void {
+    for (const b of this.bosses) b.linked = false;
+    const [a, b] = this.bosses;
+    if (a.dead || b.dead || a.burrowed || b.burrowed) {
+      if (this.tether) this.tether.dead = true;
+      this.tether = null;
+      return;
+    }
+    const cfg = BOSS_MECHANICS;
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (length < cfg.kindred.range) {
+      a.linked = b.linked = true;
+      this.hint('kindred', 'The twins shield each other while close: pull them apart!');
+    }
+    if (!this.tether || this.tether.dead) this.tether = this.addHazard(HazardKind.Beam, a.x, a.y, 0, 0, cfg.tether.width, 1, 0);
+    const tether = this.tether;
+    tether.x = a.x;
+    tether.y = a.y;
+    tether.a = Math.atan2(b.y - a.y, b.x - a.x);
+    tether.b = length;
+    tether.t = 1;
+    const damage = cfg.tether.dps * this.damageScale(a) * dt;
+    for (const p of alive) {
+      // Distance from the player to the tether's segment.
+      const t = length > 0 ? clamp(((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / (length * length), 0, 1) : 0;
+      const cx = a.x + (b.x - a.x) * t;
+      const cy = a.y + (b.y - a.y) * t;
+      if (dist2(p.x, p.y, cx, cy) < (cfg.tether.width / 2 + PLAYER_RADIUS) ** 2) this.hurtPlayer(p, damage, true);
+    }
   }
 
   // --- Upgrade points ---
@@ -2115,9 +2364,23 @@ export class Game {
     for (const e of this.enemies) {
       if (this.isStunned(e)) continue;
       const def = ENEMY_TYPES[e.type];
-      if (def.behavior === 'ward') continue; // Rooted to the spot.
+      if (def.behavior === 'ward' || e.burrowed) continue; // Rooted to the spot, or underground.
+      if (def.behavior === 'egg') {
+        e.attackTimer -= dt;
+        if (e.attackTimer <= 0) this.hatch(e);
+        continue;
+      }
       // The horde gets faster toward the end (bosses and the thief keep their pace).
       const speed = def.behavior === 'named' || def.behavior === 'flee' ? def.speed : def.speed * hordeSpeed * (e.affix === Affix.Hasted ? AFFIX_TUNING.hasteSpeed : 1);
+      // Carrion ignore everyone and crawl straight to Grimjaw.
+      if (e.feeder) {
+        const boss = this.bosses.find((b) => !b.dead && !b.burrowed);
+        if (boss && !this.feed(e, boss)) {
+          const d = Math.hypot(boss.x - e.x, boss.y - e.y) || 1;
+          this.moveEnemy(e, ((boss.x - e.x) / d) * speed * dt, ((boss.y - e.y) / d) * speed * dt);
+        }
+        continue;
+      }
 
       // Everyone targets the nearest living player, unless taunted by a War Cry.
       let target: Player | null = null;
@@ -2137,11 +2400,13 @@ export class Game {
       }
       let vx = 0;
       let vy = 0;
-      if (target && best > 1) {
-        const d = Math.sqrt(best);
+      if (target) {
+        // Right on top of the target (it stood still and got caught): keep acting, facing the way it last went.
+        const close = best <= 1;
+        const d = close ? 1 : Math.sqrt(best);
         // Straight at the target (for aiming), and along the flow field around walls (for walking).
-        const ux = (target.x - e.x) / d;
-        const uy = (target.y - e.y) / d;
+        const ux = close ? e.dirX || 1 : (target.x - e.x) / d;
+        const uy = close ? e.dirY : (target.y - e.y) / d;
         // (The flow field leads to the nearest player, so taunted enemies head straight for their taunter.)
         const path = def.flying || taunter ? null : this.flow.direction(e.x, e.y);
         const px = path?.x ?? ux;
@@ -2204,7 +2469,13 @@ export class Game {
         }
       }
 
-      this.moveEnemy(e, (vx + sx * SEPARATION_SPEED) * dt, (vy + sy * SEPARATION_SPEED) * dt);
+      const fromX = e.x;
+      const fromY = e.y;
+      const stepX = (vx + sx * SEPARATION_SPEED) * dt;
+      const stepY = (vy + sy * SEPARATION_SPEED) * dt;
+      this.moveEnemy(e, stepX, stepY);
+      // A shelled Kharzak charging into a rock cracks its shell.
+      if (e.shell && e.mode === Mode.Charge && Math.hypot(e.x - fromX, e.y - fromY) < Math.hypot(stepX, stepY) * 0.5) this.crackShell(e);
       if (arena) this.keepInArena(e, def.radius);
       if (e.hazard) {
         e.hazard.x = e.x;
@@ -2287,7 +2558,7 @@ export class Game {
   }
 
   private addEnemyShot(x: number, y: number, angle: number, speed: number, damage: number, life: number): void {
-    this.enemyShots.push({ id: this.nextId++, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, damage, life, dead: false });
+    this.enemyShots.push({ id: this.nextId++, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, damage, life, dead: false, target: null, turn: 0 });
   }
 
   private spit(e: Enemy, ux: number, uy: number, d: number, dt: number): void {
@@ -2359,7 +2630,7 @@ export class Game {
   }
 
   private addHazard(kind: number, x: number, y: number, a: number, b: number, c: number, duration: number, damage: number): Hazard {
-    const hazard: Hazard = { id: this.nextId++, kind, x, y, a, b, c, t: 0, duration, damage, lob: false, dead: false };
+    const hazard: Hazard = { id: this.nextId++, kind, x, y, a, b, c, t: 0, duration, damage, lob: false, dead: false, target: 0, follow: 0, linger: 0, hit: null, owner: null };
     this.hazards.push(hazard);
     return hazard;
   }
@@ -2367,7 +2638,20 @@ export class Game {
   private updateHazards(dt: number): void {
     for (const h of this.hazards) {
       if (h.dead) continue;
+      if (h.kind === HazardKind.Beam) continue; // The twins' tether (see updateTwins).
       h.t += dt;
+      // Marks and meteors follow their player for a while, then stay put.
+      if (h.target && h.t < h.follow) {
+        const p = this.players.get(h.target);
+        if (p && !p.downed) {
+          h.x = p.x;
+          h.y = p.y;
+        }
+      }
+      if (h.kind >= HazardKind.Cone) {
+        this.updateBossHazard(h, dt);
+        continue;
+      }
       if (h.kind === HazardKind.Circle && h.t >= h.duration) {
         h.dead = true;
         for (const p of this.players.values()) {
@@ -2381,8 +2665,91 @@ export class Game {
     this.hazards = this.hazards.filter((h) => !h.dead);
   }
 
+  /** The bosses' own telegraphs (see HazardKind). */
+  private updateBossHazard(h: Hazard, dt: number): void {
+    const M = BOSS_MECHANICS;
+    const standing = [...this.players.values()].filter((p) => !p.downed);
+    switch (h.kind) {
+      case HazardKind.Cone: {
+        if (h.t < h.duration) return;
+        h.dead = true;
+        const half = h.c / 100;
+        for (const p of standing) {
+          const d = Math.hypot(p.x - h.x, p.y - h.y);
+          if (d > h.b + PLAYER_RADIUS) continue;
+          const off = Math.abs(Math.atan2(Math.sin(Math.atan2(p.y - h.y, p.x - h.x) - h.a), Math.cos(Math.atan2(p.y - h.y, p.x - h.x) - h.a)));
+          if (d < PLAYER_RADIUS * 2 || off <= half + PLAYER_RADIUS / Math.max(d, 1)) this.hurtPlayer(p, h.damage);
+        }
+        this.fx.push({ k: 'slash', x: Math.round(h.x), y: Math.round(h.y), r: Math.round(h.b), a: round2(h.a), arc: round2(half * 2), c: DANGER_FX });
+        return;
+      }
+      case HazardKind.Ring: {
+        if (h.t < h.duration) return;
+        h.a = (h.t - h.duration) * M.shockwave.speed;
+        if (h.a > h.c) {
+          h.dead = true;
+          return;
+        }
+        for (const p of standing) {
+          if (h.hit!.has(p.id)) continue;
+          if (Math.abs(Math.hypot(p.x - h.x, p.y - h.y) - h.a) < h.b / 2 + PLAYER_RADIUS && this.hurtPlayer(p, h.damage)) h.hit!.add(p.id);
+        }
+        return;
+      }
+      case HazardKind.Pool:
+        h.b = h.t >= h.duration ? 1 : 0;
+        if (h.t >= h.duration + h.linger) h.dead = true;
+        else if (h.b) for (const p of standing) if (dist2(p.x, p.y, h.x, h.y) < (h.a + PLAYER_RADIUS * 0.5) ** 2) this.hurtPlayer(p, h.damage * dt, true);
+        return;
+      case HazardKind.Share: {
+        if (h.t < h.duration) return;
+        h.dead = true;
+        // Split between everyone inside: stack up to survive it.
+        const inside = standing.filter((p) => dist2(p.x, p.y, h.x, h.y) < (h.a + PLAYER_RADIUS * 0.5) ** 2);
+        for (const p of inside) this.hurtPlayer(p, h.damage / inside.length);
+        this.fx.push({ k: 'boom', x: Math.round(h.x), y: Math.round(h.y), r: h.a });
+        return;
+      }
+      case HazardKind.Mark: {
+        if (h.t < h.duration) return;
+        h.dead = true;
+        for (const p of standing) if (dist2(p.x, p.y, h.x, h.y) < (h.a + PLAYER_RADIUS * 0.5) ** 2) this.hurtPlayer(p, h.damage);
+        this.fx.push({ k: 'boom', x: Math.round(h.x), y: Math.round(h.y), r: h.a });
+        // Kharzak bursts out of the ground here.
+        const boss = h.owner;
+        if (boss && !boss.dead) {
+          boss.burrowed = false;
+          ({ x: boss.x, y: boss.y } = pushOut(this.walls, h.x, h.y, ENEMY_TYPES[boss.type].radius));
+          if (this.map.arena) this.keepInArena(boss, ENEMY_TYPES[boss.type].radius);
+          boss.attackTimer = 1.5;
+        }
+        return;
+      }
+      case HazardKind.Glacial: {
+        if (h.t < h.duration) return;
+        h.dead = true;
+        // Everyone in her line of sight takes a big share of their health.
+        for (const p of standing) {
+          if (!this.lineBlocked(h.x, h.y, p.x, p.y)) this.hurtPlayer(p, this.stats(p).maxHp * h.damage, true);
+        }
+        this.fx.push({ k: 'ring', x: Math.round(h.x), y: Math.round(h.y), r: 900, c: 0x80deea, snd: 'slam' });
+        return;
+      }
+    }
+  }
+
   private updateEnemyShots(dt: number): void {
     for (const s of this.enemyShots) {
+      // Homing orbs curve toward their target.
+      if (s.target && !s.target.downed && s.turn > 0) {
+        const heading = Math.atan2(s.vy, s.vx);
+        const want = Math.atan2(s.target.y - s.y, s.target.x - s.x);
+        const diff = Math.atan2(Math.sin(want - heading), Math.cos(want - heading));
+        const turned = heading + clamp(diff, -s.turn * dt, s.turn * dt);
+        const speed = Math.hypot(s.vx, s.vy);
+        s.vx = Math.cos(turned) * speed;
+        s.vy = Math.sin(turned) * speed;
+      }
       s.x += s.vx * dt;
       s.y += s.vy * dt;
       s.life -= dt;
@@ -3093,6 +3460,11 @@ export class Game {
     if (e.dead) return;
     // Shielded during a side mission.
     if (this.mission && this.bosses.includes(e)) return;
+    // Boss mechanics: dug in, shelled, cracked open, or shielded by its twin.
+    if (e.burrowed) return;
+    if (e.shell) amount *= 1 - BOSS_MECHANICS.shell.reduction;
+    if (e.exposedUntil > this.time) amount *= 1 + BOSS_MECHANICS.shell.exposedBonus;
+    if (e.linked) amount *= 1 - BOSS_MECHANICS.kindred.reduction;
     amount *= 1 - this.resistance(e, type);
     if (by) {
       const stats = this.stats(by);
@@ -3931,7 +4303,11 @@ export class Game {
         (e.mode === Mode.Windup ? EnemyFlag.WindingUp : 0) |
         (this.isStunned(e) ? EnemyFlag.Stunned : 0) |
         (this.mission && this.bosses.includes(e) && !e.dead ? EnemyFlag.Shielded : 0) |
-        (e.missionTarget ? EnemyFlag.Marked : 0) |
+        (e.missionTarget || e.feeder || e.type === EnemyType.Egg ? EnemyFlag.Marked : 0) |
+        (e.burrowed ? EnemyFlag.Hidden : 0) |
+        (e.shell ? EnemyFlag.Shelled : 0) |
+        (e.exposedUntil > this.time ? EnemyFlag.Exposed : 0) |
+        (e.linked ? EnemyFlag.Linked : 0) |
         (e.affix << AFFIX_SHIFT);
       enemies.push(e.id, e.type, Math.round(e.x), Math.round(e.y), flags);
     }
@@ -3982,14 +4358,23 @@ export class Game {
                 maxHp: Math.ceil(b.maxHp),
                 enraged: b.enraged,
                 vengeful: b.vengeful,
+                tags: [
+                  b.shell ? 'shelled' : '',
+                  b.exposedUntil > this.time ? 'exposed' : '',
+                  b.burrowed ? 'burrowed' : '',
+                  b.linked ? 'kindred' : '',
+                ].filter(Boolean),
               })),
+              // Health bars for what the team should kill: mission targets, eggs, carrion.
+              targets: this.enemies
+                .filter((e) => !e.dead && (e.missionTarget || e.feeder || e.type === EnemyType.Egg))
+                .flatMap((e) => [e.id, round2(Math.max(0, e.hp) / e.maxHp)]),
               berserkIn: round1(Math.max(0, BOSS_BERSERK.after - this.fightTime)),
               berserk: this.berserk,
               mission: this.mission && {
                 kind: this.mission.kind,
                 done: this.missionDone(this.mission),
                 total: this.mission.total,
-                hp: this.enemies.filter((e) => e.missionTarget && !e.dead).flatMap((e) => [e.id, round2(Math.max(0, e.hp) / e.maxHp)]),
               },
             }
           : null,

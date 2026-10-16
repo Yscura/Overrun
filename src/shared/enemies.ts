@@ -1,4 +1,4 @@
-export type Behavior = 'chase' | 'ranged' | 'lobber' | 'charger' | 'boss' | 'flee' | 'named' | 'ward';
+export type Behavior = 'chase' | 'ranged' | 'lobber' | 'charger' | 'boss' | 'flee' | 'named' | 'ward' | 'egg';
 
 export interface EnemyDef {
   name: string;
@@ -53,6 +53,8 @@ export const ENEMY_TYPES: EnemyDef[] = [
   // More named final bosses (after the Ward, so the ids above don't change).
   { name: 'Sylvara', radius: 58, speed: 90, hp: 22000, damage: 35, xp: 0, color: 0x66bb6a, behavior: 'named', spawnAfter: 0, weight: 0, elite: true },
   { name: 'Kharzak', radius: 62, speed: 85, hp: 34000, damage: 48, xp: 0, color: 0xd4a056, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, armor: 0.35 },
+  // Laid by Sylvara: hatches into a few runners unless it's broken first.
+  { name: 'Serpent Egg', radius: 20, speed: 0, hp: 120, damage: 0, xp: 0, color: 0xc5e1a5, behavior: 'egg', spawnAfter: 0, weight: 0, elite: true },
 ];
 
 export const EnemyType = {
@@ -72,6 +74,7 @@ export const EnemyType = {
   Ward: 13,
   Sylvara: 14,
   Kharzak: 15,
+  Egg: 16,
 } as const;
 
 export const MAX_ENEMY_RADIUS = Math.max(...ENEMY_TYPES.map((e) => e.radius));
@@ -126,7 +129,33 @@ export const BOSS_ATTACK = { cooldown: 5, radius: 95, delay: 1.4, damage: 35 };
 
 // --- Named bosses ---
 
-export type BossAttack = 'barrage' | 'nova' | 'charge' | 'summon' | 'spit' | 'sting';
+/**
+ * What a named boss can do. The first few are shared; the rest belong to one boss each (see BOSS_MECHANICS).
+ * barrage: bomb circles on everyone. nova: a ring of bullets. charge: a telegraphed dash. summon: minions.
+ */
+export type BossAttack =
+  | 'barrage'
+  | 'nova'
+  | 'charge'
+  | 'summon'
+  | 'spit'
+  | 'sting'
+  | 'pools'
+  | 'mark'
+  | 'eggs'
+  | 'cleave'
+  | 'shockwave'
+  | 'feeders'
+  | 'glacial'
+  | 'frostbomb'
+  | 'breath'
+  | 'burrow'
+  | 'sweep'
+  | 'meteor'
+  | 'orbs';
+
+/** What happens when a boss drops below each BOSS_MISSIONS.at share: a side mission, or Kharzak's shell. */
+export type BossPhase = MissionKind | 'shell';
 
 export interface NamedBossDef {
   title: string;
@@ -137,32 +166,102 @@ export interface NamedBossDef {
   minions: number[];
   /** Casters: keep about this far from their target instead of closing in. */
   keepAway?: number;
+  /** What it does at 66% and 33% health. */
+  phase: BossPhase;
 }
 
 export const NAMED_BOSSES: Record<number, NamedBossDef> = {
-  [EnemyType.Sylvara]: { title: 'the Glade Serpent', attacks: ['spit', 'charge', 'spit', 'summon'], cooldown: 3.6, minions: [EnemyType.Grunt, EnemyType.Runner] },
-  [EnemyType.Grimjaw]: { title: 'the Ruin Beast', attacks: ['charge', 'barrage', 'charge', 'summon'], cooldown: 3.5, minions: [EnemyType.Grunt, EnemyType.Runner] },
-  [EnemyType.Rime]: { title: 'Queen of the Frozen Fortress', attacks: ['nova', 'barrage', 'nova', 'summon'], cooldown: 3.2, minions: [EnemyType.Wraith, EnemyType.Spitter] },
+  // The first boss teaches the basics: dodge a fan of shots, stay out of pools, spread out from a mark, break eggs.
+  [EnemyType.Sylvara]: {
+    title: 'the Glade Serpent',
+    attacks: ['spit', 'pools', 'charge', 'mark', 'spit', 'eggs'],
+    cooldown: 3.4,
+    minions: [EnemyType.Grunt, EnemyType.Runner],
+    phase: 'wards',
+  },
+  // Get behind him, dodge through his shockwaves, and don't let the carrion reach him.
+  [EnemyType.Grimjaw]: {
+    title: 'the Ruin Beast',
+    attacks: ['cleave', 'shockwave', 'charge', 'feeders', 'cleave', 'barrage'],
+    cooldown: 3.3,
+    minions: [EnemyType.Grunt, EnemyType.Runner],
+    phase: 'brood',
+  },
+  // Hide behind a column from Glacial Wrath, and carry a Frost Bomb away from your friends.
+  [EnemyType.Rime]: {
+    title: 'Queen of the Frozen Fortress',
+    attacks: ['frostbomb', 'breath', 'nova', 'glacial', 'breath', 'summon'],
+    cooldown: 3.2,
+    minions: [EnemyType.Wraith, EnemyType.Spitter],
+    phase: 'sigils',
+  },
+  // The twins share a burning tether and shrug off damage when close: pull them apart. Stack for meteors.
   [EnemyType.AshlordVael]: {
     title: 'Lord of the Caldera',
-    attacks: ['charge', 'nova', 'barrage', 'summon', 'nova'],
-    cooldown: 3,
+    attacks: ['meteor', 'charge', 'barrage', 'summon'],
+    cooldown: 3.4,
     minions: [EnemyType.Charger, EnemyType.Runner],
+    phase: 'wards',
   },
   // Fights alongside the Ashlord, from a distance.
   [EnemyType.Embra]: {
     title: 'the Cinder Witch',
-    attacks: ['barrage', 'nova', 'barrage', 'summon'],
-    cooldown: 3.4,
+    attacks: ['orbs', 'nova', 'orbs', 'summon'],
+    cooldown: 3.6,
     minions: [EnemyType.Wraith, EnemyType.Spitter],
     keepAway: 320,
+    phase: 'wards',
   },
+  // Burrows after you, sweeps with its pincers, and hardens its shell: bait its charge into a boulder to crack it.
   [EnemyType.Kharzak]: {
     title: 'Tyrant of the Canyon',
-    attacks: ['charge', 'sting', 'barrage', 'sting', 'summon'],
+    attacks: ['charge', 'sting', 'burrow', 'sweep', 'sting', 'summon'],
     cooldown: 3.2,
     minions: [EnemyType.Charger, EnemyType.Runner],
+    phase: 'shell',
   },
+};
+
+/**
+ * Tuning for each boss's own mechanics. Damage is before the boss's damage scaling (like BOSS_ATTACK), except
+ * Glacial Wrath, which takes a share of your max HP.
+ */
+export const BOSS_MECHANICS = {
+  /** Sylvara: venom pools at everyone's feet that arm after `delay` and burn for `life` seconds. */
+  pools: { radius: 85, delay: 0.9, life: 6, dps: 14 },
+  /** Sylvara: a circle that follows one player for `follow` seconds, then lands `delay` later. */
+  mark: { radius: 115, follow: 2.2, delay: 0.7, damage: 36 },
+  /** Sylvara: eggs around the glade that hatch into `hatchlings` runners after `hatch` seconds. */
+  eggs: { count: 4, hatch: 8, hatchlings: 3, distance: 300 },
+  /** Grimjaw: a wide bite in front of him. */
+  cleave: { length: 300, half: 0.8, windup: 1.1, damage: 55 },
+  /** Grimjaw: a ring that rolls out from him; dodge through it or be out of reach. */
+  shockwave: { windup: 0.8, speed: 340, width: 46, range: 760, damage: 34 },
+  /** Grimjaw: carrion crawl in from the arena's edge; each one that reaches him heals him by `heal`. */
+  feeders: { count: 4, heal: 0.04, hp: 5 },
+  /** Rime: she channels, then blasts everyone she can see. */
+  glacial: { channel: 3.5, damage: 0.65 },
+  /** Rime: a bomb that follows one player and goes off on everyone near them. */
+  frostbomb: { radius: 170, fuse: 5, damage: 48 },
+  /** Rime: a long cone of frost. */
+  breath: { length: 440, half: 0.42, windup: 1.0, damage: 40 },
+  /** Kharzak: digs in, a mark hunts one player for `hunt` seconds, and it bursts out there `delay` later. */
+  burrow: { hunt: 2.6, delay: 0.8, radius: 135, damage: 50 },
+  /** Kharzak: a short, very wide pincer sweep. */
+  sweep: { length: 230, half: 1.35, windup: 0.8, damage: 38 },
+  /**
+   * Kharzak's shell: shrugs off `reduction` of all damage until one of its charges slams into a rock. Then it's
+   * stunned for `stun` seconds and takes `exposedBonus` more damage for `exposed` seconds.
+   */
+  shell: { reduction: 0.85, stun: 4, exposed: 8, exposedBonus: 0.5 },
+  /** The twins: a burning tether between them that hurts anyone standing in it. */
+  tether: { width: 26, dps: 28 },
+  /** The twins: closer than `range` to each other, both shrug off `reduction` of damage. */
+  kindred: { range: 380, reduction: 0.4 },
+  /** Vael: a meteor on one player; its damage is split between everyone standing in it. */
+  meteor: { radius: 150, follow: 1.5, delay: 3.2, damage: 60 },
+  /** Embra: slow fire orbs that turn toward their target. */
+  orbs: { count: 3, speed: 150, turn: 1.5, life: 7, damage: 22 },
 };
 
 /** A ring of bullets in every direction. */

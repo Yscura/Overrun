@@ -336,6 +336,16 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
       eyes(pen, r * 0.58, r * 0.12, r * 0.07, { angry: true, glow: 0xff1744 });
       return r * 1.75;
     }
+    case EnemyType.Egg: {
+      // A speckled egg with a crack starting.
+      solid(pen, (g) => g.ellipse(0, 0, r * 0.82, r));
+      detail(pen, (g) => {
+        for (const [sx, sy, sr] of [[-0.3, -0.4, 0.14], [0.25, -0.1, 0.1], [-0.1, 0.35, 0.12], [0.35, 0.45, 0.08], [-0.45, 0.1, 0.08]]) g.circle(sx * r, sy * r, sr * r).fill({ color: 0x558b2f, alpha: 0.7 });
+        g.moveTo(-r * 0.2, -r * 0.7).lineTo(0, -r * 0.5).lineTo(-r * 0.12, -r * 0.3).lineTo(r * 0.08, -r * 0.15).stroke({ width: 2, color: INK, alpha: 0.7 });
+      });
+      gloss(pen, -r * 0.25, -r * 0.45, r * 0.25, r * 0.15);
+      return r * 1.2;
+    }
     case EnemyType.Ward: {
       // A stone totem with a glowing rune (it doesn't turn).
       solid(pen, (g) => g.poly(ngon(8, r, Math.PI / 8)), 0x546e7a, 0x263238);
@@ -355,4 +365,4 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
 }
 
 /** Enemies that never turn to face where they're going. */
-export const NO_ROTATE = new Set<number>([EnemyType.Ward]);
+export const NO_ROTATE = new Set<number>([EnemyType.Ward, EnemyType.Egg]);

@@ -599,7 +599,7 @@ export class UI {
       }
       fight.bosses.forEach((b, i) => {
         const v = this.bossViews[i];
-        const tags = [b.vengeful ? 'vengeful' : '', b.enraged ? 'enraged' : '', fight.mission && b.hp > 0 ? 'shielded' : ''].filter(Boolean);
+        const tags = [b.vengeful ? 'vengeful' : '', b.enraged ? 'enraged' : '', fight.mission && b.hp > 0 ? 'shielded' : '', ...b.tags].filter(Boolean);
         v.name.textContent = b.hp <= 0 ? `${b.name} (slain)` : tags.length ? `${b.name} (${tags.join(', ')})` : b.name;
         v.fill.style.width = `${(b.hp / b.maxHp) * 100}%`;
         v.fill.parentElement!.classList.toggle('shielded', !!fight.mission && b.hp > 0);

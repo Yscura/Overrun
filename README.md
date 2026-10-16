@@ -89,14 +89,26 @@ Bosses only take a short stun and are briefly immune afterwards, and they ignore
   seconds it hits harder, attacks faster and makes its bomb circles, charge lanes and bullet rings bigger.
 - **The horde backs off:** in an arena or the lava ring it's just you and the bosses (and their summons). On a map
   without either, all but the 30 enemies closest to the team scatter, and only a trickle keeps coming during the fight. Boss summons are smaller and skipped when the fight is crowded.
-- **Side missions:** at 66% and 33% of their health, bosses put up a shield and are immune until the team completes a
-  side mission. That's one of: destroy 4 Wards, charge 3 Sigils by standing in them, or kill a marked brood. The
-  berserk clock keeps running.
+- **Phases:** at 66% and 33% of their health, bosses do their phase. Most put up a shield and are immune until the
+  team completes a side mission (Sylvara and the twins: destroy 4 Wards; Grimjaw: kill a marked brood; Rime: charge 3
+  Sigils by standing in them). Kharzak hardens its shell instead. The berserk clock keeps running.
 - **Twin Flames:** on Ashen Caldera you fight Ashlord Vael and Embra, a caster who keeps her distance, at the same time.
   Kill them close together: when one dies, the other heals 25% and turns **vengeful** (harder hits, faster and bigger
   attacks) for the rest of the fight.
 
-All of this is tuned in `src/shared/enemies.ts` (`BOSS_BERSERK`, `BOSS_VENGEFUL`, `BOSS_MISSIONS`). Beating the boss shows **Victory** and unlocks the next map.
+**Boss mechanics.** Each boss has its own, inspired by Elder Scrolls Online's dungeon bosses. A banner explains each one
+the first time it shows up in a fight, and each has its own telegraph: red for hits to get out of, amber with arrows
+pointing in for "stack up", magenta with arrows pointing out for "spread out".
+
+| Boss | Mechanics |
+|---|---|
+| Sylvara | **Venom spit** (a fan of shots), **venom pools** at everyone's feet, a **lunge**, **Hunter's Mark** (a circle that follows one player, then strikes: spread out), and a **clutch of eggs** that hatch into runners unless broken. The starter boss: one basic mechanic at a time. |
+| Grimjaw | **Maw cleave** (a wide cone in front: get behind him), **shockwave** (a ring rolling outward: dodge through it or be out of reach), a charge, falling rubble, and **carrion** that crawl in from the arena's edge and heal him 4% each if they reach him. |
+| Rime | **Glacial Wrath**: she channels, then blasts everyone she can see for 65% of their max HP. Hide behind one of the hall's columns; the safe shadows are shown. Plus **Frost Bomb** (follows one player and goes off on everyone near them), **frost breath** (a long cone) and her ice nova. |
+| Kharzak | **Burrow** (it vanishes, a mark hunts one player, and it bursts out there), a **pincer sweep** (a very wide short cone), its tail **sting** line, and a charge. **Hardened shell** at 66% and 33%: it shrugs off 85% of damage and keeps charging. Bait a charge into one of the den's boulders to crack it: it's stunned, then takes 50% extra damage for a while. |
+| Twin Flames | A **burning tether** between the twins hurts anyone standing in it. While they're close they're **kindred** and shrug off 40% of damage: pull them apart. Vael drops **meteors** whose damage is split between everyone inside (stack up); Embra throws **homing cinder orbs**. |
+
+All of this is tuned in `src/shared/enemies.ts` (`NAMED_BOSSES` for each boss's rotation and phase, `BOSS_MECHANICS`, `BOSS_BERSERK`, `BOSS_VENGEFUL`, `BOSS_MISSIONS`). Beating the boss shows **Victory** and unlocks the next map.
 Unlocks are saved in `data/progress.json` on the server, so the whole group shares them.
 
 **Prestige.** Every run pays each player one prestige point per team level reached (times the map's multiplier above),
