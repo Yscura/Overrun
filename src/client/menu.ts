@@ -1,14 +1,14 @@
 // The main menu: your name, the home screen with the modes, multiplayer (create or join a lobby), your profile
 // (prestige shop and heroes) and settings. Profile and settings can also be opened on top of a lobby.
 
-import { ARTIFACTS, type ArtifactId } from '../shared/artifacts';
+import { ARTIFACTS, FORGE, TIERS, TIER_IDS, WHEEL, nextTier, type ArtifactId, type Tier } from '../shared/artifacts';
 import { CHARACTERS, CHARACTER_IDS, heroAvailable, type CharacterId } from '../shared/characters';
 import { MAPS } from '../shared/maps';
 import { MODES, MODE_IDS, type ModeId } from '../shared/modes';
 import { PRESTIGE, PRESTIGE_IDS, prestigeCost, type PrestigeId } from '../shared/prestige';
 import type { ProfileState, RoomInfo } from '../shared/protocol';
 import type { Sound } from './audio';
-import { ALL_ARTIFACTS, artifactIcon, effectLines, tierTag } from './artifactView';
+import { artifactIcon, effectLines, sortArtifacts, tierColor, tierTag } from './artifactView';
 import { renderBestiary } from './bestiary';
 import { heroDetail, heroPortrait, statGrid } from './heroView';
 import { portraitHtml } from './portraits';
@@ -57,6 +57,10 @@ export class Menu {
   onUnlock: (character: CharacterId) => void = () => {};
   /** Take an artifact into your runs (null: none). */
   onEquip: (artifact: ArtifactId | null) => void = () => {};
+  /** Combine these artifacts (FORGE.count of one tier) into one of the next tier. */
+  onCombine: (artifacts: ArtifactId[]) => void = () => {};
+  /** Spin the artifact wheel. */
+  onSpin: () => void = () => {};
 
   private overlay = $('menu');
   private status = $('menu-status');
@@ -69,6 +73,15 @@ export class Menu {
     bestiary: $('screen-bestiary'),
   };
   private profile: ProfileState | null = null;
+  /** The artifacts in the combine slots (an id repeats if you put in several of it). */
+  private forgeSlots: ArtifactId[] = [];
+  /** Waiting on the server's answer to Combine. */
+  private combining = false;
+  /** The wheel's rotation in degrees, its tier segments, and whether it's spinning (profile updates wait until it stops). */
+  private wheelAngle = 0;
+  private wheelSegments: { tier: Tier; from: number; to: number }[] = [];
+  private spinning = false;
+  private pendingProfile: ProfileState | null = null;
   /** The profile tab that's open (the last one you looked at). */
   private profileTab: ProfileTab = 'heroes';
   /** The hero shown on the profile page (your favorite until you pick another). */
@@ -128,6 +141,10 @@ export class Menu {
       tab.addEventListener('click', () => this.showProfileTab(tab.dataset.tab as ProfileTab));
     }
     this.showProfileTab(this.profileTab);
+    this.buildWheel();
+    $('forge-go').addEventListener('click', () => this.combine());
+    $('forge-orb').addEventListener('click', () => this.combine());
+    $('wheel-spin').addEventListener('click', () => this.spin());
 
     const settingsName = $<HTMLInputElement>('settings-name');
     $('settings-name-save').addEventListener('click', () => {
@@ -243,6 +260,11 @@ export class Menu {
   }
 
   setProfile(profile: ProfileState): void {
+    // Mid-spin, the new artifact would show up before the wheel stops: hold the update until it does.
+    if (this.spinning) {
+      this.pendingProfile = profile;
+      return;
+    }
     this.profile = profile;
     this.renderCard(profile);
     if (!this.screens.bestiary.classList.contains('hidden')) this.renderBestiary();
@@ -267,31 +289,209 @@ export class Menu {
     this.renderHeroShop(profile);
   }
 
-  /** Every artifact in the game: the ones you own (click to equip), and the ones still to find. */
+  // --- Artifacts: inventory, combining and the wheel ---
+
+  /** Your artifacts with how many of each are still free (not in a combine slot), best first. */
+  private freeCounts(profile: ProfileState): { id: ArtifactId; total: number; free: number }[] {
+    const ids = sortArtifacts(Object.keys(profile.inventory) as ArtifactId[]);
+    return ids.map((id) => {
+      const total = profile.inventory[id] ?? 0;
+      return { id, total, free: total - this.forgeSlots.filter((s) => s === id).length };
+    });
+  }
+
+  /** The tier in the combine slots, if any. */
+  private forgeTier(): Tier | null {
+    return this.forgeSlots.length ? ARTIFACTS[this.forgeSlots[0]].tier : null;
+  }
+
   private renderArtifacts(profile: ProfileState): void {
-    $('artifact-found').textContent = `${profile.artifacts.length}/${ALL_ARTIFACTS.length}`;
-    $('artifact-inventory').replaceChildren(
-      ...ALL_ARTIFACTS.map((id) => {
+    // Slots can't hold more than you have (after combining, or if something changed elsewhere).
+    const kept: ArtifactId[] = [];
+    for (const id of this.forgeSlots) if (kept.filter((k) => k === id).length < (profile.inventory[id] ?? 0)) kept.push(id);
+    this.forgeSlots = kept;
+    const items = this.freeCounts(profile);
+    $('artifact-found').textContent = String(items.reduce((sum, i) => sum + i.total, 0) || '');
+    this.renderForge();
+    this.renderWheel(profile);
+
+    const tier = this.forgeTier();
+    const inventory = $('artifact-inventory');
+    if (items.length === 0) {
+      inventory.replaceChildren(el('p', 'inventory-empty', 'No artifacts yet. Elites, warlords and final bosses drop them, or try your luck on the wheel.'));
+      return;
+    }
+    inventory.replaceChildren(
+      ...items.map(({ id, total, free }) => {
         const def = ARTIFACTS[id];
-        const owned = profile.artifacts.includes(id);
         const equipped = profile.equipped === id;
-        const card = el('button', `artifact-card${owned ? '' : ' unknown'}${equipped ? ' equipped' : ''}`) as HTMLButtonElement;
-        card.disabled = !owned;
+        // Can it go in a combine slot right now?
+        const fits = free > 0 && nextTier(def.tier) !== null && this.forgeSlots.length < FORGE.count && (!tier || tier === def.tier);
+        const card = el('div', `artifact-card${equipped ? ' equipped' : ''}${fits ? ' fits' : ' no-fit'}`);
+        card.title = fits ? 'Click to put it in a combine slot' : nextTier(def.tier) ? '' : 'Legendary is the top tier';
         const head = el('div', 'artifact-card-head');
         const names = el('div', 'artifact-card-names');
-        names.append(el('div', 'artifact-name', owned ? def.name : '???'), tierTag(def.tier));
-        head.append(artifactIcon(id, 40, owned), names);
-        if (equipped) head.append(el('span', 'artifact-equipped', 'Equipped'));
-        card.append(head);
-        if (owned) card.append(effectLines(id), el('p', 'artifact-flavor', def.flavor));
-        else card.append(el('p', 'artifact-flavor', 'Not found yet.'));
-        if (owned) {
-          card.title = equipped ? 'Click to unequip' : 'Click to equip';
-          card.addEventListener('click', () => this.onEquip(equipped ? null : id));
-        }
+        names.append(el('div', 'artifact-name', def.name), tierTag(def.tier));
+        const icon = el('div', 'artifact-card-icon');
+        icon.append(artifactIcon(id, 44));
+        if (total > 1 || free !== total) icon.append(el('span', 'artifact-count', `×${free}`));
+        head.append(icon, names);
+        const equip = el('button', `artifact-equip${equipped ? ' on' : ''}`, equipped ? 'Equipped' : 'Equip') as HTMLButtonElement;
+        equip.title = equipped ? 'Click to unequip' : 'Take it into your runs';
+        equip.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.onEquip(equipped ? null : id);
+        });
+        head.append(equip);
+        card.append(head, effectLines(id), el('p', 'artifact-flavor', def.flavor));
+        card.addEventListener('click', () => {
+          if (!fits || this.combining) return;
+          this.forgeSlots.push(id);
+          this.renderArtifacts(profile);
+        });
         return card;
       }),
     );
+  }
+
+  /** The orb (the next tier's color once there's something in the slots) and the five slots under it. */
+  private renderForge(): void {
+    const tier = this.forgeTier();
+    const next = tier ? nextTier(tier) : null;
+    const orb = $('forge-orb');
+    orb.style.setProperty('--tier', next ? tierColor(next) : '#5d6676');
+    orb.classList.toggle('charged', this.forgeSlots.length === FORGE.count);
+    const slots: HTMLElement[] = [];
+    for (let i = 0; i < FORGE.count; i++) {
+      const id = this.forgeSlots[i];
+      const slot = el('button', `forge-slot${id ? ' filled' : ''}`) as HTMLButtonElement;
+      slot.append(artifactIcon(id ?? null, 50));
+      if (id) {
+        slot.title = `${ARTIFACTS[id].name}: click to take it out`;
+        slot.addEventListener('click', () => {
+          if (this.combining) return;
+          this.forgeSlots.splice(i, 1);
+          if (this.profile) this.renderArtifacts(this.profile);
+        });
+      }
+      slots.push(slot);
+    }
+    $('forge-slots').replaceChildren(...slots);
+    const go = $<HTMLButtonElement>('forge-go');
+    const n = this.forgeSlots.length;
+    go.disabled = n < FORGE.count || this.combining;
+    go.textContent = next && n === FORGE.count ? `Combine into ${TIERS[next].name}` : 'Combine';
+    $('forge-hint').textContent = !tier
+      ? `Put ${FORGE.count} artifacts of the same tier in the slots to turn them into a random one of the next tier.`
+      : n < FORGE.count
+        ? `${n} of ${FORGE.count} ${TIERS[tier].name.toLowerCase()}: add ${FORGE.count - n} more.`
+        : `Ready: ${FORGE.count} ${TIERS[tier].name.toLowerCase()} become one random ${TIERS[next!].name.toLowerCase()}.`;
+  }
+
+  private combine(): void {
+    if (this.forgeSlots.length !== FORGE.count || this.combining) return;
+    this.combining = true;
+    $('forge-orb').classList.add('forging');
+    this.renderForge();
+    this.onCombine([...this.forgeSlots]);
+    // If the server says no (it shouldn't), don't stay stuck.
+    window.setTimeout(() => this.endCombine(), 3000);
+  }
+
+  private endCombine(): void {
+    if (!this.combining) return;
+    this.combining = false;
+    $('forge-orb').classList.remove('forging');
+    if (this.profile) this.renderArtifacts(this.profile);
+  }
+
+  /** The wheel's face: each tier's slice sized by its odds, twice around. */
+  private buildWheel(): void {
+    const total = TIER_IDS.reduce((sum, t) => sum + WHEEL.weights[t], 0);
+    const stops: string[] = [];
+    let a = 0;
+    for (let rep = 0; rep < 2; rep++) {
+      for (const tier of TIER_IDS) {
+        const size = (WHEEL.weights[tier] / total) * 180;
+        stops.push(`${tierColor(tier)} ${a}deg ${a + size}deg`);
+        this.wheelSegments.push({ tier, from: a, to: a + size });
+        a += size;
+      }
+    }
+    $('wheel').style.background = `conic-gradient(${stops.join(', ')})`;
+    const odds = $('wheel-odds');
+    odds.replaceChildren(
+      ...TIER_IDS.map((tier) => {
+        const chip = el('span', 'wheel-chance', `${TIERS[tier].name} ${Math.round((WHEEL.weights[tier] / total) * 100)}%`);
+        chip.style.setProperty('--tier', tierColor(tier));
+        return chip;
+      }),
+    );
+  }
+
+  private renderWheel(profile: ProfileState): void {
+    const spin = $<HTMLButtonElement>('wheel-spin');
+    spin.disabled = this.spinning || profile.gold < WHEEL.cost;
+    spin.textContent = `Spin · ${WHEEL.cost} gold`;
+    spin.title = profile.gold < WHEEL.cost ? `You have ${profile.gold} gold` : '';
+  }
+
+  private spin(): void {
+    if (this.spinning || !this.profile || this.profile.gold < WHEEL.cost) return;
+    this.spinning = true;
+    $<HTMLButtonElement>('wheel-spin').disabled = true;
+    this.onSpin();
+    // If the server says no (it shouldn't), don't stay stuck.
+    window.setTimeout(() => {
+      if (this.spinning && !$('wheel').classList.contains('turning')) this.stopSpinning();
+    }, 3000);
+  }
+
+  private stopSpinning(): void {
+    this.spinning = false;
+    $('wheel').classList.remove('turning');
+    const profile = this.pendingProfile ?? this.profile;
+    this.pendingProfile = null;
+    if (profile) this.setProfile(profile);
+  }
+
+  /** The server's answer to Combine or Spin: turn the wheel onto the tier first, then show what you got. */
+  showArtifactResult(id: ArtifactId, how: 'combine' | 'spin'): void {
+    if (how === 'combine') {
+      this.forgeSlots = [];
+      window.setTimeout(() => {
+        this.endCombine();
+        this.reveal(id, 'Combined into');
+      }, 700);
+      return;
+    }
+    const tier = ARTIFACTS[id].tier;
+    const options = this.wheelSegments.filter((s) => s.tier === tier);
+    const seg = options[Math.floor(Math.random() * options.length)];
+    // Somewhere inside the slice (not on its edge), under the pointer at the top.
+    const at = seg.from + (seg.to - seg.from) * (0.2 + Math.random() * 0.6);
+    const turn = (((-at - this.wheelAngle) % 360) + 360) % 360;
+    this.wheelAngle += 360 * 5 + turn;
+    const wheel = $('wheel');
+    wheel.classList.add('turning');
+    wheel.style.transform = `rotate(${this.wheelAngle}deg)`;
+    window.setTimeout(() => {
+      this.stopSpinning();
+      this.reveal(id, 'The wheel gives you');
+    }, 4300);
+  }
+
+  /** What you just got, big, over the combine and wheel stations. */
+  private reveal(id: ArtifactId, label: string): void {
+    const def = ARTIFACTS[id];
+    const box = $('artifact-reveal');
+    box.style.setProperty('--tier', tierColor(def.tier));
+    const card = el('div', 'reveal-card');
+    const ok = el('button', 'primary', 'Nice!') as HTMLButtonElement;
+    ok.addEventListener('click', () => box.classList.add('hidden'));
+    card.append(el('div', 'reveal-label', label), artifactIcon(id, 110), el('div', 'reveal-name', def.name), tierTag(def.tier), effectLines(id), ok);
+    box.replaceChildren(card);
+    box.classList.remove('hidden');
   }
 
   /** The corner card: your favorite hero's portrait, your name, and your gold and prestige. */

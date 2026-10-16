@@ -1,11 +1,11 @@
 // A player's progress between runs (prestige, gold, bought heroes), and the things you can do with it.
 // Profiles are kept by lowercased name and saved in data/progress.json.
 
-import { ARTIFACT_IDS, TIERS, artifact, isArtifactId, type ArtifactId } from '../shared/artifacts';
+import { ARTIFACT_IDS, FORGE, WHEEL, artifact, isArtifactId, nextTier, rollArtifact, rollWheel, type ArtifactId } from '../shared/artifacts';
 import { CHARACTERS, CHARACTER_IDS, heroAvailable, isCharacterId, type CharacterId } from '../shared/characters';
 import { ENEMY_TYPES, isBossType } from '../shared/enemies';
 import { PRESTIGE, isPrestigeId, prestigeCost, prestigeSpent, type PrestigeRanks } from '../shared/prestige';
-import type { ArtifactFind, HeroRecord, ProfileState } from '../shared/protocol';
+import { DEV_NAME, type ArtifactFind, type HeroRecord, type ProfileState } from '../shared/protocol';
 
 export interface Profile {
   /** Unspent prestige points. */
@@ -23,43 +23,77 @@ export interface Profile {
   bosses?: string[];
   /** How each hero's finished runs went (runs started are in `played`). */
   records?: Record<string, Omit<HeroRecord, 'runs'>>;
-  /** Artifacts they own (by id), and the one they take into runs. */
-  artifacts?: string[];
+  /** Their artifact inventory: how many of each (by id). Older saves kept a list of ids. */
+  artifacts?: Record<string, number>;
   artifact?: string | null;
 }
 
-/** The artifacts they own (ids that no longer exist are skipped; all of them for testing setups). */
-export function ownedArtifacts(profile: Profile, all = false): ArtifactId[] {
-  return all ? [...ARTIFACT_IDS] : (profile.artifacts ?? []).filter(isArtifactId);
+/** How many of each artifact they have (ids that no longer exist are skipped). */
+export function inventory(profile: Profile): Partial<Record<ArtifactId, number>> {
+  const out: Partial<Record<ArtifactId, number>> = {};
+  for (const [id, count] of Object.entries(profile.artifacts ?? {})) if (isArtifactId(id) && count > 0) out[id] = Math.floor(count);
+  return out;
 }
 
-/** The artifact they take into runs, if they (still) own it. */
-export function equippedArtifact(profile: Profile, all = false): ArtifactId | null {
+/** The artifacts they can equip: the ones in their inventory (for everyone, dev too: artifacts are earned). */
+export function ownedArtifacts(profile: Profile): ArtifactId[] {
+  return Object.keys(inventory(profile)) as ArtifactId[];
+}
+
+/** The artifact they take into runs, if they (still) have it. */
+export function equippedArtifact(profile: Profile): ArtifactId | null {
   const id = profile.artifact;
-  return isArtifactId(id) && ownedArtifacts(profile, all).includes(id) ? id : null;
+  return isArtifactId(id) && ownedArtifacts(profile).includes(id) ? id : null;
 }
 
-/** Equips an owned artifact (or none, with null). False if they don't own it. */
-export function equipArtifact(profile: Profile, id: unknown, all = false): boolean {
+/** Equips an artifact they have (or none, with null). False if they don't have it. */
+export function equipArtifact(profile: Profile, id: unknown): boolean {
   if (id === null) {
     profile.artifact = null;
     return true;
   }
-  if (!isArtifactId(id) || !ownedArtifacts(profile, all).includes(id)) return false;
+  if (!isArtifactId(id) || !ownedArtifacts(profile).includes(id)) return false;
   profile.artifact = id;
   return true;
 }
 
-/** They found an artifact: it goes in their inventory, or, if they already have it, it's salvaged for gold. */
+/** An artifact goes into their inventory (on top of any they already have). */
 export function giveArtifact(profile: Profile, id: ArtifactId): ArtifactFind {
-  profile.artifacts ??= [];
-  if (!profile.artifacts.includes(id)) {
-    profile.artifacts.push(id);
-    return { id, salvage: 0 };
+  profile.artifacts ??= {};
+  profile.artifacts[id] = (profile.artifacts[id] ?? 0) + 1;
+  return { id };
+}
+
+/**
+ * Combines FORGE.count artifacts of one tier (they can repeat, if they have that many) into a random one of the next
+ * tier. Returns it, or null if the combination isn't allowed.
+ */
+export function combineArtifacts(profile: Profile, ids: unknown): ArtifactId | null {
+  if (!Array.isArray(ids) || ids.length !== FORGE.count || !ids.every(isArtifactId)) return null;
+  const tier = artifact(ids[0]).tier;
+  const next = nextTier(tier);
+  if (!next || ids.some((id) => artifact(id).tier !== tier)) return null;
+  const have = inventory(profile);
+  const using: Partial<Record<ArtifactId, number>> = {};
+  for (const id of ids) using[id] = (using[id] ?? 0) + 1;
+  if ((Object.keys(using) as ArtifactId[]).some((id) => (have[id] ?? 0) < using[id]!)) return null;
+  for (const id of Object.keys(using) as ArtifactId[]) {
+    profile.artifacts![id] = have[id]! - using[id]!;
+    if (profile.artifacts![id] === 0) delete profile.artifacts![id];
   }
-  const salvage = TIERS[artifact(id).tier].salvage;
-  profile.gold = (profile.gold ?? 0) + salvage;
-  return { id, salvage };
+  if (!equippedArtifact(profile)) profile.artifact = null;
+  const result = rollArtifact(next, ownedArtifacts(profile));
+  giveArtifact(profile, result);
+  return result;
+}
+
+/** Spins the artifact wheel. Returns what it gave, or null if they can't afford a spin. */
+export function spinWheel(profile: Profile): ArtifactId | null {
+  if ((profile.gold ?? 0) < WHEEL.cost) return null;
+  profile.gold = (profile.gold ?? 0) - WHEEL.cost;
+  const result = rollArtifact(rollWheel(), ownedArtifacts(profile));
+  giveArtifact(profile, result);
+  return result;
 }
 
 /** A run ended: add it to the hero's record. */
@@ -113,6 +147,13 @@ export function getProfile(store: Record<string, Profile>, name: string): Profil
     delete ranks.Swiftness;
   }
   profile.points = Math.max(0, Number(profile.points) || 0);
+  // Artifacts used to be a list of the ones found; now they're an inventory with counts.
+  if (Array.isArray(profile.artifacts)) profile.artifacts = Object.fromEntries((profile.artifacts as string[]).map((id) => [id, 1]));
+  // The testing account always has at least one of every artifact (combining still uses them up, until next time).
+  if (key === DEV_NAME) {
+    profile.artifacts ??= {};
+    for (const id of ARTIFACT_IDS) profile.artifacts[id] = Math.max(1, profile.artifacts[id] ?? 0);
+  }
   return profile;
 }
 
@@ -163,7 +204,7 @@ export function profileState(name: string, profile: Profile, allHeroes: boolean)
     ),
     // Testing setups see every boss, like every hero.
     bosses: allHeroes ? ENEMY_TYPES.filter((_, t) => isBossType(t)).map((e) => e.name) : (profile.bosses ?? []),
-    artifacts: ownedArtifacts(profile, allHeroes),
-    equipped: equippedArtifact(profile, allHeroes),
+    inventory: inventory(profile),
+    equipped: equippedArtifact(profile),
   };
 }

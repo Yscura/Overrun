@@ -78,7 +78,7 @@ for (const map of maps) {
     heroes.forEach((hero, i) => {
       // God mode is the server's "dev" name: damage still lands but never takes you below 1 HP.
       const name = god ? 'dev' : `bot${i + 1}`;
-      profiles[name] = { points: 0, ranks, ...(artifact ? { artifacts: [artifact], artifact } : {}) };
+      profiles[name] = { points: 0, ranks, ...(artifact ? { artifacts: { [artifact]: 1 }, artifact } : {}) };
       let bot: Bot | null = null;
       const id = game.addPlayer(name, hero, (text) => bot?.receive(text));
       if (id === null) throw new Error('Too many bots (4 max)');

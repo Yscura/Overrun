@@ -801,6 +801,19 @@ export class Game {
 
   // --- For the room manager ---
 
+  /** A run is going: loadouts (hero, artifact) are locked until it ends. */
+  get running(): boolean {
+    return this.phase === 'playing';
+  }
+
+  /** A player's profile changed outside the game (combining artifacts, the wheel): pick up their artifact again. */
+  profileChanged(id: number): void {
+    const p = this.players.get(id);
+    if (!p || p.bot || this.phase === 'playing') return;
+    p.artifact = equippedArtifact(p.profile);
+    p.hp = this.stats(p).maxHp;
+  }
+
   /** People in the game (bots don't count). */
   get humanCount(): number {
     return this.humans().length;
@@ -1039,8 +1052,8 @@ export class Game {
         break;
       case 'equip':
         // Like heroes: only between runs, and not once you've locked in.
-        if (this.phase !== 'playing' && !p.bot && !this.lobbyReady.has(p.id) && equipArtifact(p.profile, msg.artifact, this.allHeroes(p))) {
-          p.artifact = equippedArtifact(p.profile, this.allHeroes(p));
+        if (this.phase !== 'playing' && !p.bot && !this.lobbyReady.has(p.id) && equipArtifact(p.profile, msg.artifact)) {
+          p.artifact = equippedArtifact(p.profile);
           p.hp = this.stats(p).maxHp;
           this.options.onProfiles?.();
         }
@@ -1287,7 +1300,7 @@ export class Game {
   private equip(p: Player): void {
     const hero = CHARACTERS[p.character];
     p.upgrades = { [hero.startWeapon]: 1, [hero.ability]: 1 };
-    p.artifact = p.bot ? null : equippedArtifact(p.profile, this.allHeroes(p));
+    p.artifact = p.bot ? null : equippedArtifact(p.profile);
     p.loot = [];
     p.found = [];
     p.secondWindUsed = false;
@@ -2921,7 +2934,7 @@ export class Game {
    * (contact with the horde, the burning zone) can't.
    */
   private hurtPlayer(p: Player, amount: number, continuous = false): boolean {
-    if (p.downed || p.invuln > 0) return false;
+    if (p.downed || p.invuln > 0 || this.sheltered(p)) return false;
     const stats = this.stats(p);
     if (!continuous && Math.random() < stats.evasion) {
       p.taken.push(0); // Shown as "EVADE".
@@ -3134,6 +3147,11 @@ export class Game {
     if (same.length > MAX_VENOM) same[0].dead = true;
   }
 
+  /** Standing in an artifact's sanctuary dome: nothing can hurt you. */
+  private sheltered(p: Player): boolean {
+    return this.zones.some((z) => z.kind === ZoneKind.Sanctuary && !z.dead && dist2(p.x, p.y, z.x, z.y) < z.r ** 2);
+  }
+
   /** Venom puddles tick damage; mines arm, then blow up when an enemy comes close. */
   private updateZones(dt: number): void {
     for (const z of this.zones) {
@@ -3144,6 +3162,7 @@ export class Game {
         z.dead = true;
         continue;
       }
+      if (z.kind === ZoneKind.Sanctuary) continue; // It only shelters players (see sheltered).
       const owner = this.players.get(z.owner);
       if (z.kind !== ZoneKind.Mine) {
         if (z.timer > 0) continue;
@@ -3642,7 +3661,7 @@ export class Game {
     if (by) {
       const stats = this.stats(by);
       amount *= stats.typeDamage[type];
-      const crit = CRIT_TYPES[type] && stats.critChance > 0 && Math.random() < stats.critChance;
+      const crit = (CRIT_TYPES[type] || (type === 'magic' && stats.magicCrit)) && stats.critChance > 0 && Math.random() < stats.critChance;
       if (crit) amount *= CRIT_MULTIPLIER;
       // Add to this enemy's damage number for the tick (one number per damage type).
       const typeId = DAMAGE_TYPES.indexOf(type);
@@ -3853,6 +3872,24 @@ export class Game {
     if (a.heal) {
       p.hp = Math.min(stats.maxHp, p.hp + stats.maxHp * a.heal);
       sounds.push('heal');
+    }
+    if (a.sanctuary) {
+      this.zones.push({
+        id: this.nextId++,
+        kind: ZoneKind.Sanctuary,
+        owner: p.id,
+        x: p.x,
+        y: p.y,
+        r: a.sanctuary.radius * stats.area,
+        blast: 0,
+        damage: 0,
+        life: a.sanctuary.duration * stats.duration,
+        timer: 0,
+        type: 'true',
+        dead: false,
+      });
+      this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: Math.round(a.sanctuary.radius * stats.area), c: 0xffe082 });
+      sounds.push('holy');
     }
     if (a.rally) {
       for (const ally of this.players.values()) {
@@ -4465,7 +4502,7 @@ export class Game {
       p.found.push(find);
       p.sounds.push('relic');
       const name = artifactDef(find.id).name;
-      this.log(`${p.name} found ${name} (${TIERS[tier].name})${find.salvage ? `: a duplicate, salvaged for ${find.salvage} gold` : ''}`, 'good');
+      this.log(`${p.name} found ${name} (${TIERS[tier].name})`, 'good');
     }
     if (people.length > 0) this.options.onProfiles?.();
   }
@@ -4736,7 +4773,7 @@ export class Game {
       god: p.god,
       gold: p.profile.gold ?? 0,
       heroes: this.allHeroes(p) ? CHARACTER_IDS : (p.profile.heroes ?? []).filter(isCharacterId),
-      artifacts: p.bot ? [] : ownedArtifacts(p.profile, this.allHeroes(p)),
+      artifacts: p.bot ? [] : ownedArtifacts(p.profile),
       found: p.found.splice(0),
     };
   }

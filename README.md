@@ -119,26 +119,30 @@ name every time. The later maps are tuned to need a few runs' worth of prestige.
 
 **Artifacts.** Champions (elites with an affix) sometimes drop an artifact, warlords often do, and beating the final
 boss gives everyone one. Whoever touches a dropped artifact finds one of its tier for every person in the team (each
-rolls their own), and any still lying around when the boss dies are found too. They go into your inventory on the
-Profile page, and you pick one to take into your runs in the lobby (one at a time; you can't swap once you've locked
-in). There are four tiers, each with its own color: **common** (a small plain bonus), **rare**, **epic** and
-**legendary**, and some trade a drawback for a big upside (Glass Edge: +22% damage, 15% more damage taken). Later maps
-drop better tiers, and finding one you already own salvages it for gold. Some artifacts can also be activated:
-the **Q** slot left of E shows your artifact, and pressing Q uses its active (Tower Plate braces you, Windstep Anklet
-dashes, Storm Sigil and Eye of the Storm blast the horde, the Crown rallies the team...) on its own cooldown. A run kills about 500 champions and three or
-four warlords, so a winning run finds around four or five.
+rolls their own), and any still lying around when the boss dies are found too. They go into your **inventory** on the
+Profile page's Artifacts tab (duplicates stack), and you pick one to take into your runs in the lobby (one at a time;
+you can't swap once you've locked in). There are four tiers, each with its own color: **common** (a small plain bonus),
+**rare**, **epic** and **legendary**, and some trade a drawback for a big upside (Glass Edge: +22% damage, 15% more
+damage taken). Later maps drop better tiers. Some artifacts can also be activated: the **Q** slot left of E shows your
+artifact, and pressing Q uses its active (Tower Plate braces you, Windstep Anklet dashes, Storm Sigil and Eye of the
+Storm blast the horde, the Crown rallies the team, the Aegis of Dawn raises a dome that makes everyone inside
+untouchable...) on its own cooldown. The Jeweled Gauntlet lets magic damage crit.
+
+On the Artifacts tab you can also **combine** five artifacts of one tier (click them into the slots under the orb)
+into a random one of the next tier up, and spin the **artifact wheel** for 1000 gold: 52% common, 30% rare, 14% epic,
+4% legendary. A run kills about 500 champions and three or four warlords, so a winning run finds around four or five.
 
 All of it is in `src/shared/artifacts.ts`: each artifact is one line in `ARTIFACTS` (name, tier, icon, flavor and
 `effects`, such as `{ damage: 0.22, damageTaken: 0.15 }`, plus an optional `active` for Q built from parts like
 `heal`, `guard`, `frenzy`, `blast`, `stun`, `blink`, `invuln` and `rally`), and the descriptions everywhere are written
 from those.
-`DROPS` holds the drop chances and tier odds. Profiles save artifacts by key, so rename one by changing its `name`.
+`DROPS` holds the drop chances and tier odds, `FORGE` how many it takes to combine, and `WHEEL` the spin's cost and odds. Profiles save artifacts by key, so rename one by changing its `name`.
 To try one out: `npm run balance -- --map 1 --god --artifact glassEdge`.
 
 **Walls:** thick walls (stone) block movement and all projectiles. Thin walls (fences) block movement but you can shoot
 over them and dodge through them. Kael's dodge goes through thick walls too. Wraiths fly over everything.
 
-**God mode:** join as `dev` and you take damage but never go down (toggle it with **G**), and every hero and artifact is unlocked. A DEV panel (top left) has cheats for testing:
+**God mode:** join as `dev` and you take damage but never go down (toggle it with **G**), and every hero is unlocked and you always have at least one of every artifact. A DEV panel (top left) has cheats for testing:
 **T** jumps the clock a minute ahead (with the level-ups you'd have earned; during the boss fight it pushes toward
 berserk), **U** gives a free level-up pick, **F** a free Forge pick, and **B** fills your slots and maxes everything.
 

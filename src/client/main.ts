@@ -74,6 +74,8 @@ async function main() {
   menu.onRespec = () => net.send({ t: 'respec' });
   menu.onUnlock = (character) => net.send({ t: 'unlock', character });
   menu.onEquip = (artifact) => net.send({ t: 'equip', artifact });
+  menu.onCombine = (artifacts) => net.send({ t: 'combine', artifacts });
+  menu.onSpin = () => net.send({ t: 'spin' });
 
   // --- Chat and event log ---
   const chat = new Chat();
@@ -140,6 +142,7 @@ async function main() {
     menu.show('home');
   };
   net.onProfile = (profile) => menu.setProfile(profile);
+  net.onArtifact = (id, how) => menu.showArtifactResult(id, how);
   net.onRooms = (rooms) => menu.setRooms(rooms);
   net.onError = (message) => menu.setStatus(message);
   net.onClosed = () => {

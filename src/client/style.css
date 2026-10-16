@@ -287,27 +287,32 @@ button.primary:hover {
 
 #maps {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
   margin-bottom: 20px;
 }
 
+/* Small cards, five to a row: the map's icon, name and multipliers (details in the hover text). */
 .map-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 6px;
   font: inherit;
-  text-align: left;
+  text-align: center;
   color: var(--text);
   background: #0f1115;
   border: 2px solid var(--border);
   border-radius: 10px;
   cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
 }
 
 .map-card:hover:not(:disabled) {
   border-color: #4a5263;
+  transform: translateY(-2px);
 }
 
 .map-card.selected {
@@ -320,37 +325,38 @@ button.primary:hover {
   cursor: not-allowed;
 }
 
-.map-card-title {
+.map-card-icon {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
+  margin-bottom: 3px;
+}
+
+.map-card-icon svg {
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.map-card.locked .map-card-icon svg {
+  filter: grayscale(1) brightness(0.6);
+}
+
+.map-card-lock {
+  position: absolute;
+  inset: 0;
+  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 4px;
+  justify-content: center;
+  font-size: 20px;
 }
 
 .map-card-name {
+  font-size: 12.5px;
   font-weight: 800;
-}
-
-.map-card-tag {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.map-card-sub {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.map-card-boss {
-  font-size: 12px;
-  color: #ff8a80;
+  line-height: 1.2;
 }
 
 .map-card-difficulty {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--muted);
 }
 
@@ -3562,9 +3568,300 @@ body:has(#lobby:not(.hidden)) #sound-control {
   background: #13202a;
 }
 
-.artifact-card.unknown {
+/* Inventory cards: click to put one in a combine slot; ones that can't go in are dimmed. */
+.artifact-card.no-fit {
   cursor: default;
   opacity: 0.55;
+}
+
+.artifact-card.equipped.no-fit {
+  opacity: 0.8;
+}
+
+.artifact-card-icon {
+  position: relative;
+  flex: none;
+}
+
+.artifact-count {
+  position: absolute;
+  right: -6px;
+  bottom: -4px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text);
+  background: #0b0d11;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.artifact-equip {
+  align-self: flex-start;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: #1b1f27;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.artifact-equip:hover {
+  color: var(--text);
+  border-color: #4a5263;
+}
+
+.artifact-equip.on {
+  color: #06202c;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.inventory-empty {
+  grid-column: 1 / -1;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.inventory-head {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+}
+
+.inventory-head h3 {
+  margin: 0;
+}
+
+/* Combine and the wheel, side by side. */
+.artifact-stations {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.station {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  padding: 16px;
+  background: #0f1115;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.station-title {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.station-hint {
+  min-height: 2.6em;
+  margin: 0;
+  font-size: 12.5px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.station-button {
+  min-width: 220px;
+}
+
+/* The orb: a big glowing question mark, in the color of the tier you'd get. */
+.forge-orb {
+  --tier: #5d6676;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 150px;
+  height: 150px;
+  padding: 0;
+  font: inherit;
+  font-size: 84px;
+  font-weight: 900;
+  color: var(--tier);
+  background: radial-gradient(circle at 45% 35%, color-mix(in srgb, var(--tier) 35%, #151821), #090b0f 70%);
+  border: 3px solid var(--tier);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 4px #090b0f,
+    inset 0 0 0 6px color-mix(in srgb, var(--tier) 40%, transparent),
+    0 0 30px -8px var(--tier);
+  cursor: default;
+  transition: border-color 0.3s, color 0.3s, box-shadow 0.3s;
+}
+
+.forge-orb.charged {
+  cursor: pointer;
+  box-shadow:
+    inset 0 0 0 4px #090b0f,
+    inset 0 0 0 6px color-mix(in srgb, var(--tier) 40%, transparent),
+    0 0 44px -4px var(--tier);
+  animation: orb-pulse 1.6s ease-in-out infinite;
+}
+
+.forge-orb.forging {
+  animation: orb-forge 0.7s ease-in infinite;
+}
+
+@keyframes orb-pulse {
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes orb-forge {
+  0% {
+    transform: rotate(0) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.12);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+.forge-slots {
+  display: flex;
+  gap: 10px;
+}
+
+.forge-slot {
+  display: flex;
+  padding: 3px;
+  background: #0b0d11;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+}
+
+.forge-slot.filled {
+  cursor: pointer;
+}
+
+.forge-slot.filled:hover {
+  border-color: var(--danger);
+}
+
+/* The wheel: tier slices sized by their odds; the pointer sits on top. */
+.wheel-wrap {
+  position: relative;
+  width: 206px;
+  height: 206px;
+}
+
+.wheel {
+  position: absolute;
+  inset: 0;
+  border: 4px solid #0b0d11;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2px var(--border),
+    inset 0 0 22px rgba(0, 0, 0, 0.55);
+}
+
+.wheel.turning {
+  transition: transform 4.2s cubic-bezier(0.12, 0.7, 0.15, 1);
+}
+
+.wheel-hub {
+  position: absolute;
+  inset: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  font-weight: 900;
+  color: #ffd54f;
+  background: #0f1115;
+  border: 3px solid #ffd54f;
+  border-radius: 50%;
+}
+
+.wheel-pointer {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-top: 22px solid #ffd54f;
+  border-right: 12px solid transparent;
+  border-left: 12px solid transparent;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.7));
+}
+
+.wheel-chance {
+  display: inline-block;
+  margin: 0 5px;
+  font-weight: 700;
+  color: var(--tier);
+}
+
+/* What you just got. */
+.artifact-reveal {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 10, 14, 0.82);
+  border-radius: 14px;
+}
+
+.reveal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  max-width: 340px;
+  padding: 18px 26px;
+  text-align: center;
+  background: #0f1115;
+  border: 2px solid var(--tier);
+  border-radius: 16px;
+  box-shadow: 0 0 50px -10px var(--tier);
+  animation: reveal-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+.reveal-card .artifact-tier {
+  align-self: center;
+}
+
+.reveal-card .artifact-effects {
+  text-align: left;
+}
+
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+.reveal-label {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tier);
+}
+
+.reveal-name {
+  font-size: 22px;
+  font-weight: 800;
 }
 
 .artifact-card-head {
@@ -3902,4 +4199,9 @@ body:has(#lobby:not(.hidden)) #sound-control {
 /* Same height on every tab, so the page doesn't jump around when switching. */
 .profile-panel {
   min-height: min(520px, 55vh);
+}
+
+.station-button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

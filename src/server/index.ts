@@ -8,7 +8,7 @@ import { MODES, isModeId } from '../shared/modes';
 import { DEV_NAME, type ClientMessage, type ServerMessage } from '../shared/protocol';
 import { MAPS } from '../shared/maps';
 import { Game } from './game';
-import { buyHero, buyPrestige, equipArtifact, getProfile, profileState, refundPrestige } from './profiles';
+import { buyHero, buyPrestige, combineArtifacts, equipArtifact, getProfile, profileState, refundPrestige, spinWheel } from './profiles';
 import { loadProgress, saveProgress } from './progress';
 import { Rooms, type Room } from './rooms';
 
@@ -164,12 +164,26 @@ wss.on('connection', (ws) => {
               : msg.t === 'unlock'
                 ? buyHero(profile, msg.character, allHeroes())
                 : msg.t === 'equip'
-                  ? equipArtifact(profile, msg.artifact, allHeroes())
+                  ? equipArtifact(profile, msg.artifact)
                   : (refundPrestige(profile), true);
           if (changed) save();
         }
         sendProfile();
         return;
+      case 'combine':
+      case 'spin': {
+        // Between runs only (your artifact can't change mid-run).
+        if (!session.name || session.room?.game.running) return;
+        const profile = getProfile(progress.profiles, session.name);
+        const result = msg.t === 'combine' ? combineArtifacts(profile, msg.artifacts) : spinWheel(profile);
+        if (result) {
+          save();
+          send({ t: 'artifact', id: result, how: msg.t });
+          if (session.room && session.playerId !== null) session.room.game.profileChanged(session.playerId);
+        }
+        sendProfile();
+        return;
+      }
       default:
         if (session.room && session.playerId !== null) session.room.game.handleMessage(session.playerId, msg);
     }

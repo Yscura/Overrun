@@ -192,8 +192,33 @@
               <div id="profile-hero" class="profile-hero"></div>
             </div>
           </div>
-          <div class="profile-panel" data-panel="artifacts">
-            <p class="prestige-hint">Relics dropped by elites, warlords and final bosses, kept between runs. Click one you own to take it into your runs (one at a time). Duplicates turn into gold.</p>
+          <div class="profile-panel artifacts-panel" data-panel="artifacts">
+            <!-- Combine five of a tier into one of the next, or spin the wheel; your inventory underneath. -->
+            <div class="artifact-stations">
+              <section class="station">
+                <h3 class="station-title">Combine</h3>
+                <button id="forge-orb" class="forge-orb" title="Combine">?</button>
+                <div id="forge-slots" class="forge-slots"></div>
+                <button id="forge-go" class="primary station-button">Combine</button>
+                <p id="forge-hint" class="station-hint"></p>
+              </section>
+              <section class="station">
+                <h3 class="station-title">Artifact wheel</h3>
+                <div class="wheel-wrap">
+                  <div id="wheel" class="wheel"></div>
+                  <div class="wheel-hub">?</div>
+                  <div class="wheel-pointer"></div>
+                </div>
+                <button id="wheel-spin" class="primary station-button">Spin</button>
+                <p id="wheel-odds" class="station-hint"></p>
+              </section>
+              <!-- What combining or the wheel just gave you. -->
+              <div id="artifact-reveal" class="artifact-reveal hidden"></div>
+            </div>
+            <div class="inventory-head">
+              <h3>Inventory</h3>
+              <p class="prestige-hint">Click an artifact to put it in a combine slot. <b>Equip</b> takes it into your runs (one at a time). Elites, warlords and final bosses drop them.</p>
+            </div>
             <div id="artifact-inventory" class="artifact-inventory"></div>
           </div>
           <div class="profile-panel" data-panel="prestige">

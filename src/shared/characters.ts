@@ -355,6 +355,8 @@ export function playerStats(upgrades: Upgrades, character: CharacterId, prestige
     /** Multiplier on the ultimate's cooldown. */
     ultCooldown: 1 - a('ultimate'),
     critChance: 0.06 * lv('crit') + a('crit'),
+    /** Magic damage can crit too (Jeweled Gauntlet). */
+    magicCrit: a('magicCrit') > 0,
     lifesteal: 0.005 * lv('lifesteal') + a('omnivamp'),
     /** Most Vampirism can heal, as a share of max HP per second. */
     lifestealCap: 0.01 * lv('lifesteal') + a('omnivamp') * OMNIVAMP_CAP,

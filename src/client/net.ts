@@ -1,3 +1,4 @@
+import type { ArtifactId } from '../shared/artifacts';
 import type { ClientMessage, ProfileState, RoomInfo, RoomRef, ServerMessage, Snapshot } from '../shared/protocol';
 
 /**
@@ -11,6 +12,8 @@ export class Connection {
   onProfile: (profile: ProfileState) => void = () => {};
   onRooms: (rooms: RoomInfo[]) => void = () => {};
   onError: (message: string) => void = () => {};
+  /** What combining or the wheel gave you. */
+  onArtifact: (id: ArtifactId, how: 'combine' | 'spin') => void = () => {};
   onSnapshot: (snap: Snapshot) => void = () => {};
   onClosed: () => void = () => {};
 
@@ -40,6 +43,9 @@ export class Connection {
           break;
         case 'error':
           this.onError(msg.message);
+          break;
+        case 'artifact':
+          this.onArtifact(msg.id, msg.how);
           break;
       }
     };

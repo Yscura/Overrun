@@ -16,6 +16,7 @@ import { MAX_PLAYERS } from '../shared/constants';
 import { MODES } from '../shared/modes';
 import { ENEMY_TYPES, EnemyType, MISSIONS } from '../shared/enemies';
 import { MAPS, inZone, mapBossName } from '../shared/maps';
+import { mapIconSvg } from './mapIcons';
 import { EVENTS, QUESTS } from '../shared/objectives';
 import { DEV_NAME, type ArtifactFind, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot } from '../shared/protocol';
 import {
@@ -477,14 +478,19 @@ export class UI {
         const locked = i >= snap.unlocked;
         const card = el('button', `map-card${i === snap.map ? ' selected' : ''}${locked ? ' locked' : ''}${this.amHost ? '' : ' readonly'}`) as HTMLButtonElement;
         card.disabled = locked || !this.amHost;
-        if (!this.amHost && !locked) card.title = 'The host picks the map';
-        const title = el('div', 'map-card-title');
-        title.append(el('span', 'map-card-name', map.name), el('span', 'map-card-tag', map.arena ? 'Boss arena' : map.lava ? 'Closing lava' : 'Open field'));
+        // The details (description, boss, kind of finale) are in the hover text, to keep the cards small.
+        const kind = map.arena ? 'Boss arena' : map.lava ? 'Closing lava' : 'Open field';
+        card.title = locked
+          ? `Beat ${MAPS[i - 1].name} to unlock`
+          : `${map.subtitle}\nFinal ${map.twin !== undefined ? 'bosses' : 'boss'}: ${mapBossName(map)} (${kind})${this.amHost ? '' : '\nThe host picks the map'}`;
+        const icon = el('div', 'map-card-icon');
+        icon.innerHTML = mapIconSvg(map, 54); // Static SVG.
+        if (locked) icon.append(el('span', 'map-card-lock', '🔒'));
         card.append(
-          title,
-          el('div', 'map-card-sub', locked ? `Beat ${MAPS[i - 1].name} to unlock` : map.subtitle),
-          el('div', 'map-card-boss', locked ? 'Final boss: ???' : `Final ${map.twin !== undefined ? 'bosses' : 'boss'}: ${mapBossName(map)}`),
-          el('div', 'map-card-difficulty', `Enemies ×${map.difficulty} · Prestige ×${map.prestigeReward}`),
+          icon,
+          el('div', 'map-card-name', map.name),
+          el('div', 'map-card-difficulty', `Enemies ×${map.difficulty}`),
+          el('div', 'map-card-difficulty', `Prestige ×${map.prestigeReward}`),
         );
         card.addEventListener('click', () => this.onPickMap(i));
         return card;
@@ -582,7 +588,7 @@ export class UI {
       toast.style.setProperty('--tier', tierColor(def.tier));
       const text = el('div', 'loot-toast-text');
       text.append(
-        el('div', 'loot-toast-label', find.salvage ? `Duplicate · salvaged for ${find.salvage} gold` : `New ${TIERS[def.tier].name.toLowerCase()} artifact!`),
+        el('div', 'loot-toast-label', `${TIERS[def.tier].name} artifact!`),
         el('div', 'loot-toast-name', def.name),
         el('div', 'loot-toast-effects', artifactSummary(find.id)),
       );
@@ -1225,10 +1231,10 @@ export class UI {
       const row = el('div', 'postgame-loot-row');
       for (const find of loot) {
         const def = ARTIFACTS[find.id];
-        const card = el('div', `postgame-loot-card${find.salvage ? ' salvaged' : ''}`);
+        const card = el('div', 'postgame-loot-card');
         card.style.setProperty('--tier', tierColor(def.tier));
         const text = el('div', 'postgame-loot-text');
-        text.append(el('div', 'postgame-loot-name', def.name), el('div', 'postgame-loot-note', find.salvage ? `Duplicate: +${find.salvage} gold` : `New · ${TIERS[def.tier].name}`));
+        text.append(el('div', 'postgame-loot-name', def.name), el('div', 'postgame-loot-note', TIERS[def.tier].name));
         card.append(artifactIcon(find.id, 34), text);
         this.tip(card, () => this.artifactTip(find.id));
         row.append(card);

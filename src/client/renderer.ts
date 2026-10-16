@@ -1003,6 +1003,25 @@ export class GameRenderer {
           .stroke({ width: 1.5, color: 0xfff59d, alpha: 0.25 });
         continue;
       }
+      if (kind === ZoneKind.Sanctuary) {
+        // An artifact's sanctuary: a shimmering golden dome (players inside can't be hurt).
+        const t = performance.now() / 1000;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 5 + id);
+        venom
+          .circle(x, y, r)
+          .fill({ color: 0xffe082, alpha: 0.16 + 0.05 * pulse })
+          .circle(x, y, r)
+          .stroke({ width: 5, color: 0xfff8e1, alpha: 0.7 + 0.25 * pulse })
+          .circle(x, y, r - 9)
+          .stroke({ width: 2, color: 0xffd54f, alpha: 0.5 });
+        // Light lines sweeping around the dome.
+        for (let k = 0; k < 6; k++) {
+          const a = t * 0.8 + (k * Math.PI) / 3;
+          venom.moveTo(x + Math.cos(a) * r * 0.25, y + Math.sin(a) * r * 0.25).lineTo(x + Math.cos(a) * (r - 10), y + Math.sin(a) * (r - 10));
+        }
+        venom.stroke({ width: 2, color: 0xfff59d, alpha: 0.3 });
+        continue;
+      }
       if (kind === ZoneKind.Fire) {
         const flicker = 0.5 + 0.5 * Math.sin(performance.now() / 90 + id);
         venom.circle(x, y, r).fill({ color: 0xff6d00, alpha: 0.14 + 0.06 * flicker }).circle(x, y, r * 0.55).fill({ color: 0xffab40, alpha: 0.1 });

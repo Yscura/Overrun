@@ -1,5 +1,6 @@
 // Artifacts: relics that drop from elites, warlords and final bosses and are kept between runs. Before a run you can
-// equip one (in the lobby) for its bonus. Everything about them lives in this file: add, rename or rebalance an
+// equip one (in the lobby) for its bonus. Duplicates stack in your inventory, and FORGE.count of one tier combine into
+// a random one of the next tier; the wheel (WHEEL) sells random ones for gold. Everything about them lives in this file: add, rename or rebalance an
 // artifact by editing its entry in ARTIFACTS; its description is written from its effects. Drop rates are in DROPS.
 // Profiles save artifacts by their key (e.g. `glassEdge`), so rename one by changing its `name`, not its key.
 
@@ -8,11 +9,11 @@ import type { ChoiceId } from './upgrades';
 export type Tier = 'common' | 'rare' | 'epic' | 'legendary';
 export const TIER_IDS: Tier[] = ['common', 'rare', 'epic', 'legendary'];
 
-export const TIERS: Record<Tier, { name: string; color: number; salvage: number }> = {
-  common: { name: 'Common', color: 0xb0bec5, salvage: 10 },
-  rare: { name: 'Rare', color: 0x42a5f5, salvage: 25 },
-  epic: { name: 'Epic', color: 0xb388ff, salvage: 60 },
-  legendary: { name: 'Legendary', color: 0xffb300, salvage: 150 },
+export const TIERS: Record<Tier, { name: string; color: number }> = {
+  common: { name: 'Common', color: 0xb0bec5 },
+  rare: { name: 'Rare', color: 0x42a5f5 },
+  epic: { name: 'Epic', color: 0xb388ff },
+  legendary: { name: 'Legendary', color: 0xffb300 },
 };
 
 /**
@@ -36,8 +37,10 @@ export interface ArtifactEffects {
   regen?: number;
   /** Heal this share of all damage dealt (shares Vampirism's per-second cap, which it also raises). */
   omnivamp?: number;
-  /** Crit chance (physical damage). */
+  /** Crit chance (physical damage, and magic too with `magicCrit`). */
   crit?: number;
+  /** 1: magic damage can crit as well. */
+  magicCrit?: number;
   area?: number;
   duration?: number;
   /** Extra projectiles (and blades) on weapons. */
@@ -83,6 +86,8 @@ export interface ArtifactActive {
   blink?: number;
   /** Untouchable for this long. */
   invuln?: number;
+  /** A dome on the ground for a while: every player inside is untouchable. */
+  sanctuary?: { radius: number; duration: number };
 }
 
 export interface ArtifactDef {
@@ -202,6 +207,21 @@ const ARTIFACT_DEFS = {
     active: { name: 'Rally the Line', cooldown: 60, rally: { radius: 350, heal: 0.3 } },
   },
   bloodpactChalice: { name: 'Bloodpact Chalice', tier: 'legendary', icon: 'hex', flavor: 'Drink deep. Pay later.', effects: { damage: 0.3, omnivamp: 0.035, maxHpPct: -0.25 } },
+  jeweledGauntlet: {
+    name: 'Jeweled Gauntlet',
+    tier: 'legendary',
+    icon: 'arcana',
+    flavor: 'A gem for every spell, and every spell finds the weak spot.',
+    effects: { magicCrit: 1, crit: 0.05 },
+  },
+  aegisOfDawn: {
+    name: 'Aegis of Dawn',
+    tier: 'legendary',
+    icon: 'armor',
+    flavor: 'Nothing gets in. Nothing at all.',
+    effects: { armor: 0.06, maxHpPct: 0.1 },
+    active: { name: 'Sanctuary', cooldown: 50, sanctuary: { radius: 230, duration: 3 } },
+  },
   titansHeart: { name: "Titan's Heart", tier: 'legendary', icon: 'armor', flavor: 'Still beating, after all this time.', effects: { maxHp: 150, armor: 0.1, speed: -0.08 } },
   eyeOfTheStorm: {
     name: 'Eye of the Storm',
@@ -238,9 +258,30 @@ export const DROPS = {
   boss: { chance: 1, weights: { common: 0, rare: 50, epic: 38, legendary: 12 } },
   /** Each map after the first makes better tiers likelier: tier i's weight is multiplied by (1 + mapLuck * map)^i. */
   mapLuck: 0.25,
-  /** Artifacts you don't own yet are this many times likelier to be picked within a tier (duplicates become gold). */
+  /** Artifacts you don't own yet are this many times likelier to be picked within a tier. */
   newBias: 3,
 };
+
+/** Combining: this many artifacts of one tier become one random artifact of the next tier up. */
+export const FORGE = { count: 5 };
+
+/** The tier above, or null for legendary (the top). */
+export function nextTier(tier: Tier): Tier | null {
+  return TIER_IDS[TIER_IDS.indexOf(tier) + 1] ?? null;
+}
+
+/** The wheel: a spin costs `cost` gold and lands on a tier with these odds (relative weights), then an artifact of it. */
+export const WHEEL = { cost: 1000, weights: { common: 52, rare: 30, epic: 14, legendary: 4 } as Record<Tier, number> };
+
+/** Rolls the wheel's tier. */
+export function rollWheel(random = Math.random): Tier {
+  let roll = random() * TIER_IDS.reduce((sum, t) => sum + WHEEL.weights[t], 0);
+  for (const t of TIER_IDS) {
+    roll -= WHEEL.weights[t];
+    if (roll < 0) return t;
+  }
+  return TIER_IDS[0];
+}
 export type DropSource = 'champion' | 'warlord' | 'boss';
 
 /** Rolls a tier for a drop from `source` on map `mapIndex`. */
@@ -283,7 +324,8 @@ const EFFECT_TEXT: { [K in keyof Required<ArtifactEffects>]: { text: (v: number)
   armor: { text: (v) => `${sign(v)}${pct(v)} damage reduction` },
   regen: { text: (v) => `${sign(v)}${Math.abs(v)} HP per second` },
   omnivamp: { text: (v) => `Heal ${pct(v)} of all damage dealt` },
-  crit: { text: (v) => `${sign(v)}${pct(v)} crit chance (physical)` },
+  crit: { text: (v) => `${sign(v)}${pct(v)} crit chance` },
+  magicCrit: { text: () => 'Magic damage can crit too' },
   area: { text: (v) => `${sign(v)}${pct(v)} area` },
   duration: { text: (v) => `${sign(v)}${pct(v)} effect duration` },
   projectiles: { text: (v) => `${sign(v)}${Math.abs(v)} projectile${Math.abs(v) === 1 ? '' : 's'}` },
@@ -319,6 +361,7 @@ export function describeActive(id: ArtifactId): string[] {
   }
   if (a.stun) lines.push(`Stun enemies ${a.blast && a.blast.radius === a.stun.radius ? 'hit' : 'around you'} for ${a.stun.duration}s`);
   if (a.heal) lines.push(`Heal ${pct(a.heal)} of your max HP`);
+  if (a.sanctuary) lines.push(`Raise a dome for ${a.sanctuary.duration}s: every player inside is untouchable`);
   if (a.rally) lines.push(`You and nearby allies heal ${pct(a.rally.heal)} of max HP, and fallen allies get back up`);
   if (a.guard) lines.push(`Take ${pct(a.guard.reduction)} less damage for ${a.guard.duration}s`);
   if (a.frenzy) {

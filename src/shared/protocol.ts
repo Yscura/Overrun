@@ -49,6 +49,10 @@ export type ClientMessage =
   | { t: 'unlock'; character: CharacterId }
   /** Equip an artifact you own for your next runs (null: none). In a room, only before the run starts. */
   | { t: 'equip'; artifact: ArtifactId | null }
+  /** Combine FORGE.count artifacts of one tier (repeats allowed, if you have that many) into one of the next tier. */
+  | { t: 'combine'; artifacts: ArtifactId[] }
+  /** Spin the artifact wheel (costs WHEEL.cost gold). */
+  | { t: 'spin' }
   /** Testing cheats, only for a player named "dev" (see DevAction). */
   | { t: 'dev'; action: DevAction }
   /** Pause the game for everyone. */
@@ -80,6 +84,8 @@ export type ServerMessage =
   | { t: 'profile'; profile: ProfileState }
   | { t: 'rooms'; rooms: RoomInfo[] }
   | { t: 'error'; message: string }
+  /** What combining or spinning the wheel gave you (your profile follows). */
+  | { t: 'artifact'; id: ArtifactId; how: 'combine' | 'spin' }
   | Snapshot;
 
 /** A room on the server: its code (to share with friends) and mode. */
@@ -130,15 +136,14 @@ export interface ProfileState {
   records: Partial<Record<CharacterId, HeroRecord>>;
   /** Bosses you've reached at least once, by name: their bestiary entries are unlocked. */
   bosses: string[];
-  /** Artifacts you own, and the one you take into runs. */
-  artifacts: ArtifactId[];
+  /** Your artifact inventory (how many of each you have), and the one you take into runs. */
+  inventory: Partial<Record<ArtifactId, number>>;
   equipped: ArtifactId | null;
 }
 
-/** An artifact someone found. `salvage`: they already had it, so it became this much gold (0 if it's new). */
+/** An artifact someone found. */
 export interface ArtifactFind {
   id: ArtifactId;
-  salvage: number;
 }
 
 export interface PlayerState {
@@ -378,7 +383,8 @@ export const ProjectileKind = { Bolt: 0, Knife: 1, Shuriken: 2, Hex: 3, BigShuri
 /** Allies some heroes call in. */
 export const SummonKind = { Wolf: 0, Bear: 1 } as const;
 /** Things players leave on the ground. */
-export const ZoneKind = { Venom: 0, Mine: 1, Fire: 2, Holy: 3, Toxic: 4 } as const;
+/** Sanctuary: an artifact's dome; players inside are untouchable. */
+export const ZoneKind = { Venom: 0, Mine: 1, Fire: 2, Holy: 3, Toxic: 4, Sanctuary: 5 } as const;
 /** Telegraphed danger zones: a bomb circle or a charger's path. */
 /**
  * Telegraphed attacks, all [id, kind, x, y, a, b, c, progress] in the snapshot:
