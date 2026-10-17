@@ -167,10 +167,11 @@ async function main() {
     buffer.push(snap);
     cues.onSnapshot(latest, snap, local, myId);
     latest = snap;
-    const wallsKey = `${snap.map}:${snap.arena?.open ? 'open' : 'shut'}`;
+    const den = !!snap.finale && snap.finale.stage !== 'crumble';
+    const wallsKey = `${snap.map}:${snap.arena?.open ? 'open' : 'shut'}:${den}`;
     if (wallsKey !== wallsFor) {
       const map = MAPS[snap.map];
-      walls = new WallIndex(mapWalls(map, !snap.arena?.open), map.width, map.height);
+      walls = new WallIndex(mapWalls(map, !snap.arena?.open, den), map.width, map.height);
       wallsFor = wallsKey;
     }
     if (snap.me && snap.me.epoch !== epoch) {
@@ -201,8 +202,10 @@ async function main() {
     ui.update(snap, myId);
     // The map's music during a run (not in the lobby or on the results), quieter while paused. The boss theme takes
     // over when the fight starts: someone walks into the arena (or the boss shows up, on maps without one).
+    // It fades out while a final boss dies, and stays quiet while the caldera falls apart (until the dragon comes).
     const bossTime = !!snap.bossFight;
-    music.update(snap.phase === 'playing' ? MAPS[snap.map] : null, bossTime);
+    const hush = !!snap.dying || (!!snap.finale && snap.finale.stage !== 'den');
+    music.update(snap.phase === 'playing' && !hush ? MAPS[snap.map] : null, bossTime);
     music.setPaused(snap.pause?.kind === 'menu');
     chat.dock(snap.phase === 'lobby' ? ui.lobbyChatDock : null);
   };

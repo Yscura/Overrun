@@ -36,6 +36,11 @@ export const SLOWMO = { start: 0.15, duration: 1.2 };
  * A final boss's entrance: the game drops to `speed`, holds there for `hold` seconds while the camera shows the
  * boss, then eases back to full speed over `ease` seconds as the camera returns. All in real seconds.
  */
+/**
+ * A final boss's death: the camera holds on the corpse while it shakes; it breaks apart at `shatter` seconds, and the
+ * victory (or what comes next) follows at `total`.
+ */
+export const BOSS_DEATH = { shatter: 2.6, total: 4.2 };
 export const BOSS_INTRO = { speed: 0.12, hold: 2.3, ease: 1, panIn: 0.5, panOut: 0.6 };
 
 // Health crates: shoot one to break it, then walk over the heart it drops.

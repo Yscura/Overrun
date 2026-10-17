@@ -15,7 +15,7 @@ import { ARTIFACTS, TIERS, artifact, artifactSummary, describeActive, describeAr
 import { MAX_PLAYERS } from '../shared/constants';
 import { MODES } from '../shared/modes';
 import { ENEMY_TYPES, EnemyType, MISSIONS } from '../shared/enemies';
-import { MAPS, inZone, mapBossName } from '../shared/maps';
+import { MAPS, inZone, mapBossName, onFinaleGround } from '../shared/maps';
 import { mapIconSvg } from './mapIcons';
 import { EVENTS, QUESTS } from '../shared/objectives';
 import { DEV_NAME, type ArtifactFind, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot } from '../shared/protocol';
@@ -512,7 +512,7 @@ export class UI {
         const locked = !heroAvailable(id, unlocked);
         const card = el('button', `hero-tile${id === me.character ? ' selected' : ''}${id === viewing ? ' viewing' : ''}${locked ? ' locked' : ''}`) as HTMLButtonElement;
         card.append(portrait(id, me.color, 'portrait hero-tile-portrait'), el('div', 'hero-tile-name', c.name), el('div', 'hero-tile-title', c.title));
-        if (locked) card.append(el('span', 'hero-tile-lock', `${c.unlockCost} gold`));
+        if (locked) card.append(el('span', 'hero-tile-lock', c.secret ? 'Locked: ???' : `${c.unlockCost} gold`));
         card.addEventListener('click', () => {
           this.viewing = id;
           // Locked in: you can look, but not swap until you unlock.
@@ -609,7 +609,9 @@ export class UI {
     const locked = !heroAvailable(id, unlocked);
 
     this.heroDetail.replaceChildren(...heroDetail(id, me.color));
-    if (locked) {
+    if (locked && c.secret) {
+      this.heroDetail.append(el('p', 'prestige-hint', 'This hero can only be earned. How is a secret.'));
+    } else if (locked) {
       const unlock = el('button', 'secondary hero-unlock', `Unlock for ${c.unlockCost} gold${gold < c.unlockCost! ? ` (you have ${gold})` : ''}`) as HTMLButtonElement;
       unlock.addEventListener('click', () => this.onOpenProfile());
       this.heroDetail.append(unlock);
@@ -736,6 +738,8 @@ export class UI {
     let urgent = false;
     const arena = snap.arena;
     const lava = snap.lava;
+    // The caldera's finale: only its stones and den are safe now.
+    const sunk = snap.finale && snap.finale.stage !== 'crumble' ? MAPS[snap.map].finale : undefined;
     const outsideArena = arena && arena.state !== 'idle' && me && !me.inArena && !me.downed;
     if (outsideArena) {
       // The fire is sweeping in: are you in it yet?
@@ -743,9 +747,9 @@ export class UI {
       const def = MAPS[snap.map].arena;
       const burning = !!def && !inZone(def, me.x, me.y, arena.safeR);
       text = burning ? "You're burning! Get to the arena!" : fight ? 'Join the fight! The fire is closing in.' : 'The gates are open! Get to the arena.';
-    } else if (lava && me && !me.downed && Math.hypot(me.x - lava.x, me.y - lava.y) > lava.r) {
+    } else if (lava && me && !me.downed && (sunk ? !onFinaleGround(sunk, me.x, me.y) : Math.hypot(me.x - lava.x, me.y - lava.y) > lava.r)) {
       urgent = true;
-      text = lava.closing ? "You're in the lava! Get to the middle!" : "You're in the lava! Get out!";
+      text = sunk ? "You're in the lava! Jump to a stone!" : lava.closing ? "You're in the lava! Get to the middle!" : "You're in the lava! Get out!";
     } else if (lava?.closing) {
       urgent = true;
       text = `The lava is closing in! ${mapBossName(MAPS[snap.map])} ${MAPS[snap.map].twin ? 'arrive' : 'arrives'} when it stops.`;
@@ -1204,7 +1208,7 @@ export class UI {
       ? `${result.boss} defeated in ${formatTime(result.time)}`
       : `Overrun at ${formatTime(result.time)}`;
     this.survived.textContent = result.victory
-      ? `You defeated ${result.boss} in ${formatTime(result.time)}!` + (result.unlockedMap ? ` ${result.unlockedMap} is now unlocked.` : '')
+      ? `You defeated ${result.boss} in ${formatTime(result.time)}!` + (result.unlockedMap ? ` ${result.unlockedMap} is now unlocked.` : '') + (result.feats.length ? ` ${result.feats.join(' ')}` : '')
       : `Your team survived ${formatTime(result.time)} and reached level ${result.level}.`;
 
     // The run in numbers, then what everyone takes home.

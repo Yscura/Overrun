@@ -62,6 +62,13 @@ export class SoundCues {
         case 'roar':
           sound.play('bossRoar');
           break;
+        case 'shatter':
+          sound.play('shatter');
+          sound.play('explode');
+          break;
+        case 'quake':
+          sound.play('rumble');
+          break;
         case 'voice':
           // The whisper, the laugh and the demons' growls fill the arena; the hiss comes from the serpent.
           if (fx.snd !== 'hiss') sound.play(fx.snd);

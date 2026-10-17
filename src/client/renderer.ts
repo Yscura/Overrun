@@ -1,7 +1,7 @@
 import { Application, BitmapFont, BitmapText, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { TIERS, TIER_IDS } from '../shared/artifacts';
 import { CHARACTER_IDS, type CharacterId, REWIND_SECONDS } from '../shared/characters';
-import { BOMB, BOSS_INTRO, COIN, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
+import { BOMB, BOSS_DEATH, BOSS_INTRO, COIN, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
 import { DAMAGE_COLORS, DAMAGE_TYPES, type DamageType } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
 import { NO_ROTATE, drawEnemy, shade } from './enemyArt';
@@ -30,6 +30,10 @@ import {
   SUMMON_STRIDE,
   SummonKind,
   AFFIX_SHIFT,
+  AFFIX_MASK,
+  BossFlag,
+  FACING_SHIFT,
+  FACING_STEPS,
 } from '../shared/protocol';
 import { fieldRadius, orbitLayout } from '../shared/characters';
 import type { Sample } from './snapshots';
@@ -60,6 +64,8 @@ interface DamageNumber {
   life: number;
   vx: number;
 }
+/** The Dragonmancer's dragon: fiery orange, so it's never mistaken for Mordak. */
+const DRAGON_FORM_COLOR = 0xe65100;
 /** Off-screen objective arrows stay this far inside the screen edge. */
 const POINTER_MARGIN = 40;
 /** ...and are drawn this many times the aim arrow's size. */
@@ -108,6 +114,10 @@ interface PlayerView {
   root: Container;
   bladeLayer: Container;
   blades: Sprite[];
+  /** The Ember Halo's fireballs. */
+  embers: Sprite[];
+  /** In Dragon Form: drawn as a dragon instead. */
+  dragon: Sprite | null;
   /** On the ground: a shadow and two feet. */
   shadow: Graphics;
   feet: Graphics;
@@ -211,6 +221,9 @@ export class GameRenderer {
   private mapLayer = new Container();
   private mapIndex = -1;
   private arenaRing = new Graphics();
+  /** The Ashen Caldera's finale: the stepping stones and the dragon's den, drawn once they appear. */
+  private finaleGround = new Graphics();
+  private finaleDrawn = false;
   /** The arena gate's doors, and how far open they're drawn (-1: not drawn yet on this map). */
   private gate = new Graphics();
   private gateAmount = 0;
@@ -424,6 +437,9 @@ export class GameRenderer {
       this.lavaMask = new Graphics();
       lava.mask = this.lavaMask;
       this.mapLayer.addChild(lava, this.lavaMask);
+      this.finaleGround.clear();
+      this.finaleDrawn = false;
+      this.mapLayer.addChild(this.finaleGround);
     }
     this.mapLayer.addChild(outside, drawWalls(map), decor.top);
     this.gateDrawn = -1;
@@ -450,10 +466,15 @@ export class GameRenderer {
     const lava = snap.lava;
     if (!lava || !this.lavaMask) return;
     const map = MAPS[snap.map];
-    if (lava.r !== this.lavaDrawnR) {
-      this.lavaDrawnR = lava.r;
-      this.lavaMask.clear().rect(-50, -50, map.width + 100, map.height + 100).fill(0xffffff).circle(lava.x, lava.y, lava.r).cut();
+    const sunk = !!snap.finale && snap.finale.stage !== 'crumble';
+    const key = sunk ? -2 : lava.r;
+    if (key !== this.lavaDrawnR) {
+      this.lavaDrawnR = key;
+      this.lavaMask.clear().rect(-50, -50, map.width + 100, map.height + 100).fill(0xffffff);
+      if (!sunk) this.lavaMask.circle(lava.x, lava.y, lava.r).cut();
     }
+    this.renderFinale(snap);
+    if (sunk) return;
     const flicker = 0.5 + 0.5 * Math.sin(performance.now() / 90);
     this.arenaRing
       .circle(lava.x, lava.y, lava.r + 6)
@@ -465,6 +486,102 @@ export class GameRenderer {
       const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
       this.arenaRing.circle(lava.x, lava.y, map.lava.final).stroke({ width: 5, color: 0xffd180, alpha: 0.25 + 0.4 * pulse });
     }
+  }
+
+  /**
+   * The Ashen Caldera's finale. Shaking: glowing cracks spread across the ground. Then the stepping stones and the
+   * dragon's den (with its pillars) rise out of the lava, drawn once.
+   */
+  private renderFinale(snap: Snapshot): void {
+    const finale = MAPS[snap.map].finale;
+    const stage = snap.finale?.stage;
+    if (!finale || !stage) {
+      if (this.finaleDrawn) {
+        this.finaleGround.clear();
+        this.finaleDrawn = false;
+      }
+      return;
+    }
+    if (stage === 'crumble') {
+      // Cracks reaching out from the heart as it shakes apart.
+      const grow = Math.min(1, snap.finale!.t / 3.5);
+      const heart = finale.stones[0];
+      for (let i = 0; i < 14; i++) {
+        let x = heart.x;
+        let y = heart.y;
+        let a = (i / 14) * Math.PI * 2 + i * 0.37;
+        const steps = Math.ceil(9 * grow);
+        for (let k = 0; k < steps; k++) {
+          a += Math.sin(i * 7.1 + k * 3.3) * 0.5;
+          const nx = x + Math.cos(a) * 80;
+          const ny = y + Math.sin(a) * 80;
+          this.arenaRing.moveTo(x, y).lineTo(nx, ny).stroke({ width: 9, color: 0xff6d00, alpha: 0.35 }).moveTo(x, y).lineTo(nx, ny).stroke({ width: 3, color: 0xffd180, alpha: 0.9 });
+          x = nx;
+          y = ny;
+        }
+      }
+      return;
+    }
+    if (this.finaleDrawn) return;
+    this.finaleDrawn = true;
+    const g = this.finaleGround.clear();
+    // First, a clean sea of lava over the field's floating crusts (so the stones are the only rock to stand on).
+    const map = MAPS[snap.map];
+    g.rect(0, 0, map.width, map.height).fill(0xd84315);
+    for (let i = 0; i < 260; i++) {
+      const x = ((i * 7919) % 997) / 997;
+      const y = ((i * 104729) % 991) / 991;
+      g.ellipse(x * map.width, y * map.height, 70 + ((i * 37) % 110), 30 + ((i * 53) % 55)).fill({ color: i % 3 ? 0xff9100 : 0xffab40, alpha: 0.3 });
+    }
+    for (let i = 0; i < 180; i++) {
+      const x = ((i * 6007) % 1009) / 1009;
+      const y = ((i * 7741) % 1013) / 1013;
+      g.circle(x * map.width, y * map.height, 3 + (i % 5)).fill({ color: 0xffe0b2, alpha: 0.6 });
+    }
+    const rock = (x: number, y: number, r: number, seed: number, floor: number, top: number) => {
+      const pts: number[] = [];
+      const n = 11;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        const w = r * (0.9 + 0.12 * Math.sin(seed * 3.7 + i * 2.3));
+        pts.push(x + Math.cos(a) * w, y + Math.sin(a) * w);
+      }
+      g.poly(pts).fill(floor).stroke({ width: 6, color: 0xff6d00, alpha: 0.55 }).poly(pts).stroke({ width: 2, color: 0xffd180, alpha: 0.9 });
+      g.ellipse(x - r * 0.2, y - r * 0.25, r * 0.45, r * 0.22).fill({ color: top, alpha: 0.5 });
+    };
+    // The den: a great slab of dark rock, scorched and littered with bones.
+    const den = finale.den;
+    rock(den.x, den.y, den.r, 1, 0x2e211c, 0x4a362e);
+    g.circle(den.x, den.y, den.r * 0.7).stroke({ width: 3, color: 0x6d4c41, alpha: 0.5 });
+    for (let i = 0; i < 9; i++) {
+      const a = i * 0.7 + 0.3;
+      const d = den.r * (0.25 + ((i * 0.37) % 0.6));
+      const x = den.x + Math.cos(a) * d;
+      const y = den.y + Math.sin(a) * d;
+      // Scorch marks and old bones.
+      g.ellipse(x, y, 40, 22).fill({ color: 0x120a07, alpha: 0.5 });
+      g.moveTo(x - 14, y - 4).lineTo(x + 14, y + 4).stroke({ width: 5, color: 0xd7ccc8, alpha: 0.75, cap: 'round' });
+      g.circle(x - 15, y - 5, 4).circle(x + 15, y + 5, 4).fill({ color: 0xd7ccc8, alpha: 0.75 });
+    }
+    // Claw marks.
+    for (let k = 0; k < 3; k++) {
+      const x = den.x - 60 + k * 12;
+      g.moveTo(x, den.y - 120).lineTo(x + 30, den.y - 40).stroke({ width: 4, color: 0x120a07, alpha: 0.6, cap: 'round' });
+    }
+    // Its pillars: columns of basalt.
+    for (const p of finale.pillars) {
+      const cx = p.x + p.w / 2;
+      const cy = p.y + p.h / 2;
+      const pts: number[] = [];
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+        pts.push(cx + Math.cos(a) * p.w * 0.62, cy + Math.sin(a) * p.h * 0.62);
+      }
+      g.poly(pts).fill(0x3e2c26).stroke({ width: 3, color: 0x1a110e });
+      g.circle(cx - p.w * 0.15, cy - p.h * 0.15, p.w * 0.22).fill({ color: 0x6d5248, alpha: 0.6 });
+    }
+    // And the stepping stones.
+    finale.stones.forEach((st, i) => rock(st.x, st.y, st.r, i + 2, 0x4e3b33, 0x7a5c50));
   }
 
   /**
@@ -539,6 +656,28 @@ export class GameRenderer {
    * Timed in real seconds, like the server's slow motion.
    */
   private intro: { x: number; y: number; start: number } | null = null;
+  /** How far the camera has moved over to a dying boss (0 to 1), and the last spot it held on. */
+  private focus = 0;
+  private focusAt: Point = { x: 0, y: 0 };
+  /** The ground shaking: how hard, fading away. */
+  private quake = 0;
+
+  /**
+   * A final boss's death: the camera eases over to the corpse and holds there, then back. And whenever the ground
+   * quakes, everything shakes.
+   */
+  private deathCamera(cam: Point, snap: Snapshot, realDt: number): Point {
+    const dying = snap.dying;
+    if (dying) this.focusAt = dying;
+    this.focus = Math.max(0, Math.min(1, this.focus + (dying ? realDt / 0.8 : -realDt / 0.8)));
+    const k = this.focus * this.focus * (3 - 2 * this.focus);
+    this.quake = Math.max(0, this.quake - realDt * 14);
+    const shake = this.quake;
+    return {
+      x: cam.x + (this.focusAt.x - cam.x) * k + (Math.random() - 0.5) * shake,
+      y: cam.y + (this.focusAt.y - cam.y) * k + (Math.random() - 0.5) * shake,
+    };
+  }
 
   private introCamera(follow: Point): Point {
     if (!this.intro) return follow;
@@ -562,6 +701,48 @@ export class GameRenderer {
 
   addFx(fx: Fx): void {
     switch (fx.k) {
+      case 'quake':
+        this.quake = Math.max(this.quake, 12 * fx.strength);
+        break;
+      case 'breath': {
+        // A gout of flame: a cone that flares out and fades, hot at its heart.
+        const half = fx.arc / 2;
+        this.addEffect(fx.x, fx.y, 0.32, (g, p) => {
+          const reach = fx.r * (0.55 + 0.45 * p);
+          const cone = (r: number, w: number) => g.moveTo(0, 0).arc(0, 0, r, fx.a - w, fx.a + w).lineTo(0, 0);
+          cone(reach, half).fill({ color: 0xff3d00, alpha: 0.32 * (1 - p) });
+          cone(reach * 0.8, half * 0.75).fill({ color: 0xff9100, alpha: 0.4 * (1 - p) });
+          cone(reach * 0.55, half * 0.45).fill({ color: 0xffe082, alpha: 0.5 * (1 - p) });
+        });
+        break;
+      }
+      case 'shatter': {
+        // The corpse breaks apart: chunks of it fly out and tumble away, with a flash and a cloud of embers.
+        this.burst(fx.x, fx.y, fx.c, 90);
+        this.burst(fx.x, fx.y, 0xffab40, 40);
+        const chunks = Array.from({ length: 16 }, (_, i) => ({
+          a: (i / 16) * Math.PI * 2 + Math.random() * 0.3,
+          d: fx.r * (1.5 + Math.random() * 1.6),
+          size: fx.r * (0.18 + Math.random() * 0.2),
+          spin: (Math.random() - 0.5) * 8,
+        }));
+        this.addEffect(fx.x, fx.y, 1.6, (g, p) => {
+          const ease = 1 - (1 - p) ** 3;
+          g.circle(0, 0, fx.r * (1 + 2.5 * p)).fill({ color: 0xffffff, alpha: Math.max(0, 0.6 - p * 1.5) });
+          for (const c of chunks) {
+            const x = Math.cos(c.a) * c.d * ease;
+            const y = Math.sin(c.a) * c.d * ease;
+            const rot = c.spin * p;
+            const pts: number[] = [];
+            for (let k = 0; k < 4; k++) {
+              const a = rot + (k / 4) * Math.PI * 2 + (k % 2) * 0.4;
+              pts.push(x + Math.cos(a) * c.size * (k % 2 ? 0.6 : 1), y + Math.sin(a) * c.size * (k % 2 ? 0.6 : 1));
+            }
+            g.poly(pts).fill({ color: fx.c, alpha: 1 - p }).stroke({ width: 2, color: 0x000000, alpha: 0.6 * (1 - p) });
+          }
+        });
+        break;
+      }
       case 'ping': {
         const root = new Container();
         const marker = new Graphics();
@@ -663,7 +844,7 @@ export class GameRenderer {
       const prev = a.snap.players.find((p) => p.id === this.spectateId);
       if (target) follow = prev ? { x: lerp(prev.x, target.x, t), y: lerp(prev.y, target.y, t) } : target;
     }
-    const cam = this.introCamera(follow);
+    const cam = this.deathCamera(this.introCamera(follow), b.snap, realDt);
     this.world.position.set(Math.round(width / 2 - cam.x), Math.round(height / 2 - cam.y));
     this.background.width = width;
     this.background.height = height;
@@ -838,6 +1019,8 @@ export class GameRenderer {
     const inArena = snap.players.find((p) => p.id === myId)?.inArena;
     if (snap.arena && snap.arena.state !== 'idle' && !inArena) targets.push({ x: snap.arena.x, y: snap.arena.y, color: DANGER });
     if (snap.lava?.closing) targets.push({ x: snap.lava.x, y: snap.lava.y, color: FIRE });
+    const den = MAPS[snap.map].finale?.den;
+    if (den && snap.finale?.stage === 'path') targets.push({ x: den.x, y: den.y, color: FIRE });
     // Downed teammates who need you.
     for (const p of snap.players) if (p.downed && p.id !== myId) targets.push({ x: p.x, y: p.y, color: DOWNED_RED });
     for (const ping of this.pings) targets.push(ping);
@@ -906,21 +1089,40 @@ export class GameRenderer {
           view.facing += diff * 0.25;
         }
       }
+      // Mordak says which way he faces (his wings have to line up with where they're hit).
+      if (type === EnemyType.Mordak) view.facing = (((flags >> FACING_SHIFT) & (FACING_STEPS - 1)) / FACING_STEPS) * Math.PI * 2;
       view.sprite.rotation = NO_ROTATE.has(type) ? 0 : view.facing;
       // Winding up a charge: swell and blink as a warning.
       const windingUp = (flags & EnemyFlag.WindingUp) !== 0;
-      const affix = flags >> AFFIX_SHIFT;
-      const size = (windingUp ? 1.15 : 1) * (affix ? CHAMPION.size : 1);
+      const affix = (flags >> AFFIX_SHIFT) & AFFIX_MASK;
+      const flying = (flags & BossFlag.Flying) !== 0;
+      const dying = (flags & BossFlag.Dying) !== 0;
+      const size = (windingUp ? 1.15 : 1) * (affix ? CHAMPION.size : 1) * (flying ? 1.25 : 1);
       const bob = moving ? Math.sin(now / 75 + id) * 0.06 : 0;
       view.sprite.scale.set(size * (1 + bob), size * (1 - bob));
       // Hit: the white silhouette. Stunned: tinted icy blue.
       const white = (flags & EnemyFlag.Hit) !== 0 || (windingUp && blink);
       view.sprite.texture = white ? this.tex.enemyFlash[type] : this.tex.enemies[type];
+      if (type === EnemyType.Mordak) {
+        const wings = (flags & BossFlag.LeftWingGone ? 0 : 1) | (flags & BossFlag.RightWingGone ? 0 : 2);
+        view.sprite.texture = this.enemyTexture(type, white, this.enemyColors[type], wings);
+      }
+      // High in the air: his shadow passes over the ground below.
+      if (flying) marks.ellipse(x + 40, y + 90, ENEMY_TYPES[type].radius * 1.3, ENEMY_TYPES[type].radius * 0.6).fill({ color: 0x000000, alpha: 0.35 });
+      // Dying: it shakes harder and harder, blinking white, until it breaks apart.
+      if (dying && b.snap.dying) {
+        const p = Math.min(1, (b.snap.dying.progress * BOSS_DEATH.total) / BOSS_DEATH.shatter);
+        const amp = 2 + 14 * p * p;
+        view.sprite.position.set(x + (Math.random() - 0.5) * amp, y + (Math.random() - 0.5) * amp);
+        if (Math.random() < 0.15 + 0.5 * p) view.sprite.texture = this.tex.enemyFlash[type];
+        view.sprite.tint = 0xffccbc;
+      }
       view.sprite.tint = (flags & EnemyFlag.Stunned) !== 0 ? STUNNED : 0xffffff;
       const r = ENEMY_TYPES[type].radius;
       // Burrowed: only a mound of churning dirt shows where it is.
-      view.sprite.visible = (flags & EnemyFlag.Hidden) === 0;
-      if (flags & EnemyFlag.Hidden) {
+      const part = ENEMY_TYPES[type].behavior === 'part';
+      view.sprite.visible = (flags & EnemyFlag.Hidden) === 0 && !part;
+      if (flags & EnemyFlag.Hidden && !part) {
         marks.ellipse(x, y, r * 0.9, r * 0.6).fill({ color: 0x5d4037, alpha: 0.8 });
         for (let k = 0; k < 6; k++) {
           const a = k + now / 150;
@@ -1154,12 +1356,30 @@ export class GameRenderer {
         g.rect(0, -2, hb, 4).fill({ color: 0xfff3e0, alpha: 0.9 });
         return;
       }
+      case HazardKind.Sweep: {
+        if (progress < 1) {
+          // Winding up: the half circle it's about to sweep glows, and the shadows behind pillars are safe.
+          const wedge = () => g.moveTo(0, 0).arc(0, 0, hb, ha - Math.PI / 2, ha + Math.PI / 2).lineTo(0, 0);
+          wedge().fill({ color: FIRE, alpha: 0.06 + 0.12 * progress }).stroke({ width: 3, color: FIRE, alpha: 0.5 + 0.4 * progress });
+          this.wallShadows(g, snap, hb, 0x1a0500, 0.55);
+          g.circle(0, 0, 40 + 120 * (1 - progress)).stroke({ width: 6, color: 0xffab40, alpha: 0.4 + 0.5 * progress });
+        } else {
+          // The beam itself, sweeping.
+          g.rotation = ha;
+          const flicker = 0.5 + 0.5 * Math.sin(now / 40);
+          g.rect(0, -w / 2 - 14, hb, w + 28).fill({ color: FIRE, alpha: 0.18 + 0.1 * flicker });
+          g.rect(0, -w / 2, hb, w).fill({ color: 0xff6d00, alpha: 0.75 });
+          g.rect(0, -w / 4, hb, w / 2).fill({ color: 0xffd180, alpha: 0.9 });
+          g.rect(0, -3, hb, 6).fill({ color: 0xffffff, alpha: 0.9 });
+        }
+        return;
+      }
       case HazardKind.Glacial: {
         // Frost gathers: everything she can see gets tinted, and the shadows behind walls are safe.
         g.circle(0, 0, 1500).fill({ color: 0x80deea, alpha: 0.06 + 0.14 * progress });
         const map = MAPS[snap.map];
         const reach = 1600;
-        for (const wall of mapWalls(map, !snap.arena?.open)) {
+        for (const wall of mapWalls(map, !snap.arena?.open, !!snap.finale && snap.finale.stage !== 'crumble')) {
           if (wall.thin) continue;
           const cx = wall.x + wall.w / 2 - g.x;
           const cy = wall.y + wall.h / 2 - g.y;
@@ -1182,6 +1402,32 @@ export class GameRenderer {
         }
         g.circle(0, 0, 60 + 200 * (1 - progress)).stroke({ width: 5, color: 0xe0f7fa, alpha: 0.4 + 0.5 * progress });
         return;
+      }
+    }
+  }
+
+  /** Dark shadows behind every wall near (0, 0) of `g` (where a blast from there can't reach), out to `reach`. */
+  private wallShadows(g: Graphics, snap: Snapshot, reach: number, color: number, alpha: number): void {
+    const map = MAPS[snap.map];
+    for (const wall of mapWalls(map, !snap.arena?.open, !!snap.finale && snap.finale.stage !== 'crumble')) {
+      if (wall.thin) continue;
+      const cx = wall.x + wall.w / 2 - g.x;
+      const cy = wall.y + wall.h / 2 - g.y;
+      if (cx * cx + cy * cy > reach * reach) continue;
+      const corners = [
+        [wall.x - g.x, wall.y - g.y],
+        [wall.x + wall.w - g.x, wall.y - g.y],
+        [wall.x + wall.w - g.x, wall.y + wall.h - g.y],
+        [wall.x - g.x, wall.y + wall.h - g.y],
+      ];
+      const far = (c: number[]) => {
+        const d = Math.hypot(c[0], c[1]) || 1;
+        return [c[0] + (c[0] / d) * reach, c[1] + (c[1] / d) * reach];
+      };
+      for (let k = 0; k < 4; k++) {
+        const c1 = corners[k];
+        const c2 = corners[(k + 1) % 4];
+        g.poly([...c1, ...c2, ...far(c2), ...far(c1)]).fill({ color, alpha });
       }
     }
   }
@@ -1399,6 +1645,7 @@ export class GameRenderer {
       view.root.alpha = p.veiled ? 0.25 : p.invuln ? 0.5 : 1;
       this.drawBars(view.bars, p);
       this.updateBlades(view, p, time);
+      this.updateDragon(view, p, p.id === myId ? aim : null);
     }
     for (const [id, view] of this.playerViews) {
       if (view.seen === this.frame) continue;
@@ -1434,6 +1681,8 @@ export class GameRenderer {
       root,
       bladeLayer,
       blades: [],
+      embers: [],
+      dragon: null,
       shadow,
       feet,
       avatar,
@@ -1596,7 +1845,26 @@ export class GameRenderer {
     g.rect(-3 * s, y - 8 * s, 6 * s, 16 * s).rect(-8 * s, y - 3 * s, 16 * s, 6 * s).fill(DOWNED_RED);
   }
 
+  /** Dragon Form: a fiery dragon in place of the hero's token, facing where they aim. */
+  private updateDragon(view: PlayerView, p: PlayerState, aim: number | null): void {
+    const dragon = p.dragon && !p.downed;
+    if (dragon && !view.dragon) {
+      view.dragon = new Sprite();
+      view.dragon.anchor.set(0.5);
+      view.root.addChildAt(view.dragon, view.root.getChildIndex(view.avatar));
+    }
+    view.avatar.visible = !dragon;
+    view.feet.visible = !dragon;
+    if (!view.dragon) return;
+    view.dragon.visible = dragon;
+    if (!dragon) return;
+    view.dragon.texture = this.enemyTexture(EnemyType.Mordak, p.hurt, DRAGON_FORM_COLOR, 3);
+    view.dragon.scale.set((TOKEN_R * 2) / ENEMY_TYPES[EnemyType.Mordak].radius);
+    view.dragon.rotation = aim ?? p.aim;
+  }
+
   private updateBlades(view: PlayerView, p: PlayerState, time: number): void {
+    this.updateEmbers(view, p, time);
     const stats = p.downed ? null : orbitLayout(p.upgrades, p.character, p.artifact);
     const count = stats?.count ?? 0;
     while (view.blades.length < count) {
@@ -1613,6 +1881,27 @@ export class GameRenderer {
       const angle = time * stats.spin + (i * Math.PI * 2) / count;
       blade.position.set(Math.cos(angle) * stats.radius, Math.sin(angle) * stats.radius);
       blade.rotation = angle;
+    });
+  }
+
+  /** The Ember Halo: fireballs circling the hero, half a step off Orbit's blades (the server uses the same formula). */
+  private updateEmbers(view: PlayerView, p: PlayerState, time: number): void {
+    const stats = p.downed ? null : orbitLayout(p.upgrades, p.character, p.artifact, 'embers');
+    const count = stats?.count ?? 0;
+    while (view.embers.length < count) {
+      const ember = new Sprite(this.tex.bolt);
+      ember.anchor.set(0.5);
+      ember.tint = 0xff7043;
+      view.bladeLayer.addChild(ember);
+      view.embers.push(ember);
+    }
+    while (view.embers.length > count) view.embers.pop()!.destroy();
+    if (!stats) return;
+    const flicker = 1 + Math.sin(performance.now() / 70) * 0.08;
+    view.embers.forEach((ember, i) => {
+      const angle = time * stats.spin + ((i + 0.5) * Math.PI * 2) / count;
+      ember.position.set(Math.cos(angle) * stats.radius, Math.sin(angle) * stats.radius);
+      ember.scale.set(((stats.bladeRadius * 2.4) / Math.max(1, this.tex.bolt.width)) * flicker);
     });
   }
 
@@ -1777,12 +2066,12 @@ export class GameRenderer {
    * An enemy type's look in a color (or its white hit-flash silhouette), centered on the enemy and drawn at 2x for
    * sharpness. Kept, since maps share colors and sprites may still show the last map's.
    */
-  private enemyTexture(type: number, flash: boolean, color = ENEMY_TYPES[type].color): Texture {
-    const key = `${type}|${flash ? 'flash' : color}`;
+  private enemyTexture(type: number, flash: boolean, color = ENEMY_TYPES[type].color, variant = 3): Texture {
+    const key = `${type}|${flash ? 'flash' : color}|${variant}`;
     let texture = this.enemyTextures.get(key);
     if (texture) return texture;
     const g = new Graphics();
-    const reach = Math.ceil(drawEnemy(g, type, flash, color)) + 4;
+    const reach = Math.ceil(drawEnemy(g, type, flash, color, variant)) + 4;
     texture = this.app.renderer.generateTexture({ target: g, frame: new Rectangle(-reach, -reach, reach * 2, reach * 2), resolution: 2 });
     g.destroy();
     this.enemyTextures.set(key, texture);

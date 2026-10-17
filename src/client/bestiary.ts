@@ -25,6 +25,8 @@ const LORE: Record<string, string> = {
   Kharzak: 'An armored scorpion. Burrows and bursts out under you, sweeps its pincers and stings in a line. At 66% and 33% it hardens its shell: bait its charge into a boulder to crack it.',
   'Serpent Egg': "Laid by Sylvara around her glade. Break it before it hatches into runners.",
   Spirit: 'A lost soul called up by the Reaper. Drifts through walls; the ones that reach him heal him.',
+  Mordak:
+    'The Earth Scourger, a dragon of crimson and black who rules the world beneath the caldera. Hurls volleys of fire, sweeps his den with a beam of flame (hide behind a pillar, or dodge through it) and takes to the sky to rain fire on you. Tear off his wings and he stays on the ground.',
 };
 
 const AFFIX_TEXT: Record<string, string> = {
@@ -178,6 +180,8 @@ export function renderBestiary(seen: readonly string[], art: (type: number, colo
   const cards = ENEMY_TYPES.map((def, type) => {
     const hidden = isHidden(type);
     const card = el('button', `beast${isBossType(type) ? ' boss' : ''}${hidden ? ' hidden-entry' : ''}`);
+    // Parts of a bigger enemy (Mordak's wings) aren't creatures of their own.
+    if (def.behavior === 'part') card.style.display = 'none';
     const pic = el('div', 'beast-art');
     const img = document.createElement('img');
     img.src = art(type);

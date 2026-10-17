@@ -100,6 +100,8 @@ export interface ArtifactDef {
   effects: ArtifactEffects;
   /** Press Q to use it (otherwise it's passive only). */
   active?: ArtifactActive;
+  /** Only ever comes from one place (`unique` says where): never from drops, the wheel or the forge. */
+  unique?: string;
 }
 
 /*
@@ -231,6 +233,16 @@ const ARTIFACT_DEFS = {
     effects: { projectiles: 2, area: 0.15 },
     active: { name: 'Maelstrom', cooldown: 25, blast: { radius: 340, power: 8, push: -90 } },
   },
+  // Only from Mordak, the Earth Scourger: the reward for the true ending of the Ashen Caldera.
+  dragonsheart: {
+    name: 'Dragonsheart',
+    tier: 'legendary',
+    icon: 'vitality',
+    flavor: 'Still warm. It will never cool.',
+    effects: { damage: 0.15, maxHpPct: 0.15, regen: 1.5, area: 0.1 },
+    active: { name: 'Dragonfire', cooldown: 30, blast: { radius: 320, power: 10, push: 60 }, frenzy: { attackSpeed: 0.3, speed: 0.1, duration: 5 } },
+    unique: 'Slay Mordak, the Earth Scourger',
+  },
 } satisfies Record<string, ArtifactDef>;
 
 export type ArtifactId = keyof typeof ARTIFACT_DEFS;
@@ -298,7 +310,7 @@ export function rollTier(source: DropSource, mapIndex: number, random = Math.ran
 
 /** Picks an artifact of a tier, favoring ones not in `owned`. */
 export function rollArtifact(tier: Tier, owned: readonly string[], random = Math.random): ArtifactId {
-  const pool = ARTIFACT_IDS.filter((id) => ARTIFACTS[id].tier === tier);
+  const pool = ARTIFACT_IDS.filter((id) => ARTIFACTS[id].tier === tier && !ARTIFACTS[id].unique);
   const weight = (id: ArtifactId) => (owned.includes(id) ? 1 : DROPS.newBias);
   let roll = random() * pool.reduce((sum, id) => sum + weight(id), 0);
   for (const id of pool) {

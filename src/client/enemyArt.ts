@@ -97,13 +97,13 @@ function gloss(pen: Pen, x: number, y: number, rx: number, ry: number): void {
  * A demon's bat wings, spread to both sides and swept back: a membrane stretched between bony fingers.
  * `span` is how far out the tips reach, in body radii.
  */
-function batWings(pen: Pen, r: number, span: number, membrane: number, bone: number): void {
+function batWings(pen: Pen, r: number, span: number, membrane: number, bone: number, sides: number[] = [-1, 1]): void {
   const tips = [
     [0.2, span],
     [-0.4, span * 0.95],
     [-0.95, span * 0.72],
   ];
-  for (const side of [-1, 1]) {
+  for (const side of sides) {
     // From the shoulder up the wing's leading edge, then scalloped between the finger tips, back to the body.
     const pts = [
       r * 0.2, side * r * 0.45,
@@ -133,7 +133,7 @@ function flames(pen: Pen, x: number, outer: number, points = 9): void {
  * Draws enemy `type` into `g`, facing +x, centered on (0, 0), in `color` (its own, or the map's for it). Returns how far
  * it reaches from the center.
  */
-export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENEMY_TYPES[type].color): number {
+export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENEMY_TYPES[type].color, variant = 3): number {
   const def = ENEMY_TYPES[type];
   const r = def.radius;
   const pen: Pen = { g, flash, body: color, dark: shade(color, -0.55), light: shade(color, 0.6) };
@@ -374,6 +374,89 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
       eyes(pen, r * 0.54, r * 0.12, r * 0.065, { glow: 0xfff59d });
       return r * 1.7;
     }
+    case EnemyType.Mordak: {
+      // The Earth Scourger: a vast dragon of crimson and black. Great wings (`variant`: bit 1 the left one, bit 2 the
+      // right, so torn ones are gone), a spiked tail, scales with lava glowing between them, horns swept back from
+      // a wedge of a head, and eyes like coals.
+      detail(pen, (g) => g.circle(0, 0, r * 1.3).fill({ color: 0xff3d00, alpha: 0.1 }));
+      const sides = [variant & 1 ? -1 : 0, variant & 2 ? 1 : 0].filter((x) => x !== 0);
+      if (sides.length > 0) {
+        batWings(pen, r, 1.65, 0x4a0b0b, 0x120303, sides);
+        // Glowing veins across the membranes.
+        detail(pen, (g) => {
+          for (const side of sides) {
+            g.moveTo(0, side * r * 0.6).lineTo(-r * 0.3, side * r * 1.25).stroke({ width: 2, color: 0xff6d00, alpha: 0.5 });
+            g.moveTo(0, side * r * 0.6).lineTo(-r * 0.7, side * r * 1.1).stroke({ width: 2, color: 0xff6d00, alpha: 0.4 });
+          }
+        });
+      }
+      // The tail, tapering away behind him with a row of spikes.
+      const tail: number[] = [];
+      const tailBack: number[] = [];
+      for (let i = 0; i <= 10; i++) {
+        const t = i / 10;
+        const x = -r * (0.6 + 1.35 * t);
+        const y = Math.sin(t * Math.PI * 1.2) * r * 0.28;
+        const w = r * (0.3 * (1 - t) + 0.03);
+        tail.push(x, y - w);
+        tailBack.unshift(x, y + w);
+      }
+      solid(pen, (g) => g.poly([...tail, ...tailBack]), shade(color, -0.35), INK);
+      detail(pen, (g) => {
+        for (let i = 1; i < 9; i++) {
+          const t = i / 10;
+          const x = -r * (0.6 + 1.35 * t);
+          const y = Math.sin(t * Math.PI * 1.2) * r * 0.28;
+          const sz = r * 0.09 * (1 - t * 0.6);
+          g.poly([x + sz, y, x - sz, y - sz * 0.9, x - sz, y + sz * 0.9]).fill(0x140404);
+        }
+        // An arrowhead at the tip.
+        const tx = -r * 1.95;
+        const ty = Math.sin(Math.PI * 1.2) * r * 0.28;
+        g.poly([tx + r * 0.08, ty, tx - r * 0.12, ty - r * 0.12, tx - r * 0.2, ty, tx - r * 0.12, ty + r * 0.12]).fill(0x140404);
+      });
+      // The body.
+      solid(pen, (g) => g.ellipse(-r * 0.1, 0, r * 0.82, r * 0.62), color, INK);
+      detail(pen, (g) => {
+        // Black scales in rows, with lava showing between them.
+        for (let row = -2; row <= 2; row++) {
+          for (let col = -3; col <= 2; col++) {
+            const x = col * r * 0.24 - r * 0.05 + (row % 2 ? r * 0.12 : 0);
+            const y = row * r * 0.2;
+            if (((x + r * 0.1) / (r * 0.82)) ** 2 + (y / (r * 0.62)) ** 2 > 0.75) continue;
+            g.moveTo(x - r * 0.1, y).arc(x, y, r * 0.1, Math.PI, Math.PI * 2).stroke({ width: 3, color: 0x1a0606, alpha: 0.85 });
+          }
+        }
+        for (const [x1, y1, x2, y2] of [[-0.55, -0.28, -0.15, -0.38], [-0.45, 0.32, -0.05, 0.22], [0.05, -0.18, 0.35, -0.3]]) {
+          g.moveTo(x1 * r, y1 * r).lineTo(x2 * r, y2 * r).stroke({ width: 4, color: 0xff6d00, alpha: 0.45, cap: 'round' });
+          g.moveTo(x1 * r, y1 * r).lineTo(x2 * r, y2 * r).stroke({ width: 1.5, color: 0xffd180, alpha: 0.9, cap: 'round' });
+        }
+        // A ridge of black spines down his back.
+        for (let i = 0; i < 6; i++) {
+          const x = r * (0.45 - i * 0.2);
+          g.poly([x + r * 0.09, 0, x - r * 0.07, -r * 0.08, x - r * 0.07, r * 0.08]).fill(0x0d0202);
+        }
+      });
+      gloss(pen, -r * 0.2, -r * 0.35, r * 0.4, r * 0.12);
+      // The neck and head, out front.
+      solid(pen, (g) => g.poly([r * 0.45, -r * 0.3, r * 0.75, -r * 0.24, r * 0.75, r * 0.24, r * 0.45, r * 0.3]), shade(color, -0.15), INK);
+      // Horns sweeping back from the head.
+      for (const side of [-1, 1]) {
+        solid(pen, (g) => g.poly([r * 0.9, side * r * 0.14, r * 0.62, side * r * 0.42, r * 0.38, side * r * 0.5, r * 0.6, side * r * 0.3, r * 0.82, side * r * 0.08]), 0x1a0606, 0x000000);
+      }
+      solid(pen, (g) => g.poly([r * 0.68, -r * 0.24, r * 1.0, -r * 0.18, r * 1.28, -r * 0.07, r * 1.32, 0, r * 1.28, r * 0.07, r * 1.0, r * 0.18, r * 0.68, r * 0.24]), shade(color, 0.05), INK);
+      detail(pen, (g) => {
+        // Nostrils smoldering, and a dark brow ridge.
+        g.circle(r * 1.24, -r * 0.04, r * 0.025).fill(0xff9100);
+        g.circle(r * 1.24, r * 0.04, r * 0.025).fill(0xff9100);
+        g.moveTo(r * 0.82, -r * 0.2).lineTo(r * 1.05, -r * 0.08).moveTo(r * 0.82, r * 0.2).lineTo(r * 1.05, r * 0.08).stroke({ width: 4, color: 0x1a0606, cap: 'round' });
+      });
+      eyes(pen, r * 0.98, r * 0.12, r * 0.045, { angry: true, glow: 0xffab00 });
+      return r * 2.05;
+    }
+    case EnemyType.DragonWing:
+      // Drawn as part of Mordak; on its own it's just its health bar.
+      return r;
     case EnemyType.Sylvara: {
       // A coiled serpent: one smooth body spiraling out behind the head, thickening as it goes, with a pattern
       // down its back, a wedge-shaped head and a forked tongue.

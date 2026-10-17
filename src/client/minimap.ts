@@ -3,7 +3,7 @@ import { TIERS, TIER_IDS } from '../shared/artifacts';
 import { ENEMY_TYPES } from '../shared/enemies';
 import { MAPS, enemyColor, zoneRect } from '../shared/maps';
 import { SHRINES, ShrineKind } from '../shared/objectives';
-import { AFFIX_SHIFT, ENEMY_STRIDE, PICKUP_STRIDE, PickupKind, SHRINE_STRIDE, type Snapshot } from '../shared/protocol';
+import { AFFIX_MASK, AFFIX_SHIFT, ENEMY_STRIDE, PICKUP_STRIDE, PickupKind, SHRINE_STRIDE, type Snapshot } from '../shared/protocol';
 
 const HEALTH_GREEN = 0x00e676;
 const DOWNED_RED = 0xff1744;
@@ -101,7 +101,7 @@ export class Minimap {
     const elites: number[] = [];
     for (let i = 0; i < snap.enemies.length; i += ENEMY_STRIDE) {
       const type = snap.enemies[i + 1];
-      if (ENEMY_TYPES[type].elite || snap.enemies[i + 4] >> AFFIX_SHIFT) {
+      if (ENEMY_TYPES[type].elite || (snap.enemies[i + 4] >> AFFIX_SHIFT) & AFFIX_MASK) {
         elites.push(i);
         continue;
       }

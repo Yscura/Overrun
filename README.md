@@ -65,7 +65,7 @@ Each map dresses the horde in its own colors (`enemyColors` in `maps.ts`): green
 the fortress, dusty grays and browns in the canyon, fire and ash in the caldera. Each type keeps its own shape and a
 color distinct from the others, and the bestiary shows every variant (click one to see which map it's from).
 
-A run is about 16 minutes: the named boss arrives at 15:00. The horde ramps up gently at first and steeply over the last
+A run is about 16 minutes: the named boss arrives at 15:00. When a final boss falls, the music fades and the camera holds on it while it shakes and breaks apart; then the victory. The horde ramps up gently at first and steeply over the last
 few minutes (more health, more damage, faster, more elites; see `hordeScaling` in `src/shared/enemies.ts`), and keeps
 growing if the boss fight drags on. Hordes are kept smallish (`HORDE_DENSITY`): fewer enemies, each tougher.
 
@@ -107,6 +107,7 @@ pointing in for "stack up", magenta with arrows pointing out for "spread out".
 | Rime, the Frost Queen | She laughs through the fight, and at every hero who falls. **Glacial Wrath**: she channels, then blasts everyone she can see for 65% of their max HP. Hide behind one of the hall's columns; the safe shadows are shown. Plus **Frost Bomb** (follows one player and goes off on everyone near them), **frost breath** (a long cone) and her ice nova. |
 | Kharzak | **Burrow** (it vanishes, a mark hunts one player, and it bursts out there), a **pincer sweep** (a very wide short cone), its tail **sting** line, and a charge. **Hardened shell** at 66% and 33%: it shrugs off 85% of damage and keeps charging. Bait a charge into one of the den's boulders to crack it: it's stunned, then takes 50% extra damage for a while. |
 | Twin Flames | Two winged demons who growl in turn through the fight (and the survivor roars when its twin dies). A **burning tether** between the twins hurts anyone standing in it. While they're close they're **kindred** and shrug off 40% of damage: pull them apart. Vael drops **meteors** whose damage is split between everyone inside (stack up); Embra throws **homing cinder orbs**. |
+| Mordak *(spoiler)* | The Ashen Caldera's true ending. When the twins fall, the caldera **shakes apart**: lava everywhere but a few **stepping stones**, crossed by dodging over the gaps (a dodge's invulnerability carries you over the lava) under **falling rock**. They lead to a hidden **dragon's den**, where Mordak, the Earth Scourger lands: the largest boss in the game. **Fireball** volleys, a **fire beam** sweeping a half circle (hide behind one of the den's pillars, or dodge through it) and a **fire flight** (untargetable, carpet-bombing the den and the lava, landing somewhere else). His **wings** have health bars of their own: tear one off and he reels; with both gone he can't fly. Slaying him gives everyone the **Dragonsheart** (a legendary artifact found nowhere else) and earns the **Dragonmancer**, the hero still to come. |
 
 All of this is tuned in `src/shared/enemies.ts` (`NAMED_BOSSES` for each boss's rotation and phase, `BOSS_MECHANICS`, `BOSS_BERSERK`, `BOSS_VENGEFUL`, `BOSS_MISSIONS`). Beating the boss shows **Victory** and unlocks the next map.
 Unlocks are saved in `data/progress.json` on the server, so the whole group shares them.
@@ -174,6 +175,7 @@ Pick a hero in the lobby. Ranged and melee heroes are offered different weapons:
 | Vessa, the Alchemist | Ranged | Flask Toss: splash and acid puddles | Toxic Pool: a wide, long-lasting pool of poison at the cursor | Grand Elixir (75s): heal 30%, then 8s of +25% damage, faster attacks, speed and armor | +15% damage |
 | Aldric, the Paladin | Melee | Judgment Hammer (magic) | Consecration: hallowed ground that burns enemies and heals allies | Avenging Wrath (70s): 8s of light pillars, half damage taken | 150 HP, armored |
 | Seraphine, the Cleric | Ranged | Smite: strikes the nearest enemy, heals the most hurt ally | Prayer of Light: heal and shield allies around you, sear enemies | Divine Intervention (120s): every ally up, full HP, 3s invulnerable | The healer |
+| Kaelor, the Dragonmancer *(secret)* | Melee | Ember Halo: fireballs circle him, burning what they touch | Fire Wave: blasts of fire burst up in a row toward the cursor (evolved: they leave the ground burning) | Dragon Form (60s): 12s as a dragon: +50% damage, +40% max HP, 25% less damage taken, faster, bigger areas, and E breathes fire | Earned only by slaying Mordak; +20% damage |
 
 The first four heroes are free. Ignis, Sylva, Oakhart, Vex, Vessa, Aldric and Seraphine cost 500 gold each (a full run brings in a few hundred):
 click their card in the lobby. `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.

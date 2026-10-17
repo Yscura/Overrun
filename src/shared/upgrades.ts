@@ -2,7 +2,7 @@ import { PICKUP_BASE_RADIUS } from './constants';
 
 export type Role = 'ranged' | 'melee';
 /** Hero abilities (cast with E). They level up like weapons but only their own hero can get them. */
-export type AbilityId = 'meteor' | 'leap' | 'warcry' | 'veil' | 'flamenova' | 'tumble' | 'wildcall' | 'timebomb' | 'toxicpool' | 'consecrate' | 'prayer';
+export type AbilityId = 'meteor' | 'leap' | 'warcry' | 'veil' | 'flamenova' | 'tumble' | 'wildcall' | 'timebomb' | 'toxicpool' | 'consecrate' | 'prayer' | 'firewave';
 export type WeaponId =
   | 'bolt'
   | 'knives'
@@ -22,6 +22,7 @@ export type WeaponId =
   | 'flask'
   | 'hammer'
   | 'smite'
+  | 'embers'
   | AbilityId;
 export type PassiveId =
   | 'might'
@@ -443,6 +444,42 @@ export function tumbleStats(level: number) {
   };
 }
 
+/**
+ * The Dragonmancer's Ember Halo: fireballs circling him, burning whatever they touch (and whatever presses up against
+ * him). Each enemy can be burned once every `hitCooldown / count` seconds.
+ */
+export function embersStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    // Evolved: two more, bigger and hotter.
+    count: 2 + Math.floor((n + 1) / 2) + (evolved ? 2 : 0),
+    damage: (14 + 6 * n) * (evolved ? 1.4 : 1),
+    radius: 72 + 8 * n + (evolved ? 20 : 0),
+    /** Radians per second. */
+    spin: 2.6,
+    hitCooldown: 1.05,
+    bladeRadius: evolved ? 19 : 15,
+  };
+}
+
+/** The Dragonmancer's E: a wave of fire bursting up in a row toward the cursor, one blast after another. */
+export function firewaveStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    count: 5 + Math.floor(n / 2) + (evolved ? 3 : 0),
+    /** Between blasts, and how long each waits after the one before. */
+    spacing: 70,
+    stagger: 0.07,
+    radius: 60 + 5 * n,
+    damage: 36 + 14 * n,
+    cooldown: Math.max(5, 9 - 0.8 * n),
+    /** Evolved: each blast leaves burning ground behind (damage every 0.5s). */
+    burn: evolved ? { damage: 8 + 3 * n, life: 3 } : null,
+  };
+}
+
 /** Oakenhart's E: spirit wolves answer the call and hunt alongside the pack for a while. */
 export function wildcallStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
@@ -724,6 +761,17 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     },
     evolution: { name: 'Alpha Pack', text: 'Two more wolves, and every bite tears into the enemies around the target.' },
   },
+  embers: {
+    name: 'Ember Halo',
+    kind: 'weapon',
+    damage: 'magic',
+    exclusive: 'dragonmancer',
+    describe: (level) => {
+      const s = embersStats(level);
+      return `${plural(s.count, 'fireball')} circle you, burning enemies they touch (and any pressed up against you) for ${Math.round(s.damage)} damage.`;
+    },
+    evolution: { name: 'Solar Crown', text: 'Two more fireballs, 40% hotter, bigger and in a wider circle.' },
+  },
   flask: {
     name: 'Flask Toss',
     kind: 'weapon',
@@ -833,6 +881,17 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       return `[E] ${s.count} more spirit wolves join the hunt for ${s.duration}s, biting for ${s.damage} damage. ${s.cooldown.toFixed(1)}s cooldown.`;
     },
     evolution: { name: 'Alpha Howl', text: 'Two more wolves, and they stay half again as long.' },
+  },
+  firewave: {
+    name: 'Fire Wave',
+    kind: 'weapon',
+    damage: 'magic',
+    owner: 'dragonmancer',
+    describe: (level) => {
+      const s = firewaveStats(level);
+      return `[E] A wave of fire bursts up in a row toward your cursor: ${s.count} blasts of ${s.damage} damage. In Dragon Form: breathe fire instead. ${s.cooldown.toFixed(1)}s cooldown.`;
+    },
+    evolution: { name: 'Molten Path', text: 'Three more blasts, and each one leaves the ground burning.' },
   },
   timebomb: {
     name: 'Time Bomb',

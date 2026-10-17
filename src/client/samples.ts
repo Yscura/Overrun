@@ -155,6 +155,11 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   // Bosses' voices through the fight: Grimm whispers and Rime laughs (heard the same everywhere), Sylvara hisses.
   whisper: { files: [whisper], volume: 0.5, max: 1 },
   laugh: { files: [laugh1, laugh2], volume: 0.5, max: 1, gap: 2 },
+  // Mordak: the warlords' roars, far deeper (he's the biggest of them all).
+  dragon: { files: [warlord1, warlord2], volume: 0.85, rate: 0.62, max: 1, gap: 2 },
+  // A final boss breaking apart: a crushing slam and a blast. The ground quaking: a slam slowed to a rumble.
+  shatter: { files: [bigslam], volume: 0.9, rate: 0.8, max: 1 },
+  rumble: { files: [bigslam], volume: 0.35, rate: 0.55, max: 1, gap: 0.6 },
   // The twin demons of the caldera growl (both use the same voice; never two at once).
   demon: { files: [demon1, demon2, demon3, demon4, demon5], volume: 0.5, max: 1, gap: 2 },
   hiss: { files: [hiss1, hiss2, hiss3, hiss4], volume: 0.45, max: 1 },

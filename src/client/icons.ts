@@ -58,6 +58,10 @@ const ICONS: Record<ChoiceId, string> = {
   devotion: `<path d="M16 2 L28 6 L27 17 C26 23 21 27 16 30 C11 27 6 23 5 17 L4 6 Z" fill="${GOLD_DARK}"/><path d="M16 5 L25.5 8.2 L24.8 17 C24 21.5 20.5 24.6 16 27 C11.5 24.6 8 21.5 7.2 17 L6.5 8.2 Z" fill="${GOLD}"/><path d="M16 23 C11.5 19.8 9 17.3 9 14 C9 11.8 10.8 10.2 12.7 10.2 C14.2 10.2 15.3 11 16 12.2 C16.7 11 17.8 10.2 19.3 10.2 C21.2 10.2 23 11.8 23 14 C23 17.3 20.5 19.8 16 23 Z" fill="${GREEN}"/><path d="M11.5 13.5 C11.6 12.6 12.2 12 13 11.9" stroke="#8ef0b0" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M26 1 L27 3.5 L29.5 4.5 L27 5.5 L26 8 L25 5.5 L22.5 4.5 L25 3.5 Z" fill="${CREAM}"/>`,
 
   // --- Weapons ---
+  // Ember Halo: fireballs circling a core.
+  embers: `<circle cx="16" cy="16" r="9.5" fill="none" stroke="${ORANGE}" stroke-width="1.6" stroke-dasharray="3 3" opacity=".7"/><circle cx="16" cy="16" r="3" fill="#ffd84d"/><g><circle cx="16" cy="5" r="4.2" fill="${ORANGE}"/><circle cx="16" cy="5" r="2" fill="#ffd84d"/></g><g><circle cx="26" cy="21" r="4.2" fill="${ORANGE_DARK}"/><circle cx="26" cy="21" r="2" fill="#ffb84d"/></g><g><circle cx="6" cy="21" r="4.2" fill="${ORANGE}"/><circle cx="6" cy="21" r="2" fill="#ffd84d"/></g>`,
+  // Fire Wave: flames bursting up in a row.
+  firewave: `<path d="M3 29 C2 25 4 22 6 21 C6 23 7 24 8 24 C8 21 9 18 11 17 C11 20 13 22 13 25 C13 27.5 12 29 12 29 Z" fill="${ORANGE}"/><path d="M12 29 C11 23 14 19 17 17 C17 20 18 21.5 19.5 21.5 C19.5 17 21 13 24 11 C24 16 27 19 27 24 C27 27 26 29 26 29 Z" fill="${ORANGE_DARK}"/><path d="M16 29 C15.5 26 17 24 18.5 23 C18.5 24.5 19.5 25 20.5 25 C21 23.5 21.5 22.5 23 22 C23 25 24 26.5 23 29 Z" fill="#ffd84d"/><path d="M2 31 H30" stroke="${ORANGE_DARK}" stroke-width="2" stroke-linecap="round"/>`,
   // Arcane Bolt: an orb with a trail.
   bolt: `<path d="M3 29 L14 18" stroke="${BLUE}" stroke-width="5" stroke-linecap="round" opacity=".55"/><circle cx="20" cy="12" r="9" fill="${BLUE}"/><circle cx="20" cy="12" r="5" fill="${BLUE_LIGHT}"/><circle cx="22" cy="10" r="2" fill="#ffffff"/>`,
   // Throwing Knives: two blades.
@@ -126,6 +130,8 @@ const ICONS: Record<ChoiceId, string> = {
 
 /** Ultimates (R). */
 const ULT_ICONS: Record<UltimateId, string> = {
+  // Dragon Form: a dragon's head breathing fire.
+  dragonform: `<path d="M4 9 L10 4 L9 9 L15 6 L13 11 C18 10 22 12 23 16 L28 17 L24 20 C22 24 17 26 12 25 L7 28 L8 23 C4 20 3 14 4 9 Z" fill="#c62828"/><path d="M9 14 L13 13 L12 16 Z" fill="#ffd84d"/><path d="M23 18 C26 18 29 16 31 13 C30 17 31 20 29 23 C28 21 26 20 24 20 Z" fill="${ORANGE}"/><path d="M24 19 C26 19 28 18 29.5 16 C29 18.5 29.5 20 28.5 21.5 Z" fill="#ffd84d"/><path d="M10 4 L12 1 M15 6 L18 3" stroke="#3b0606" stroke-width="2" stroke-linecap="round"/>`,
   // Shadow Strike: a dagger blinking along a zigzag of afterimages.
   shadowstrike: `<path d="M2 26 L8 20 L6 15 L12 10" stroke="${PURPLE}" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-dasharray="2 3"/><path d="M30 2 L28 9 L17 20 L12 15 L23 4 Z" fill="${PURPLE_LIGHT}"/><path d="M30 2 L17 20 L15 18 Z" fill="#ffffff" opacity=".5"/><path d="M12 15 L17 20 L15 22 L10 17 Z" fill="${GOLD_DARK}"/><path d="M12 21 L8 25 L7 24 L11 20 Z" fill="#3a2b52"/>`,
   // Chrono Freeze: a snowflake around a clock face.

@@ -9,6 +9,7 @@ import {
   fieldStats,
   magnetRadius,
   orbitStats,
+  embersStats,
   upgradeMax,
   type AbilityId,
   type DamageType,
@@ -22,7 +23,7 @@ import {
   type WeaponId,
 } from './upgrades';
 
-export type CharacterId = 'assassin' | 'mage' | 'bruiser' | 'tank' | 'pyro' | 'ranger' | 'druid' | 'chronobreaker' | 'alchemist' | 'paladin' | 'cleric';
+export type CharacterId = 'assassin' | 'mage' | 'bruiser' | 'tank' | 'pyro' | 'ranger' | 'druid' | 'chronobreaker' | 'alchemist' | 'paladin' | 'cleric' | 'dragonmancer';
 export type UltimateId =
   | 'shadowstrike'
   | 'chrono'
@@ -34,7 +35,8 @@ export type UltimateId =
   | 'rewind'
   | 'elixir'
   | 'wrath'
-  | 'intervention';
+  | 'intervention'
+  | 'dragonform';
 
 export interface UltimateDef {
   id: UltimateId;
@@ -76,7 +78,17 @@ export interface CharacterDef {
   areaMult?: number;
   /** Gold to unlock this hero (per player). Missing means available from the start. */
   unlockCost?: number;
+  /** Can't be bought: only earned (the profile flag says how). Shown as "Locked: ???" until then. */
+  secret?: 'dragonmancer';
 }
+
+/**
+ * Dragon Form: for `duration` seconds the Dragonmancer is a dragon, with these multipliers (`reduction`: damage
+ * taken cut by that share), and his E breathes fire (see FIREBREATH) on a `breathCooldown`.
+ */
+export const DRAGON_FORM = { duration: 12, damage: 1.5, maxHp: 1.4, reduction: 0.25, speed: 1.15, area: 1.2, breathCooldown: 2.4 };
+/** His fire breath: a cone (`half` its half-angle) burning every `tick` seconds for `duration`, following his aim. */
+export const FIREBREATH = { duration: 1.3, tick: 0.12, range: 300, half: 0.5, damage: 26, perLevel: 9 };
 
 export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   assassin: {
@@ -297,6 +309,29 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     trait: 'The healer: keeps the team standing',
     unlockCost: 500,
   },
+  dragonmancer: {
+    name: 'Kaelor',
+    title: 'the Dragonmancer',
+    voice: 'deep',
+    role: 'melee',
+    maxHp: 170,
+    speed: 215,
+    armor: 0.15,
+    regen: 0.5,
+    damageMult: 1.2,
+    dodgeCooldown: 3,
+    startWeapon: 'embers',
+    ability: 'firewave',
+    ultimate: {
+      id: 'dragonform',
+      damage: 'magic',
+      name: 'Dragon Form',
+      text: `Become a dragon for ${DRAGON_FORM.duration}s: +${Math.round((DRAGON_FORM.damage - 1) * 100)}% damage, +${Math.round((DRAGON_FORM.maxHp - 1) * 100)}% max HP, ${Math.round(DRAGON_FORM.reduction * 100)}% less damage taken, faster and bigger, and your E breathes fire.`,
+      cooldown: 60,
+    },
+    trait: '+20% damage. Fireballs circle him, and he can become a dragon',
+    secret: 'dragonmancer',
+  },
 };
 
 export const CHARACTER_IDS = Object.keys(CHARACTERS) as CharacterId[];
@@ -320,8 +355,11 @@ export function upgradesFor(character: CharacterId): UpgradeId[] {
 
 /** Can this player pick the hero? Starting heroes always; the rest once unlocked with prestige. */
 export function heroAvailable(character: CharacterId, unlocked: readonly string[]): boolean {
-  return CHARACTERS[character].unlockCost === undefined || unlocked.includes(character);
+  const c = CHARACTERS[character];
+  if (c.secret) return unlocked.includes(character);
+  return c.unlockCost === undefined || unlocked.includes(character);
 }
+
 
 /** Ordinary weapons (not the E ability) and passives the player owns, in the order they got them. */
 export function ownedWeapons(upgrades: Upgrades): UpgradeId[] {
@@ -435,10 +473,10 @@ export function offerWeight(id: UpgradeId, character: CharacterId): number {
 export type PlayerStats = ReturnType<typeof playerStats>;
 
 /** Spirit Blades as they spin: shared so the client draws them exactly where the server hits with them. */
-export function orbitLayout(upgrades: Upgrades, character: CharacterId, artifact: ArtifactId | null = null) {
-  const level = upgrades.orbit ?? 0;
+export function orbitLayout(upgrades: Upgrades, character: CharacterId, artifact: ArtifactId | null = null, weapon: 'orbit' | 'embers' = 'orbit') {
+  const level = upgrades[weapon] ?? 0;
   if (!level) return null;
-  const s = orbitStats(level);
+  const s = weapon === 'embers' ? embersStats(level) : orbitStats(level);
   const stats = playerStats(upgrades, character, {}, artifact);
   return { ...s, count: s.count + stats.projectiles, radius: s.radius * stats.area };
 }

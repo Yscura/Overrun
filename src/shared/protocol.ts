@@ -136,6 +136,8 @@ export interface ProfileState {
   records: Partial<Record<CharacterId, HeroRecord>>;
   /** Bosses you've reached at least once, by name: their bestiary entries are unlocked. */
   bosses: string[];
+  /** You've slain Mordak: the Dragonmancer is yours to unlock once he arrives. */
+  dragonmancer: boolean;
   /** Your artifact inventory (how many of each you have), and the one you take into runs. */
   inventory: Partial<Record<ArtifactId, number>>;
   equipped: ArtifactId | null;
@@ -177,6 +179,9 @@ export interface PlayerState {
   ready: boolean;
   /** Hidden by Shadow Veil (drawn faintly). */
   veiled: boolean;
+  /** In Dragon Form (drawn as a dragon), and which way they aim (it faces that way). */
+  dragon: boolean;
+  aim: number;
   /** Color of an active buff's glow (Bloodrage, guard, Death Lotus), or 0. */
   aura: number;
   /** Everything they've picked, for the scoreboard and for drawing their blades and aura. */
@@ -306,6 +311,12 @@ export type Fx =
   | { k: 'intro'; x: number; y: number }
   /** A boss roars (enraged, berserk): everyone hears it. */
   | { k: 'roar'; x: number; y: number }
+  /** The Dragonmancer breathes fire: a cone from (x, y) toward `a`, `r` long, `arc` wide. */
+  | { k: 'breath'; x: number; y: number; a: number; r: number; arc: number }
+  /** A final boss breaks apart at the end of its death animation. */
+  | { k: 'shatter'; x: number; y: number; r: number; c: number }
+  /** The ground shakes (the camera too). */
+  | { k: 'quake'; strength: number }
   /** A boss's voice during the fight: the Reaper's whisper, Sylvara's hiss. */
   | { k: 'voice'; snd: BossVoice; x: number; y: number }
   /** A friendly area that fills up over `t` seconds before it hits (Meteor). */
@@ -323,8 +334,13 @@ export type LogTone = 'danger' | 'good' | 'info';
 /** Longest chat message. */
 export const CHAT_MAX = 140;
 
+/** 'crumble': the ground shakes. 'path': only stepping stones are left, leading to the den. 'den': the dragon is out. */
+export type FinaleStage = 'crumble' | 'path' | 'den';
+
 export interface GameResult {
   victory: boolean;
+  /** Something special this victory earned, shown on the results (e.g. a new hero to unlock). */
+  feats: string[];
   /** The named boss that was beaten (victories only). */
   boss: string | null;
   /** Name of a map this victory unlocked, if any. */
@@ -409,14 +425,23 @@ export const ZoneKind = { Venom: 0, Mine: 1, Fire: 2, Holy: 3, Toxic: 4, Sanctua
  * - Beam (the twins' tether): a = angle, b = length, c = width.
  * - Glacial (Rime's line-of-sight blast from (x, y)): hide behind a wall before `progress` reaches 1.
  */
-export const HazardKind = { Circle: 0, Line: 1, Cone: 2, Ring: 3, Pool: 4, Share: 5, Mark: 6, Beam: 7, Glacial: 8 } as const;
+export const HazardKind = { Circle: 0, Line: 1, Cone: 2, Ring: 3, Pool: 4, Share: 5, Mark: 6, Beam: 7, Glacial: 8, Sweep: 9 } as const;
 /**
  * Bit flags in the enemy list. Hidden: burrowed (untargetable). Shelled: shrugging off damage. Exposed: taking extra
  * damage. Linked: a twin near its sibling, shrugging off damage. Marked: a side mission or mechanic wants it dead.
  */
 export const EnemyFlag = { Hit: 1, WindingUp: 2, Stunned: 4, Shielded: 8, Marked: 16, Hidden: 32, Shelled: 64, Exposed: 128, Linked: 256 } as const;
-/** Champions carry their affix (see Affix) in the flags, shifted up by this many bits. */
+/** Champions carry their affix (see Affix) in the flags, shifted up by this many bits (3 bits: AFFIX_MASK). */
 export const AFFIX_SHIFT = 9;
+export const AFFIX_MASK = 7;
+/**
+ * More flags, for final bosses. Dying: its death animation is playing (see Snapshot.dying). Flying: in the air,
+ * untargetable. LeftWingGone / RightWingGone: Mordak's torn wings. Mordak also sends which way he faces, in
+ * FACING_STEPS steps around the circle, shifted up by FACING_SHIFT (so his wings line up with where they're hit).
+ */
+export const BossFlag = { Dying: 1 << 12, Flying: 1 << 13, LeftWingGone: 1 << 14, RightWingGone: 1 << 15 } as const;
+export const FACING_SHIFT = 16;
+export const FACING_STEPS = 64;
 
 // Entity lists are flat number arrays to keep snapshots small:
 // enemies:     [id, type, x, y, flags, ...]
@@ -452,6 +477,10 @@ export interface Snapshot {
   bossTime: number;
   arena: ArenaState | null;
   lava: LavaState | null;
+  /** A final boss's death animation: the camera holds on it while it shakes and breaks apart. */
+  dying: { x: number; y: number; progress: number } | null;
+  /** The Ashen Caldera's true ending: it shakes apart, leaving stepping stones to a hidden dragon's den. */
+  finale: { stage: FinaleStage; t: number } | null;
   bossFight: BossFight | null;
   /** A Warlord (the mini-boss) is out: its health, for the bar at the top of the screen. */
   warlord: { hp: number; maxHp: number } | null;

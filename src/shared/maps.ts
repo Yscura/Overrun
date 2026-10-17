@@ -49,6 +49,21 @@ export interface Lava {
   final: number;
 }
 
+/**
+ * A twist ending: after the map's boss falls, the ground gives way. Lava everywhere except a few stepping
+ * `stones`, which lead to the `den` where the real final boss (`boss`) waits. The den and its `pillars` stay
+ * hidden until then.
+ */
+export interface Finale {
+  stones: { x: number; y: number; r: number }[];
+  /** The way across: indexes into `stones`, in order, from where the team stands to the den. */
+  route: number[];
+  den: { x: number; y: number; r: number };
+  pillars: Wall[];
+  boss: number;
+  bossName: string;
+}
+
 export interface MapDef {
   name: string;
   subtitle: string;
@@ -69,6 +84,8 @@ export interface MapDef {
   arena: Arena | null;
   /** A lava rim that closes in for the boss (who then spawns in the middle). */
   lava?: Lava;
+  /** What happens after the boss dies, if it isn't the end (see Finale). */
+  finale?: Finale;
   river?: River;
   /**
    * Multiplier on enemy health and damage (bosses included). Later maps are meant to need a few ranks of
@@ -136,8 +153,16 @@ export function arenaReach(a: Arena): number {
 }
 
 /** The map's walls, plus the arena gate while it's shut. */
-export function mapWalls(map: MapDef, gateShut: boolean): Wall[] {
-  return gateShut && map.arena ? [...map.walls, ...map.arena.gate] : map.walls;
+/** Standing on a finale's stepping stones or in its den (`margin` in from their edges). */
+export function onFinaleGround(finale: Finale, x: number, y: number, margin = 0): boolean {
+  if ((x - finale.den.x) ** 2 + (y - finale.den.y) ** 2 < (finale.den.r - margin) ** 2) return true;
+  return finale.stones.some((st) => (x - st.x) ** 2 + (y - st.y) ** 2 < (st.r - margin) ** 2);
+}
+
+/** The map's walls, with the arena gate if it's shut, and the den's pillars once the finale has revealed them. */
+export function mapWalls(map: MapDef, gateShut: boolean, den = false): Wall[] {
+  const walls = gateShut && map.arena ? [...map.walls, ...map.arena.gate] : map.walls;
+  return den && map.finale ? [...walls, ...map.finale.pillars] : walls;
 }
 
 // --- Wall building blocks ---
@@ -279,6 +304,8 @@ const KEEP_GATE = 260;
 
 // The Ashen Caldera: a round plateau in a sea of lava.
 const CALDERA = { x: 2200, y: 2200 };
+/** Mordak's den, out over the lava north of the caldera's heart. */
+const DRAGON_DEN = { x: 2200, y: 640, r: 600 };
 
 export const MAPS: MapDef[] = [
   {
@@ -532,6 +559,28 @@ export const MAPS: MapDef[] = [
     bossName: 'Ashlord Vael and Embra, the Twin Flames',
     arena: null,
     lava: { x: CALDERA.x, y: CALDERA.y, r: 1950, final: 720 },
+    finale: {
+      stones: [
+        // What's left of the heart, and a few rocks scattered around it so nobody is stranded.
+        { x: CALDERA.x, y: CALDERA.y, r: 170 },
+        ...[60, 120, 180, 240, 300].map((deg, i) => ({
+          x: CALDERA.x + Math.cos((deg * Math.PI) / 180) * (380 + (i % 2) * 70),
+          y: CALDERA.y + Math.sin((deg * Math.PI) / 180) * (380 + (i % 2) * 70),
+          r: 70,
+        })),
+        // The path north to the den: each gap is a dodge's jump.
+        { x: 2250, y: 1900, r: 64 },
+        { x: 2130, y: 1715, r: 60 },
+        { x: 2260, y: 1535, r: 62 },
+        { x: 2150, y: 1375, r: 58 },
+      ],
+      route: [0, 6, 7, 8, 9],
+      den: DRAGON_DEN,
+      // Pillars to hide behind from his fire beam.
+      pillars: [30, 90, 150, 210, 270, 330].map((deg) => pillar(DRAGON_DEN.x + Math.cos((deg * Math.PI) / 180) * 330, DRAGON_DEN.y + Math.sin((deg * Math.PI) / 180) * 330, 76)),
+      boss: EnemyType.Mordak,
+      bossName: 'Mordak, the Earth Scourger',
+    },
     difficulty: 2,
     prestigeReward: 2,
     enemyWeights: { [EnemyType.Charger]: 1.6, [EnemyType.Bombardier]: 1.6, [EnemyType.Wraith]: 1.2, [EnemyType.Spitter]: 0.8 },
@@ -550,13 +599,13 @@ export const MAPS: MapDef[] = [
     walls: [
       // Four obelisks around the heart of the caldera, where the boss fight happens.
       ...[1, 3, 5, 7].map((i) => pillar(CALDERA.x + Math.cos((i * Math.PI) / 4) * 400, CALDERA.y + Math.sin((i * Math.PI) / 4) * 400, 60)),
-      // A broken ring of basalt around it, with six ways through.
-      ...[0, 1, 2, 3, 4, 5].flatMap((i) => {
+      // A broken ring of basalt around it, with ways through (the widest to the north, where the den will rise).
+      ...[0, 1, 2, 3, 5].flatMap((i) => {
         const mid = (i * Math.PI) / 3 + Math.PI / 6;
         return arc(CALDERA.x, CALDERA.y, 1150, mid - 0.3, mid + 0.3, 70);
       }),
-      // Outcrops near the rim.
-      ...[0, 1, 2, 3, 4, 5, 6, 7].flatMap((i) => {
+      // Outcrops near the rim (none to the north, where the den will rise).
+      ...[0, 1, 2, 3, 4, 7].flatMap((i) => {
         const a = (i * Math.PI) / 4 + Math.PI / 8;
         const x = CALDERA.x + Math.cos(a) * 1620;
         const y = CALDERA.y + Math.sin(a) * 1620;

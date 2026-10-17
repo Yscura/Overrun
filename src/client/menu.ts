@@ -546,7 +546,7 @@ export class Menu {
         const card = el('button', `hero-tile${id === selected ? ' selected' : ''}${owned ? '' : ' locked'}`);
         card.append(heroPortrait(id, 0x4fc3f7, 'hero-tile-portrait'), el('div', 'hero-tile-name', c.name), el('div', 'hero-tile-title', c.title));
         card.append(el('div', 'hero-tile-runs', owned ? `${runs} run${runs === 1 ? '' : 's'}` : ''));
-        if (!owned) card.append(el('span', 'hero-tile-lock', `${c.unlockCost} gold`));
+        if (!owned) card.append(el('span', 'hero-tile-lock', c.secret ? 'Locked: ???' : `${c.unlockCost} gold`));
         card.addEventListener('click', () => {
           this.profileHero = id;
           this.renderHeroShop(profile);
@@ -581,7 +581,9 @@ export class Menu {
     } else {
       panel.append(el('p', 'prestige-hint', owned ? 'No runs with this hero yet.' : 'Unlock this hero to start a record.'));
     }
-    if (!owned) {
+    if (!owned && c.secret) {
+      panel.append(el('p', 'prestige-hint', 'This hero can only be earned. How is a secret.'));
+    } else if (!owned) {
       const buy = el('button', 'primary hero-buy', `Unlock for ${c.unlockCost} gold`) as HTMLButtonElement;
       buy.disabled = profile.gold < c.unlockCost!;
       if (buy.disabled) buy.title = `You have ${profile.gold} gold`;

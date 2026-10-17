@@ -21,6 +21,8 @@ export interface Profile {
   lastHero?: string;
   /** Names of the bosses they've reached (won or not). */
   bosses?: string[];
+  /** They've slain Mordak, the Earth Scourger: the Dragonmancer is theirs to unlock (once he's here). */
+  dragonmancer?: boolean;
   /** How each hero's finished runs went (runs started are in `played`). */
   records?: Record<string, Omit<HeroRecord, 'runs'>>;
   /** Their artifact inventory: how many of each (by id). Older saves kept a list of ids. */
@@ -204,6 +206,7 @@ export function profileState(name: string, profile: Profile, allHeroes: boolean)
     ),
     // Testing setups see every boss, like every hero.
     bosses: allHeroes ? ENEMY_TYPES.filter((_, t) => isBossType(t)).map((e) => e.name) : (profile.bosses ?? []),
+    dragonmancer: !!profile.dragonmancer,
     inventory: inventory(profile),
     equipped: equippedArtifact(profile),
   };

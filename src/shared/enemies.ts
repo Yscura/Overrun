@@ -1,4 +1,4 @@
-export type Behavior = 'chase' | 'ranged' | 'lobber' | 'charger' | 'boss' | 'flee' | 'named' | 'ward' | 'egg';
+export type Behavior = 'chase' | 'ranged' | 'lobber' | 'charger' | 'boss' | 'flee' | 'named' | 'ward' | 'egg' | 'part';
 
 export interface EnemyDef {
   name: string;
@@ -57,6 +57,10 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Serpent Egg', radius: 20, speed: 0, hp: 120, damage: 0, xp: 0, color: 0xc5e1a5, behavior: 'egg', spawnAfter: 0, weight: 0, elite: true },
   // Called up by Grimm, the Reaper: lost souls that drift through walls.
   { name: 'Spirit', radius: 13, speed: 120, hp: 10, damage: 8, xp: 1, color: 0x4dd0c8, behavior: 'chase', spawnAfter: 0, weight: 0, flying: true },
+  // The true final boss of the Ashen Caldera, waiting in his den beneath it. The largest of them all.
+  { name: 'Mordak', radius: 110, speed: 75, hp: 30000, damage: 55, xp: 0, color: 0x8e1414, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, armor: 0.2 },
+  // Mordak's wings: targets of their own, carried on his back. Tear both off and he can't fly.
+  { name: 'Dragon Wing', radius: 46, speed: 0, hp: 1, damage: 0, xp: 0, color: 0x5a0e0e, behavior: 'part', spawnAfter: 0, weight: 0, elite: true },
 ];
 
 export const EnemyType = {
@@ -78,6 +82,8 @@ export const EnemyType = {
   Kharzak: 15,
   Egg: 16,
   Spirit: 17,
+  Mordak: 18,
+  DragonWing: 19,
 } as const;
 
 export const MAX_ENEMY_RADIUS = Math.max(...ENEMY_TYPES.map((e) => e.radius));
@@ -137,6 +143,9 @@ export const BOSS_ATTACK = { cooldown: 5, radius: 95, delay: 1.4, damage: 35 };
  * barrage: bomb circles on everyone. nova: a ring of bullets. charge: a telegraphed dash. summon: minions.
  */
 export type BossAttack =
+  | 'fireballs'
+  | 'flight'
+  | 'firebeam'
   | 'barrage'
   | 'nova'
   | 'charge'
@@ -158,10 +167,10 @@ export type BossAttack =
   | 'orbs';
 
 /** A boss's voice, heard every so often during the fight (see NamedBossDef.voice). */
-export type BossVoice = 'whisper' | 'hiss' | 'laugh' | 'demon';
+export type BossVoice = 'whisper' | 'hiss' | 'laugh' | 'demon' | 'dragon';
 
 /** What happens when a boss drops below each BOSS_MISSIONS.at share: a side mission, or Kharzak's shell. */
-export type BossPhase = MissionKind | 'shell';
+export type BossPhase = MissionKind | 'shell' | 'none';
 
 export interface NamedBossDef {
   title: string;
@@ -225,6 +234,16 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
     phase: 'wards',
     voice: { sound: 'demon', every: [14, 24] },
   },
+  // The real end of the Ashen Caldera: a dragon in his den. Hide behind a pillar from his fire beam, and tear off his
+  // wings to keep him on the ground.
+  [EnemyType.Mordak]: {
+    title: 'the Earth Scourger',
+    attacks: ['fireballs', 'firebeam', 'charge', 'flight', 'fireballs', 'summon', 'firebeam', 'flight'],
+    cooldown: 3.1,
+    minions: [EnemyType.Charger, EnemyType.Runner],
+    phase: 'none',
+    voice: { sound: 'dragon', every: [13, 21] },
+  },
   // Burrows after you, sweeps with its pincers, and hardens its shell: bait its charge into a boulder to crack it.
   [EnemyType.Kharzak]: {
     title: 'Tyrant of the Canyon',
@@ -273,6 +292,20 @@ export const BOSS_MECHANICS = {
   kindred: { range: 380, reduction: 0.4 },
   /** Vael: a meteor on one player; its damage is split between everyone standing in it. */
   meteor: { radius: 150, follow: 1.5, delay: 3.2, damage: 60 },
+  /** Mordak: volleys of fireballs fanned out at his target. */
+  fireballs: { volleys: 3, shots: 5, spread: 0.2, gap: 0.45, speed: 300, damage: 17 },
+  /**
+   * Mordak takes to the sky (untargetable), sweeps over the den and out across the lava dropping fire as he goes,
+   * and lands somewhere in the den. `speed` is how fast he flies; a bomb falls every `every` seconds.
+   */
+  flight: { speed: 720, every: 0.16, radius: 100, delay: 1.0, damage: 36, overshoot: 650 },
+  /** Mordak: a beam of fire that sweeps a half circle in front of him. Its damage is a share of your max HP. */
+  firebeam: { windup: 1.7, sweep: 2.3, length: 1000, width: 50, damage: 0.35 },
+  /**
+   * Mordak's wings each have `hp` of his max health. Destroying one stuns him for `stagger` seconds and tears
+   * `bodyDamage` of his max health off him; with both gone he can't fly.
+   */
+  wings: { hp: 0.12, stagger: 3, bodyDamage: 0.06 },
   /** Embra: slow fire orbs that turn toward their target. */
   orbs: { count: 3, speed: 150, turn: 1.5, life: 7, damage: 22 },
 };

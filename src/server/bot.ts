@@ -63,7 +63,7 @@ const PASSIVE_PRIORITY: Partial<Record<UpgradeId, number>> = {
 };
 
 /** Which E abilities are aimed at a spot (and how far they reach). */
-const TARGETED_E: Partial<Record<string, number>> = { meteor: 650, timebomb: 600, leap: 340, toxicpool: 550 };
+const TARGETED_E: Partial<Record<string, number>> = { meteor: 650, timebomb: 600, leap: 340, toxicpool: 550, firewave: 450 };
 
 export class Bot {
   private snap: Snapshot | null = null;
@@ -76,6 +76,9 @@ export class Bot {
   private walls: WallIndex;
   private mapIndex = -1;
   private gateOpen = false;
+  private den = false;
+  /** How far along the finale's stepping stones it has got (an index into the route; -1: not on it yet). */
+  private routeAt = -1;
   private nav: FlowField | null = null;
   private navGoal: Point | null = null;
   private navAge = 0;
@@ -115,11 +118,13 @@ export class Bot {
     if (!me) return;
     // New map, or the arena gate opened or shut: rebuild walls and pathfinding.
     const gateOpen = !!snap.arena?.open;
-    if (snap.map !== this.mapIndex || gateOpen !== this.gateOpen) {
+    const den = !!snap.finale && snap.finale.stage !== 'crumble';
+    if (snap.map !== this.mapIndex || gateOpen !== this.gateOpen || den !== this.den) {
       this.mapIndex = snap.map;
       this.gateOpen = gateOpen;
+      this.den = den;
       const map = MAPS[snap.map];
-      this.walls = new WallIndex(mapWalls(map, !gateOpen), map.width, map.height);
+      this.walls = new WallIndex(mapWalls(map, !gateOpen, den), map.width, map.height);
       this.nav = new FlowField(this.walls);
       this.navGoal = null;
     }
@@ -145,11 +150,21 @@ export class Bot {
 
     // Where to go, and what to get away from.
     const want = this.steer(snap, me, enemies, dt);
-    const danger = this.inDanger(snap, me, enemies);
+    // While crossing the stones, the dodge is saved for the jumps.
+    const crossing = snap.finale?.stage === 'path' && !this.inDen(snap);
+    const danger = !crossing && this.inDanger(snap, me, enemies);
     if (danger && this.dodgeCooldown <= 0 && Math.random() < this.skill) {
       this.dodgeTime = DODGE_DURATION;
       this.dodgeCooldown = snap.me.dodgeCooldown;
       this.dodgeDir = want.x === 0 && want.y === 0 ? { x: Math.cos(aim.angle), y: Math.sin(aim.angle) } : want;
+      this.send({ t: 'dodge' });
+    }
+
+    // Crossing the stones: jump each gap of lava with a dodge (it carries you over unharmed).
+    if (this.dodgeTime <= 0 && this.dodgeCooldown <= 0 && this.inLava(snap) && (want.x !== 0 || want.y !== 0)) {
+      this.dodgeTime = DODGE_DURATION;
+      this.dodgeCooldown = snap.me.dodgeCooldown;
+      this.dodgeDir = want;
       this.send({ t: 'dodge' });
     }
 
@@ -298,6 +313,7 @@ export class Bot {
         elixir: near(400) >= 10 || !!boss || hpShare < 0.5,
         wrath: near(350) >= 8 || !!(boss && boss.d < 400),
         intervention: snap.players.some((q) => q.downed) || (allyHurt && hpShare < 0.5),
+        dragonform: near(400) >= 8 || !!(boss && boss.d < 500),
       };
       if (use[hero.ultimate.id]) return cast('r', aim.angle, aim.dist);
     }
@@ -363,6 +379,8 @@ export class Bot {
     const goal = this.pickGoal(snap, me, enemies);
     if (goal) {
       const dir = this.pathTo(goal.point, dt);
+      // Crossing the stones: keep going (a falling rock is better than backing into the lava).
+      if (snap.finale?.stage === 'path' && !this.inDen(snap)) return dir;
       vx += dir.x * goal.weight;
       vy += dir.y * goal.weight;
     }
@@ -656,6 +674,39 @@ export class Bot {
     const downed = snap.players.filter((p) => p.downed && p.id !== me.id).sort((a, b) => dist(a) - dist(b))[0];
     if (downed && dist(downed) < 1200 && crowd < 8) return { point: downed, weight: dist(downed) > REVIVE_RADIUS * 0.6 ? 1.5 : 0 };
 
+    // Mordak's fire beam is coming: get behind the nearest pillar (out of his line of sight).
+    const finaleMap = MAPS[snap.map].finale;
+    for (let i = 0; i < snap.hazards.length; i += HAZARD_STRIDE) {
+      if (snap.hazards[i + 1] !== HazardKind.Sweep || !finaleMap) continue;
+      const from = { x: snap.hazards[i + 2], y: snap.hazards[i + 3] };
+      const cover = finaleMap.pillars
+        .map((w) => {
+          const c = { x: w.x + w.w / 2, y: w.y + w.h / 2 };
+          const d = Math.hypot(c.x - from.x, c.y - from.y) || 1;
+          return { x: c.x + ((c.x - from.x) / d) * (w.w / 2 + 34), y: c.y + ((c.y - from.y) / d) * (w.w / 2 + 34) };
+        })
+        .sort((a, b) => dist(a) - dist(b))[0];
+      if (cover) return { point: cover, weight: dist(cover) > 12 ? 3 : 0 };
+    }
+
+    // The caldera has given way: hop along the stepping stones to the den.
+    const finale = MAPS[snap.map].finale;
+    if (!snap.finale) this.routeAt = -1;
+    if (finale && snap.finale && snap.finale.stage !== 'crumble') {
+      const { den } = finale;
+      if (dist(den) > den.r - 60) {
+        // Remember how far along it got, so a jump that lands in the lava still heads on, not back.
+        const route = finale.route.map((i) => finale.stones[i]);
+        const on = route.findIndex((st) => dist(st) < st.r);
+        if (on >= 0) this.routeAt = Math.max(this.routeAt, on);
+        if (this.routeAt < 0) {
+          const nearest = route.reduce((a, b) => (dist(a) < dist(b) ? a : b));
+          return { point: nearest, weight: 3 };
+        }
+        return { point: route[this.routeAt + 1] ?? den, weight: 3 };
+      }
+    }
+
     // Boss side missions.
     const fight = snap.bossFight;
     if (fight?.mission) {
@@ -723,6 +774,21 @@ export class Bot {
       if (dist(c) > 450) return { point: c, weight: 0.7 };
     }
     return null;
+  }
+
+  /** In the dragon's den (once the caldera has given way). */
+  private inDen(snap: Snapshot): boolean {
+    const den = MAPS[snap.map].finale?.den;
+    return !!den && Math.hypot(this.local.x - den.x, this.local.y - den.y) < den.r - 40;
+  }
+
+  /** Standing in the lava after the caldera has given way (off the stones and out of the den). */
+  private inLava(snap: Snapshot): boolean {
+    const finale = MAPS[snap.map].finale;
+    if (!finale || !snap.finale || snap.finale.stage === 'crumble') return false;
+    const { x, y } = this.local;
+    const on = (c: { x: number; y: number; r: number }) => Math.hypot(x - c.x, y - c.y) < c.r;
+    return !on(finale.den) && !finale.stones.some(on);
   }
 
   /** A unit direction toward `goal` that walks around walls. */

@@ -1,5 +1,7 @@
 import {
   CHARACTERS,
+  DRAGON_FORM,
+  FIREBREATH,
   CHARACTER_IDS,
   DEFAULT_CHARACTER,
   REWIND_SECONDS,
@@ -19,6 +21,7 @@ import { WallIndex, blocksShot, moveCircle, overlapsWall, pushOut, type PassFlag
 import {
   ARTIFACT_RADIUS,
   BOSS_INTERVAL,
+  BOSS_DEATH,
   CHOOSE_TIME,
   BOMB,
   COIN,
@@ -127,6 +130,10 @@ import {
 import {
   EnemyFlag,
   AFFIX_SHIFT,
+  BossFlag,
+  FACING_SHIFT,
+  FACING_STEPS,
+  type FinaleStage,
   HazardKind,
   PickupKind,
   ProjectileKind,
@@ -180,6 +187,8 @@ import {
   minesStats,
   venomStats,
   meteorStats,
+  damageType,
+  firewaveStats,
   flaskStats,
   hammerStats,
   smiteStats,
@@ -224,7 +233,7 @@ const BOT_NAMES = ['Rook (bot)', 'Mira (bot)', 'Bram (bot)', 'Juno (bot)', 'Wren
 const GEM_ACCEL = 1500;
 const GEM_MAX_SPEED = 900;
 /** Weapons that fire on their own (hero abilities are cast with E instead). */
-const WEAPON_IDS: WeaponId[] = ['bolt', 'knives', 'storm', 'hex', 'cleave', 'slam', 'venom', 'orbit', 'field', 'mines', 'shuriken', 'daggers', 'fireball', 'arrows', 'wolves', 'flask', 'hammer', 'smite'];
+const WEAPON_IDS: WeaponId[] = ['bolt', 'knives', 'storm', 'hex', 'cleave', 'slam', 'venom', 'orbit', 'field', 'mines', 'shuriken', 'daggers', 'fireball', 'arrows', 'wolves', 'flask', 'hammer', 'smite', 'embers'];
 /** Seeker hexes turn this fast (radians per second) and look this far for a target. */
 const HEX_TURN = 7;
 const HEX_SEEK = 600;
@@ -233,6 +242,16 @@ const MAX_VENOM = 80;
 const MAX_DAMAGE_NUMBERS = 25;
 const DAMAGE_NUMBER_INTERVAL = 0.3;
 const VENOM_TICK = 0.5;
+/** Shown on the results the first time someone slays Mordak. */
+const DRAGONMANCER_FEAT = 'Mordak is slain: Kaelor, the Dragonmancer, joins your heroes!';
+/**
+ * The Ashen Caldera's true ending. The ground shakes for `crumble` seconds before it gives way; then a rock falls every
+ * `rockEvery` seconds while the team crosses (`rockAimed` of them at someone, the rest on a stone up ahead). The dragon comes `stir` seconds after everyone standing is in the den,
+ * or `wait` seconds after the first one gets there.
+ */
+const FINALE = { crumble: 3.5, rockEvery: 1, rockAimed: 0.45, rockRadius: 80, rockDelay: 1.1, rockDamage: 40, stir: 2.5, wait: 6 };
+/** How fast Mordak turns to face his target, in radians per second. */
+const DRAGON_TURN = 2.4;
 /** Enemies' damage grows with the map's difficulty to this power (their health grows with it in full). */
 const DIFFICULTY_DAMAGE = 0.6;
 /** A boss with a voice first speaks up this many seconds into the fight (after its entrance roar). */
@@ -390,6 +409,10 @@ interface Player {
   arrowStorm: number;
   inferno: number;
   ultTimer: number;
+  /** Dragon Form: seconds left; fire breath: seconds left and to its next burst. */
+  dragonForm: number;
+  breath: number;
+  breathTimer: number;
   /** Chronobreak: where they were and how healthy, oldest first. */
   history: { x: number; y: number; hp: number }[];
   historyTimer: number;
@@ -471,6 +494,8 @@ interface Blast {
   color?: number;
   /** Flask Toss: an acid puddle left where it lands. */
   puddle?: { r: number; damage: number; life: number };
+  /** Molten Path: burning ground left where it bursts. */
+  burn?: { r: number; damage: number; life: number };
 }
 
 /** An ally a hero calls in: the druid's wolves and spirit bear. */
@@ -507,6 +532,7 @@ interface Enemy {
   maxHp: number;
   flashUntil: number;
   orbitHitUntil: number;
+  emberHitUntil: number;
   stunUntil: number;
   /** Slowed by poison until this time (see POISON_SLOW). */
   slowUntil: number;
@@ -554,6 +580,29 @@ interface Enemy {
   feeder: boolean;
   /** Named bosses with a voice: when they next speak up (fight time; 0 until the fight starts). */
   voiceAt: number;
+  /** A final boss in its death animation: still shown, but out of the fight. */
+  corpse: boolean;
+  /** Parts of a bigger enemy (Mordak's wings): where they're attached, and on which side (-1 left, 1 right). */
+  partOf: Enemy | null;
+  side: number;
+  /** The parts attached to this one. */
+  parts: Enemy[];
+  /** Which way it faces, in radians (Mordak: his wings follow it). */
+  facing: number;
+  /** In the air (Mordak's fire flight). */
+  flight: Flight | null;
+  /** Fireball volleys still to come, and when the next one goes. */
+  volleys: number;
+  volleyAt: number;
+  /** Mordak's wings torn off so far. */
+  wingsLost: number;
+}
+
+/** Mordak's fire flight: along `path` (take-off, out over the lava, landing), dropping fire as he goes. */
+interface Flight {
+  path: { x: number; y: number }[];
+  leg: number;
+  bombIn: number;
 }
 
 /** A boss side mission in progress; the bosses are shielded until it's done. */
@@ -765,7 +814,16 @@ export class Game {
   private flow!: FlowField;
   private readonly bossTime: number;
   /** waiting -> (gather, on arena maps) -> fight. */
-  private bossPhase: 'waiting' | 'gather' | 'fight' = 'waiting';
+  private bossPhase: 'waiting' | 'gather' | 'fight' | 'finale' = 'waiting';
+  /** A final boss's death animation (see BOSS_DEATH), and what follows it. */
+  private dying: { t: number; x: number; y: number; corpse: Enemy; shattered: boolean; next: 'victory' | 'finale' } | null = null;
+  /** The Ashen Caldera's true ending, once it's begun (see FINALE). */
+  private finale: { stage: FinaleStage; t: number; arrivedAt: number; rockIn: number; quakeIn: number } | null = null;
+  /** The den's pillars are up (the finale has revealed them). */
+  private denShown = false;
+  /** Who was beaten, for the results, and anything special the victory earned. */
+  private victor: string | null = null;
+  private feats: string[] = [];
   /** Seconds until the zone outside the arena starts burning. */
   /** Radius around the arena that isn't burning yet; shrinks to the arena once the boss is due. */
   private safeRadius = Infinity;
@@ -904,6 +962,9 @@ export class Game {
       struck: new Set(),
       arrowStorm: 0,
       inferno: 0,
+      dragonForm: 0,
+      breath: 0,
+      breathTimer: 0,
       ultTimer: 0,
       history: [],
       historyTimer: 0,
@@ -1259,7 +1320,7 @@ export class Game {
   /** Collision and pathfinding for the map, with the arena gate shut or open. */
   private setGate(shut: boolean): void {
     this.gateShut = shut;
-    this.walls = new WallIndex(mapWalls(this.map, shut), this.map.width, this.map.height);
+    this.walls = new WallIndex(mapWalls(this.map, shut, this.denShown), this.map.width, this.map.height);
     this.flow = new FlowField(this.walls);
     const visible = this.alivePlayers().filter((p) => p.veil <= 0);
     if (visible.length > 0) this.flow.update(visible);
@@ -1297,8 +1358,15 @@ export class Game {
     this.nextLobAt = 0;
     this.slowmo = 0;
     this.bossPhase = 'waiting';
+    this.dying = null;
+    this.finale = null;
+    this.victor = null;
+    this.feats = [];
     this.safeRadius = Infinity;
-    if (!this.gateShut) this.setGate(true);
+    if (!this.gateShut || this.denShown) {
+      this.denShown = false;
+      this.setGate(true);
+    }
     this.lavaR = this.map.lava?.r ?? Infinity;
     this.bosses = [];
     this.fightTime = 0;
@@ -1343,6 +1411,8 @@ export class Game {
     p.strikes = 0;
     p.arrowStorm = 0;
     p.inferno = 0;
+    p.dragonForm = 0;
+    p.breath = 0;
     p.history = [];
     p.damageDealt = 0;
     p.damageByType = [0, 0, 0];
@@ -1361,7 +1431,8 @@ export class Game {
 
   private endGame(victory: boolean, unlockedMap: string | null = null): void {
     if (this.phase !== 'playing') return;
-    this.log(victory ? `Victory over ${mapBossName(this.map)}!` : 'The team was overrun', victory ? 'good' : 'danger');
+    const beaten = this.victor ?? mapBossName(this.map);
+    this.log(victory ? `Victory over ${beaten}!` : 'The team was overrun', victory ? 'good' : 'danger');
     this.phase = 'gameover';
     this.pause = null;
     const prestige = prestigeReward(this.level, this.map.prestigeReward);
@@ -1373,7 +1444,8 @@ export class Game {
       victory,
       prestige,
       gold: this.runGold,
-      boss: victory ? mapBossName(this.map) : null,
+      boss: victory ? beaten : null,
+      feats: victory ? [...this.feats] : [],
       unlockedMap,
       time: this.time,
       level: this.level,
@@ -1381,8 +1453,24 @@ export class Game {
     };
   }
 
-  private victory(): void {
+  private victory(slain?: number): void {
     if (this.phase !== 'playing') return;
+    // The true ending of the Ashen Caldera: the Dragonsheart for everyone, and a new hero to unlock.
+    if (slain !== undefined && slain === this.map.finale?.boss) {
+      this.victor = this.map.finale.bossName;
+      for (const p of this.humans()) {
+        const find = giveArtifact(p.profile, 'dragonsheart');
+        p.loot.push(find);
+        p.found.push(find);
+        p.sounds.push('relic');
+        this.log(`${p.name} claimed the Dragonsheart`, 'good');
+        if (!p.profile.dragonmancer) {
+          p.profile.dragonmancer = true;
+          if (!this.feats.includes(DRAGONMANCER_FEAT)) this.feats.push(DRAGONMANCER_FEAT);
+        }
+        if (!(p.profile.heroes ?? []).includes('dragonmancer')) p.profile.heroes = [...(p.profile.heroes ?? []), 'dragonmancer'];
+      }
+    }
     // The spoils: artifacts still lying around are found, and the boss leaves one for everyone.
     for (const c of this.pickups) {
       if (c.kind !== PickupKind.Artifact || c.dead) continue;
@@ -1418,6 +1506,13 @@ export class Game {
       stats.cooldownMult *= ELIXIR.cooldown;
       stats.speed *= ELIXIR.speed;
       stats.armor = 1 - (1 - stats.armor) * (1 - ELIXIR.reduction);
+    }
+    if (p.dragonForm > 0) {
+      stats.damageMult *= DRAGON_FORM.damage;
+      stats.maxHp = Math.round(stats.maxHp * DRAGON_FORM.maxHp);
+      stats.speed *= DRAGON_FORM.speed;
+      stats.area *= DRAGON_FORM.area;
+      stats.armor = 1 - (1 - stats.armor) * (1 - DRAGON_FORM.reduction);
     }
     if (p.guard > 0) stats.armor = 1 - (1 - stats.armor) * (1 - p.guardReduction);
     const frenzy = p.frenzy > 0 && p.artifact ? artifactDef(p.artifact).active?.frenzy : undefined;
@@ -1550,13 +1645,16 @@ export class Game {
     const visible = alive.filter((p) => p.veil <= 0);
     if (this.tickCount % FLOW_INTERVAL === 0 && visible.length > 0) this.flow.update(visible);
     this.updateBoss(dt, alive);
-    if (this.bossPhase === 'fight') this.updateBossFight(dt, alive);
-    this.spawnEnemies(dt, alive);
+    if (this.dying) this.updateDying(dt);
+    else if (this.bossPhase === 'fight') this.updateBossFight(dt, alive);
+    if (!this.dying) this.spawnEnemies(dt, alive);
     this.spawnCrates(dt, alive);
     this.updateShrines(dt, alive);
     this.updateQuest(dt, alive);
     this.rebuildGrid();
     this.moveEnemies(dt, alive);
+    this.updateFlights(dt);
+    this.attachParts();
     this.rebuildGrid();
     for (const p of this.players.values()) this.updatePlayer(p, dt);
     this.updateSummons(dt);
@@ -1602,8 +1700,8 @@ export class Game {
 
   private rebuildGrid(): void {
     this.grid.clear();
-    // A burrowed boss can't be hit or touched.
-    for (const e of this.enemies) if (!e.burrowed) this.grid.insert(e);
+    // A burrowed (or flying) boss can't be hit or touched, and neither can one that's already dying.
+    for (const e of this.enemies) if (!e.burrowed && !e.corpse) this.grid.insert(e);
   }
 
   private spawnEnemies(dt: number, alive: Player[]): void {
@@ -1660,6 +1758,7 @@ export class Game {
 
   /** The nearest dry spot to (x, y). */
   private ashore(x: number, y: number, radius: number): { x: number; y: number } {
+    if (this.finaleGround()) return this.onFinaleGround(x, y, radius) ? { x, y } : this.nearestGround(x, y, radius);
     const lava = this.map.lava;
     if (!lava || this.dry(x, y, radius)) return { x, y };
     const d = Math.hypot(x - lava.x, y - lava.y) || 1;
@@ -1757,6 +1856,7 @@ export class Game {
       maxHp: hp,
       flashUntil: 0,
       orbitHitUntil: 0,
+      emberHitUntil: 0,
       stunUntil: 0,
       slowUntil: 0,
       stunImmuneUntil: 0,
@@ -1785,6 +1885,15 @@ export class Game {
       channelUntil: 0,
       feeder: false,
       voiceAt: 0,
+      corpse: false,
+      partOf: null,
+      side: 0,
+      parts: [],
+      facing: 0,
+      flight: null,
+      volleys: 0,
+      volleyAt: 0,
+      wingsLost: 0,
     };
     this.enemies.push(enemy);
     return enemy;
@@ -1809,6 +1918,7 @@ export class Game {
       }
     }
     if (lava) this.updateLava(dt, alive);
+    if (this.finale && !this.dying) this.updateFinale(dt, alive);
     if (!arena || this.bossPhase === 'waiting') return;
 
     // The burning zone sweeps in from the edges of the map until only the arena is safe.
@@ -1847,8 +1957,11 @@ export class Game {
       if (this.lavaR <= lava.final) this.startBossFight(alive);
     }
     const r2 = this.lavaR ** 2;
+    // After the finale's ground gives way, only the stones and the den are safe.
+    const ground = this.finaleGround();
+    const safe = (x: number, y: number) => (ground ? this.onFinaleGround(x, y) : dist2(x, y, lava.x, lava.y) <= r2);
     for (const p of this.players.values()) {
-      if (dist2(p.x, p.y, lava.x, lava.y) <= r2) continue;
+      if (safe(p.x, p.y)) continue;
       if (p.downed) {
         // The fallen wash up on the edge, where they can still be revived.
         const shore = this.ashore(p.x, p.y, PLAYER_RADIUS);
@@ -1859,7 +1972,9 @@ export class Game {
       }
     }
     for (const e of this.enemies) {
-      if (e.dead || dist2(e.x, e.y, lava.x, lava.y) <= r2) continue;
+      if (e.dead || e.corpse || safe(e.x, e.y)) continue;
+      // The dragon and his wings are at home over the lava.
+      if (ground && (this.isBoss(e) || e.partOf)) continue;
       this.damageEnemy(e, e.maxHp * (this.isBoss(e) ? LAVA_DAMAGE.boss : LAVA_DAMAGE.enemy) * dt, undefined, 'true');
     }
   }
@@ -1979,6 +2094,7 @@ export class Game {
     // Each boss has its own: a side mission, or Kharzak's shell.
     const lead = this.bosses.find((b) => !b.dead) ?? this.bosses[0];
     const phase = NAMED_BOSSES[lead.type]?.phase ?? pick(MISSION_KINDS);
+    if (phase === 'none') return;
     if (phase === 'shell') {
       for (const b of this.bosses) if (!b.dead) b.shell = true;
       this.banner(`${ENEMY_TYPES[lead.type].name} hardens its shell! Bait its charge into a boulder to crack it!`, 'danger');
@@ -2084,6 +2200,245 @@ export class Game {
     }
   }
 
+  /**
+   * The last final boss is down: it stays where it fell for its death animation (see BOSS_DEATH) while everything else
+   * is swept away. Then the victory, or (on a map with a finale, the first time) the ground gives way.
+   */
+  private beginDeath(e: Enemy): void {
+    e.dead = false;
+    e.corpse = true;
+    e.burrowed = false;
+    e.flight = null;
+    e.mode = Mode.Normal;
+    for (const o of this.enemies) if (o !== e) o.dead = true;
+    this.enemyShots = [];
+    this.hazards = [];
+    this.mission = null;
+    const next = this.map.finale && e.type !== this.map.finale.boss ? 'finale' : 'victory';
+    this.dying = { t: 0, x: e.x, y: e.y, corpse: e, shattered: false, next };
+    this.log(`${bossDisplayName(e.type)} falls`, 'good');
+  }
+
+  private updateDying(dt: number): void {
+    const d = this.dying!;
+    d.t += dt;
+    // Nothing can touch the team while it plays out.
+    for (const p of this.players.values()) p.invuln = Math.max(p.invuln, 0.3);
+    if (!d.shattered && d.t >= BOSS_DEATH.shatter) {
+      d.shattered = true;
+      d.corpse.dead = true;
+      const def = ENEMY_TYPES[d.corpse.type];
+      this.fx.push({ k: 'shatter', x: Math.round(d.x), y: Math.round(d.y), r: def.radius, c: this.map.enemyColors?.[d.corpse.type] ?? def.color });
+      this.fx.push({ k: 'quake', strength: 1 });
+    }
+    if (d.t < BOSS_DEATH.total) return;
+    this.dying = null;
+    if (d.next === 'finale') this.startFinale();
+    else this.victory(d.corpse.type);
+  }
+
+  // --- The Ashen Caldera's true ending ---
+
+  private startFinale(): void {
+    this.bossPhase = 'finale';
+    this.bosses = [];
+    this.finale = { stage: 'crumble', t: 0, arrivedAt: -1, rockIn: 1, quakeIn: 0 };
+    this.banner('The caldera is shaking apart!', 'danger');
+  }
+
+  /** Standing on something: one of the stepping stones, or the den. */
+  private onFinaleGround(x: number, y: number, radius = 0): boolean {
+    const f = this.map.finale!;
+    if (dist2(x, y, f.den.x, f.den.y) < (f.den.r - radius) ** 2) return true;
+    return f.stones.some((st) => dist2(x, y, st.x, st.y) < (st.r - radius) ** 2);
+  }
+
+  /** The nearest spot on the stones or in the den. */
+  private nearestGround(x: number, y: number, radius: number): { x: number; y: number } {
+    const f = this.map.finale!;
+    let best = { x, y };
+    let bestD = Infinity;
+    for (const c of [f.den, ...f.stones]) {
+      const d = Math.hypot(x - c.x, y - c.y) || 1;
+      const inner = Math.max(0, c.r - radius - 6);
+      const gap = Math.max(0, d - inner);
+      if (gap < bestD) {
+        bestD = gap;
+        best = d <= inner ? { x, y } : { x: c.x + ((x - c.x) / d) * inner, y: c.y + ((y - c.y) / d) * inner };
+      }
+    }
+    return best;
+  }
+
+  /** Lava everywhere but the stones and the den (once the ground has given way). */
+  private finaleGround(): boolean {
+    return !!this.finale && this.finale.stage !== 'crumble';
+  }
+
+  private updateFinale(dt: number, alive: Player[]): void {
+    const fin = this.finale!;
+    const f = this.map.finale!;
+    fin.t += dt;
+    if (fin.stage === 'crumble') {
+      fin.quakeIn -= dt;
+      if (fin.quakeIn <= 0) {
+        fin.quakeIn = 0.8;
+        this.fx.push({ k: 'quake', strength: 0.6 + fin.t / FINALE.crumble });
+      }
+      if (fin.t < FINALE.crumble) return;
+      fin.stage = 'path';
+      fin.t = 0;
+      this.denShown = true;
+      this.setGate(this.gateShut);
+      this.fx.push({ k: 'quake', strength: 1.6 });
+      this.fx.push({ k: 'ring', x: f.stones[0].x, y: f.stones[0].y, r: 900, c: 0xff6d00, snd: 'bigSlam' });
+      this.banner('Only stepping stones are left! Dodge across them, and watch for falling rock!', 'danger');
+      return;
+    }
+    if (fin.stage !== 'path') return;
+    // Rocks rain down while the team crosses: on someone, or on a stone up ahead of them.
+    fin.rockIn -= dt;
+    if (fin.rockIn <= 0 && alive.length > 0) {
+      fin.rockIn = FINALE.rockEvery;
+      let x: number;
+      let y: number;
+      if (Math.random() < FINALE.rockAimed) {
+        const p = pick(alive);
+        const a = Math.random() * Math.PI * 2;
+        const d = Math.random() * 60;
+        x = p.x + Math.cos(a) * d;
+        y = p.y + Math.sin(a) * d;
+      } else {
+        // Ahead: nearer the den than anyone has got yet.
+        const toDen = (q: { x: number; y: number }) => Math.hypot(q.x - f.den.x, q.y - f.den.y);
+        const front = Math.min(...alive.map(toDen));
+        const ahead = f.stones.filter((st) => toDen(st) < front + 50);
+        const st = ahead.length > 0 ? pick(ahead) : pick(f.stones);
+        x = st.x;
+        y = st.y;
+      }
+      const damage = FINALE.rockDamage * this.map.difficulty ** DIFFICULTY_DAMAGE;
+      this.addHazard(HazardKind.Circle, x, y, FINALE.rockRadius, 0, 0, FINALE.rockDelay, damage);
+    }
+    // In the den: the dragon comes once everyone's there, or a while after the first one is.
+    const inDen = alive.filter((p) => dist2(p.x, p.y, f.den.x, f.den.y) < f.den.r ** 2);
+    if (inDen.length > 0 && fin.arrivedAt < 0) {
+      fin.arrivedAt = fin.t;
+      this.banner('Something stirs in the dark of the den...', 'danger');
+      this.fx.push({ k: 'quake', strength: 0.8 });
+    }
+    const waited = fin.t - fin.arrivedAt;
+    if (fin.arrivedAt >= 0 && ((inDen.length === alive.length && waited >= FINALE.stir) || waited >= FINALE.wait)) this.summonDragon();
+  }
+
+  /** Mordak lands in his den, wings and all. */
+  private summonDragon(): void {
+    const fin = this.finale!;
+    const f = this.map.finale!;
+    fin.stage = 'den';
+    fin.t = 0;
+    this.hazards = [];
+    this.bossPhase = 'fight';
+    this.fightTime = 0;
+    this.berserk = 0;
+    this.mission = null;
+    this.missionsStarted = 0;
+    this.hinted.clear();
+    const type = f.boss;
+    const hp = ENEMY_TYPES[type].hp * BOSS_POWER.hp * (1 + 0.85 * (this.players.size - 1)) * this.map.difficulty;
+    // He lands at the far end of the den, facing the way the team came in (from the heart of the caldera).
+    const heart = f.stones[f.route[0]];
+    const away = Math.atan2(f.den.y - heart.y, f.den.x - heart.x);
+    const boss = this.addEnemy(type, f.den.x + Math.cos(away) * f.den.r * 0.4, f.den.y + Math.sin(away) * f.den.r * 0.4, hp);
+    boss.facing = away + Math.PI;
+    boss.attackTimer = 3;
+    for (const side of [-1, 1]) {
+      const wing = this.addEnemy(EnemyType.DragonWing, boss.x, boss.y, hp * BOSS_MECHANICS.wings.hp);
+      wing.partOf = boss;
+      wing.side = side;
+      boss.parts.push(wing);
+    }
+    this.bosses = [boss];
+    this.attachParts();
+    this.banner(`${f.bossName}!`, 'danger');
+    this.fx.push({ k: 'intro', x: Math.round(boss.x), y: Math.round(boss.y) });
+    this.slowMotion(BOSS_INTRO.speed, BOSS_INTRO.hold, BOSS_INTRO.ease);
+  }
+
+  /** Parts ride along with what they're attached to (Mordak's wings, out to his sides). */
+  private attachParts(): void {
+    for (const e of this.enemies) {
+      const owner = e.partOf;
+      if (!owner || e.dead) continue;
+      if (owner.dead || owner.corpse) {
+        e.dead = true;
+        continue;
+      }
+      const r = ENEMY_TYPES[owner.type].radius;
+      const lx = -0.15 * r;
+      const ly = e.side * 0.95 * r;
+      const c = Math.cos(owner.facing);
+      const sn = Math.sin(owner.facing);
+      e.x = owner.x + lx * c - ly * sn;
+      e.y = owner.y + lx * sn + ly * c;
+      e.burrowed = owner.burrowed;
+    }
+  }
+
+  /** A wing is torn off: Mordak reels and bleeds, and with both gone he can't fly any more. */
+  private wingTorn(wing: Enemy): void {
+    const boss = wing.partOf;
+    if (!boss || boss.dead || boss.corpse) return;
+    const M = BOSS_MECHANICS.wings;
+    boss.wingsLost++;
+    boss.parts = boss.parts.filter((w) => w !== wing);
+    boss.stunUntil = Math.max(boss.stunUntil, this.time + M.stagger);
+    boss.hp = Math.max(1, boss.hp - boss.maxHp * M.bodyDamage);
+    boss.flashUntil = this.time + 0.3;
+    const name = ENEMY_TYPES[boss.type].name;
+    this.fx.push({ k: 'ring', x: Math.round(wing.x), y: Math.round(wing.y), r: 140, c: 0xff5252, snd: 'bigSlam' });
+    this.fx.push({ k: 'roar', x: Math.round(boss.x), y: Math.round(boss.y) });
+    this.banner(boss.wingsLost >= 2 ? `${name} can no longer take flight!` : `${name}'s wing is torn!`, 'good');
+  }
+
+  /** Mordak's fire flight: along his path, dropping fire, and down again at the end. */
+  private updateFlights(dt: number): void {
+    const M = BOSS_MECHANICS.flight;
+    for (const e of this.enemies) {
+      const fl = e.flight;
+      if (!fl || e.dead) continue;
+      const to = fl.path[fl.leg + 1];
+      const dx = to.x - e.x;
+      const dy = to.y - e.y;
+      const d = Math.hypot(dx, dy);
+      const step = M.speed * dt;
+      e.facing = Math.atan2(dy, dx);
+      if (d <= step) {
+        e.x = to.x;
+        e.y = to.y;
+        fl.leg++;
+      } else {
+        e.x += (dx / d) * step;
+        e.y += (dy / d) * step;
+      }
+      fl.bombIn -= dt;
+      if (fl.bombIn <= 0) {
+        fl.bombIn = M.every;
+        const a = Math.random() * Math.PI * 2;
+        const j = Math.random() * 70;
+        const scale = this.damageScale(e) * this.bossMods(e).area;
+        this.addHazard(HazardKind.Circle, e.x + Math.cos(a) * j, e.y + Math.sin(a) * j, M.radius * this.bossMods(e).area, 0, 0, M.delay, M.damage * scale);
+      }
+      if (fl.leg >= fl.path.length - 1) {
+        // Touchdown.
+        e.flight = null;
+        e.burrowed = false;
+        e.attackTimer = 1.6;
+        this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: 200, c: 0xff6d00, snd: 'bigSlam' });
+      }
+    }
+  }
+
   /** How much stronger a final boss is from going berserk and from losing its twin. */
   private bossMods(e: Enemy): { damage: number; haste: number; area: number } {
     const s = this.berserk;
@@ -2099,7 +2454,7 @@ export class Game {
   private bossDied(e: Enemy): void {
     const survivors = this.bosses.filter((b) => !b.dead);
     if (survivors.length === 0) {
-      this.victory();
+      this.beginDeath(e);
       return;
     }
     for (const b of survivors) {
@@ -2119,6 +2474,22 @@ export class Game {
     // Holding still while it casts or winds up a cone.
     if (e.channelUntil > this.time) return [0, 0];
     if (e.mode !== Mode.Normal) return this.chargeStep(e, dt, BOSS_CHARGE);
+    // The dragon turns his great bulk toward his target (his wings follow), and sends fireballs volley after volley.
+    if (e.type === EnemyType.Mordak) {
+      const want = Math.atan2(uy, ux);
+      const diff = Math.atan2(Math.sin(want - e.facing), Math.cos(want - e.facing));
+      e.facing += Math.max(-DRAGON_TURN * dt, Math.min(DRAGON_TURN * dt, diff));
+    }
+    if (e.volleys > 0 && this.time >= e.volleyAt) {
+      const F = BOSS_MECHANICS.fireballs;
+      e.volleys--;
+      e.volleyAt = this.time + F.gap;
+      const shots = F.shots + (e.enraged ? 2 : 0);
+      const aim = Math.atan2(uy, ux);
+      for (let i = 0; i < shots; i++) {
+        this.addEnemyShot(e.x + ux * 60, e.y + uy * 60, aim + (i - (shots - 1) / 2) * F.spread, F.speed, F.damage * this.damageScale(e), 3.5);
+      }
+    }
     if (!e.enraged && e.hp < e.maxHp * BOSS_ENRAGE_AT) {
       e.enraged = true;
       this.banner(`${ENEMY_TYPES[e.type].name} is enraged!`, 'danger');
@@ -2133,12 +2504,47 @@ export class Game {
 
     const mods = this.bossMods(e);
     let attack = def.attacks[e.attackIndex++ % def.attacks.length];
+    // Without his wings, Mordak can't fly: he rains fire from the ground instead.
+    if (attack === 'flight' && e.wingsLost >= 2) attack = 'barrage';
     // Shelled, Kharzak keeps charging (so it can be baited into a rock), with a sting in between.
     if (e.shell) attack = e.attackIndex % 2 ? 'charge' : 'sting';
     const M = BOSS_MECHANICS;
     const scale = this.damageScale(e);
     e.attackTimer = (def.cooldown * (e.enraged ? BOSS_ENRAGE_SPEEDUP : 1)) / mods.haste;
     switch (attack) {
+      case 'fireballs':
+        e.volleys = BOSS_MECHANICS.fireballs.volleys;
+        e.volleyAt = this.time;
+        break;
+      case 'firebeam': {
+        this.hint('firebeam', `${ENEMY_TYPES[e.type].name} breathes a beam of fire! Get behind a pillar, or dodge through it.`);
+        const F = M.firebeam;
+        const aim = Math.atan2(uy, ux);
+        const beam = this.addHazard(HazardKind.Sweep, e.x, e.y, aim, F.length, F.width * mods.area, F.windup, F.damage);
+        beam.owner = e;
+        // Which way it sweeps.
+        beam.target = Math.random() < 0.5 ? 1 : -1;
+        e.facing = aim;
+        e.channelUntil = this.time + F.windup + F.sweep;
+        return [0, 0];
+      }
+      case 'flight': {
+        this.hint('flight', `${ENEMY_TYPES[e.type].name} takes to the sky! Get out from under the falling fire.`);
+        const F = M.flight;
+        const den = this.map.finale?.den ?? { x: e.x, y: e.y, r: 400 };
+        // Out across the den and over the lava beyond it, then back down somewhere in the den.
+        const a = Math.atan2(den.y - e.y, den.x - e.x) + (Math.random() - 0.5) * 0.8;
+        const out = den.r + F.overshoot;
+        const over = { x: clamp(den.x + Math.cos(a) * out, 100, this.map.width - 100), y: clamp(den.y + Math.sin(a) * out, 100, this.map.height - 100) };
+        const la = Math.random() * Math.PI * 2;
+        const ld = Math.random() * den.r * 0.55;
+        const land = { x: den.x + Math.cos(la) * ld, y: den.y + Math.sin(la) * ld };
+        e.flight = { path: [{ x: e.x, y: e.y }, over, land], leg: 0, bombIn: 0.3 };
+        e.burrowed = true;
+        for (const p of alive) this.addHazard(HazardKind.Circle, p.x, p.y, F.radius * 1.3 * mods.area, 0, 0, F.delay + 0.5, F.damage * scale);
+        this.fx.push({ k: 'roar', x: Math.round(e.x), y: Math.round(e.y) });
+        return [0, 0];
+      }
       case 'barrage':
         for (const p of alive) {
           this.addHazard(HazardKind.Circle, p.x, p.y, BOSS_ATTACK.radius * mods.area, 0, 0, BOSS_ATTACK.delay, BOSS_ATTACK.damage * this.damageScale(e));
@@ -2525,6 +2931,7 @@ export class Game {
       if (this.isStunned(e)) continue;
       const def = ENEMY_TYPES[e.type];
       if (def.behavior === 'ward' || e.burrowed) continue; // Rooted to the spot, or underground.
+      if (def.behavior === 'part' || e.corpse || e.dead) continue; // Carried along (see attachParts), dying, or dead.
       if (def.behavior === 'egg') {
         e.attackTimer -= dt;
         if (e.attackTimer <= 0) this.hatch(e);
@@ -2611,7 +3018,7 @@ export class Game {
       let sy = 0;
       if (e.mode !== Mode.Charge) {
         for (const o of this.grid.query(e.x, e.y, def.radius + MAX_ENEMY_RADIUS, this.near)) {
-          if (o === e) continue;
+          if (o === e || o.partOf === e) continue;
           const otherRadius = ENEMY_TYPES[o.type].radius;
           const minD = def.radius + otherRadius;
           const ox = e.x - o.x;
@@ -2638,6 +3045,8 @@ export class Game {
       // A shelled Kharzak charging into a rock cracks its shell.
       if (e.shell && e.mode === Mode.Charge && Math.hypot(e.x - fromX, e.y - fromY) < Math.hypot(stepX, stepY) * 0.5) this.crackShell(e);
       if (arena) this.keepInArena(e, def.radius);
+      // In the dragon's den, everyone stays on the rock.
+      if (this.finale?.stage === 'den') this.keepInDen(e, def.radius);
       if (e.hazard) {
         e.hazard.x = e.x;
         e.hazard.y = e.y;
@@ -2663,6 +3072,15 @@ export class Game {
     } else {
       ({ x: e.x, y: e.y } = moveCircle(this.walls, e.x, e.y, dx, dy, def.radius));
     }
+  }
+
+  private keepInDen(target: { x: number; y: number }, radius: number): void {
+    const den = this.map.finale!.den;
+    const d = Math.hypot(target.x - den.x, target.y - den.y);
+    const max = Math.max(0, den.r - radius - 10);
+    if (d <= max) return;
+    target.x = den.x + ((target.x - den.x) / d) * max;
+    target.y = den.y + ((target.y - den.y) / d) * max;
   }
 
   private keepInArena(target: { x: number; y: number }, radius: number): void {
@@ -2886,6 +3304,39 @@ export class Game {
         }
         return;
       }
+      case HazardKind.Sweep: {
+        // Mordak's fire beam: after the windup it sweeps a half circle; everyone it touches who isn't behind
+        // something burns (once per beam). `a` is its angle (the middle of the sweep until it starts).
+        const F = M.firebeam;
+        if (h.owner && !h.owner.dead && !h.owner.corpse) {
+          h.x = h.owner.x;
+          h.y = h.owner.y;
+        }
+        if (h.t < h.duration) return;
+        if (!h.hit) {
+          h.hit = new Set();
+          h.linger = h.a;
+        }
+        const s = (h.t - h.duration) / F.sweep;
+        if (s >= 1 || !h.owner || h.owner.dead || h.owner.corpse) {
+          h.dead = true;
+          return;
+        }
+        h.a = h.linger - (h.target * Math.PI) / 2 + h.target * Math.PI * s;
+        if (h.owner) h.owner.facing = h.a;
+        const ex = Math.cos(h.a);
+        const ey = Math.sin(h.a);
+        for (const p of standing) {
+          if (h.hit.has(p.id)) continue;
+          const along = (p.x - h.x) * ex + (p.y - h.y) * ey;
+          if (along < 0 || along > h.b) continue;
+          const off = Math.abs((p.x - h.x) * -ey + (p.y - h.y) * ex);
+          if (off > h.c / 2 + PLAYER_RADIUS) continue;
+          if (this.lineBlocked(h.x, h.y, p.x, p.y)) continue;
+          if (this.hurtPlayer(p, this.stats(p).maxHp * F.damage, true)) h.hit.add(p.id);
+        }
+        return;
+      }
       case HazardKind.Glacial: {
         if (h.t < h.duration) return;
         h.dead = true;
@@ -3075,8 +3526,8 @@ export class Game {
     for (const id of WEAPON_IDS) {
       const level = p.upgrades[id];
       if (!level) continue;
-      if (id === 'orbit') {
-        this.orbitHits(p, stats);
+      if (id === 'orbit' || id === 'embers') {
+        this.orbitHits(p, stats, id);
         continue;
       }
       if (id === 'wolves') {
@@ -3670,27 +4121,34 @@ export class Game {
     return s.cooldown;
   }
 
-  private orbitHits(p: Player, stats: PlayerStats): void {
-    const s = orbitLayout(p.upgrades, p.character, p.artifact);
+  /** Orbit's blades, or the Ember Halo's fireballs (each with its own per-enemy cooldown and damage type). */
+  private orbitHits(p: Player, stats: PlayerStats, weapon: 'orbit' | 'embers' = 'orbit'): void {
+    const s = orbitLayout(p.upgrades, p.character, p.artifact, weapon);
     if (!s) return;
+    const embers = weapon === 'embers';
+    const type = damageType(weapon);
+    const hitUntil = (e: Enemy) => (embers ? e.emberHitUntil : e.orbitHitUntil);
+    const hit = (e: Enemy) => {
+      if (embers) e.emberHitUntil = this.time + s.hitCooldown / s.count;
+      else e.orbitHitUntil = this.time + s.hitCooldown / s.count;
+      this.damageEnemy(e, s.damage * stats.damageMult, p, type);
+    };
     for (let i = 0; i < s.count; i++) {
-      // Clients draw the blades with this same formula.
-      const angle = this.time * s.spin + (i * Math.PI * 2) / s.count;
+      // Clients draw them with this same formula (the halo sits half a step off Orbit's blades).
+      const angle = this.time * s.spin + ((i + (embers ? 0.5 : 0)) * Math.PI * 2) / s.count;
       const bx = p.x + Math.cos(angle) * s.radius;
       const by = p.y + Math.sin(angle) * s.radius;
       for (const e of this.grid.query(bx, by, s.bladeRadius + MAX_ENEMY_RADIUS, this.near)) {
-        if (e.dead || e.orbitHitUntil > this.time) continue;
+        if (e.dead || hitUntil(e) > this.time) continue;
         if (dist2(e.x, e.y, bx, by) >= (s.bladeRadius + ENEMY_TYPES[e.type].radius) ** 2) continue;
-        e.orbitHitUntil = this.time + s.hitCooldown / s.count;
-        this.damageEnemy(e, s.damage * stats.damageMult, p, 'physical');
+        hit(e);
       }
     }
     // Enemies pressed right up against you are inside the ring, where no blade passes: they get cut up anyway.
     for (const e of this.grid.query(p.x, p.y, PLAYER_RADIUS + MAX_ENEMY_RADIUS + 4, this.near)) {
-      if (e.dead || e.orbitHitUntil > this.time) continue;
+      if (e.dead || hitUntil(e) > this.time) continue;
       if (dist2(e.x, e.y, p.x, p.y) >= (PLAYER_RADIUS + ENEMY_TYPES[e.type].radius + 4) ** 2) continue;
-      e.orbitHitUntil = this.time + s.hitCooldown / s.count;
-      this.damageEnemy(e, s.damage * stats.damageMult, p, 'physical');
+      hit(e);
     }
   }
 
@@ -3762,6 +4220,7 @@ export class Game {
       if (!this.warlord()) this.banner('The Warlord has fallen!', 'good');
     }
     else if (e.affix) this.dropArtifact('champion', e.x, e.y);
+    if (e.partOf) this.wingTorn(e);
     if (this.bosses.includes(e)) this.bossDied(e);
     else if (this.quest?.kind === 'hunt' && e.id === this.quest.targetId) this.completeQuest(e.x, e.y);
     else if (ENEMY_TYPES[e.type].xp > 0) this.dropGem(e.x, e.y, Math.round(ENEMY_TYPES[e.type].xp * this.horde().xp * (e.affix ? CHAMPION.xp : 1)));
@@ -3877,7 +4336,13 @@ export class Game {
     const reach = typeof dist === 'number' && Number.isFinite(dist) ? clamp(dist, 0, 2000) : 0;
     const hero = CHARACTERS[p.character];
     const stats = this.stats(p);
-    if (slot === 'e' && p.abilityCd <= 0) {
+    if (slot === 'e' && p.abilityCd <= 0 && p.dragonForm > 0) {
+      // A dragon's E: breathe fire.
+      p.breath = FIREBREATH.duration;
+      p.breathTimer = 0;
+      p.sounds.push('nova');
+      p.abilityCd = DRAGON_FORM.breathCooldown * stats.cooldownMult;
+    } else if (slot === 'e' && p.abilityCd <= 0) {
       const level = p.upgrades[hero.ability] ?? 0;
       if (level > 0) p.abilityCd = this.castAbility(p, hero.ability, level, reach, stats) * stats.cooldownMult;
     } else if (slot === 'r' && this.bearOf(p)) {
@@ -4006,6 +4471,30 @@ export class Game {
     const dirX = Math.cos(p.aim);
     const dirY = Math.sin(p.aim);
     switch (id) {
+      case 'firewave': {
+        // Blasts burst up one after another in a row toward the cursor.
+        const s = firewaveStats(level);
+        const r = s.radius * stats.area;
+        for (let i = 0; i < s.count; i++) {
+          const along = 60 + i * s.spacing * Math.max(1, stats.area * 0.9);
+          const x = clamp(p.x + dirX * along, 0, this.map.width);
+          const y = clamp(p.y + dirY * along, 0, this.map.height);
+          if (blocksShot(this.walls, x, y)) break; // A wall stops the wave.
+          this.blasts.push({
+            x,
+            y,
+            r,
+            damage: s.damage * stats.damageMult,
+            owner: p.id,
+            t: 0.05 + i * s.stagger,
+            type: 'magic',
+            color: 0xff6d00,
+            burn: s.burn ? { r: r * 0.85, damage: s.burn.damage * stats.damageMult, life: s.burn.life * stats.duration } : undefined,
+          });
+        }
+        p.sounds.push('meteor');
+        return s.cooldown;
+      }
       case 'meteor': {
         const s = meteorStats(level);
         const d = Math.min(reach, s.maxRange);
@@ -4225,6 +4714,15 @@ export class Game {
     this.banner(`${p.name}: ${ult.name}!`, 'good');
     p.sounds.push('ult');
     switch (ult.id) {
+      case 'dragonform': {
+        // The new HP comes with the form (and goes again when it ends).
+        const before = stats.maxHp;
+        p.dragonForm = DRAGON_FORM.duration * stats.duration;
+        p.hp += this.stats(p).maxHp - before;
+        p.sounds.push('roar');
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 160, c: 0xff6d00, snd: 'explode' });
+        break;
+      }
       case 'shadowstrike':
         p.strikes = STRIKE.targets + stats.projectiles;
         p.strikeTimer = 0;
@@ -4330,7 +4828,7 @@ export class Game {
   /** Ultimates that play out over time: Shadow Strike, Inferno, Arrow Storm, and Shadow Veil's eruption. */
   private updateUltimates(p: Player, dt: number): void {
     if (p.downed) {
-      p.veil = p.strikes = p.inferno = p.arrowStorm = p.wrath = 0;
+      p.veil = p.strikes = p.inferno = p.arrowStorm = p.wrath = p.dragonForm = p.breath = 0;
       return;
     }
     const stats = this.stats(p);
@@ -4349,6 +4847,35 @@ export class Game {
         }
         this.hitCratesAround(p.x, p.y, r, damage);
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0x7e57c2, snd: 'blades' });
+      }
+    }
+    if (p.dragonForm > 0) {
+      p.dragonForm -= dt;
+      if (p.dragonForm <= 0) {
+        p.dragonForm = 0;
+        p.breath = 0;
+        p.hp = Math.min(p.hp, this.stats(p).maxHp);
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 90, c: 0xffab40 });
+      }
+    }
+    if (p.breath > 0) {
+      p.breath -= dt;
+      p.breathTimer -= dt;
+      if (p.breathTimer <= 0) {
+        p.breathTimer = FIREBREATH.tick;
+        const level = Math.max(1, p.upgrades[CHARACTERS[p.character].ability] ?? 1);
+        const range = FIREBREATH.range * stats.area;
+        const damage = (FIREBREATH.damage + FIREBREATH.perLevel * (level - 1)) * stats.damageMult;
+        this.rebuildGrid();
+        for (const e of this.grid.query(p.x, p.y, range + MAX_ENEMY_RADIUS, this.splashNear)) {
+          if (e.dead) continue;
+          const d = Math.sqrt(dist2(e.x, e.y, p.x, p.y));
+          if (d > range + ENEMY_TYPES[e.type].radius) continue;
+          const off = Math.abs(Math.atan2(Math.sin(Math.atan2(e.y - p.y, e.x - p.x) - p.aim), Math.cos(Math.atan2(e.y - p.y, e.x - p.x) - p.aim)));
+          if (d < ENEMY_TYPES[e.type].radius + PLAYER_RADIUS || off <= FIREBREATH.half + ENEMY_TYPES[e.type].radius / Math.max(d, 1)) this.damageEnemy(e, damage, p, 'magic');
+        }
+        this.hitCratesAround(p.x + Math.cos(p.aim) * range * 0.5, p.y + Math.sin(p.aim) * range * 0.5, range * 0.4, damage);
+        this.fx.push({ k: 'breath', x: Math.round(p.x), y: Math.round(p.y), a: round2(p.aim), r: Math.round(range), arc: round2(FIREBREATH.half * 2) });
       }
     }
     p.ultTimer -= dt;
@@ -4433,6 +4960,7 @@ export class Game {
       if (b.puddle && owner) {
         this.addZoneAt(owner, ZoneKind.Venom, b.x, b.y, b.puddle.r, b.puddle.damage, b.puddle.life, 'magic');
       }
+      if (b.burn && owner) this.addZoneAt(owner, ZoneKind.Fire, b.x, b.y, b.burn.r, b.burn.damage, b.burn.life, 'magic');
       if (b.stun) {
         for (const e of this.grid.query(b.x, b.y, b.r + MAX_ENEMY_RADIUS, this.near)) {
           if (!e.dead && dist2(e.x, e.y, b.x, b.y) < (b.r + ENEMY_TYPES[e.type].radius) ** 2) this.stun(e, b.stun);
@@ -4669,6 +5197,14 @@ export class Game {
 
   // --- Networking ---
 
+  /** Mordak's extra flags: which way he faces (his wings follow it), and which wings are gone. */
+  private dragonFlags(e: Enemy): number {
+    const turn = (((e.facing % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) / (Math.PI * 2);
+    const step = Math.round(turn * FACING_STEPS) % FACING_STEPS;
+    const has = (side: number) => e.parts.some((w) => w.side === side && !w.dead);
+    return (has(-1) ? 0 : BossFlag.LeftWingGone) | (has(1) ? 0 : BossFlag.RightWingGone) | (step << FACING_SHIFT);
+  }
+
   private broadcast(): void {
     if (this.players.size === 0) return;
 
@@ -4700,6 +5236,8 @@ export class Game {
       host: !p.bot && p === host,
       ready: p.bot !== null || this.lobbyReady.has(p.id),
       veiled: p.veil > 0,
+      dragon: p.dragonForm > 0,
+      aim: round2(p.aim),
       aura:
         p.strikes > 0
           ? AURA.strike
@@ -4724,8 +5262,11 @@ export class Game {
         (e.mode === Mode.Windup ? EnemyFlag.WindingUp : 0) |
         (this.isStunned(e) ? EnemyFlag.Stunned : 0) |
         (this.mission && this.bosses.includes(e) && !e.dead ? EnemyFlag.Shielded : 0) |
-        (e.missionTarget || e.feeder || e.type === EnemyType.Egg ? EnemyFlag.Marked : 0) |
-        (e.burrowed ? EnemyFlag.Hidden : 0) |
+        (e.missionTarget || e.feeder || e.partOf || e.type === EnemyType.Egg ? EnemyFlag.Marked : 0) |
+        (e.burrowed && !e.flight ? EnemyFlag.Hidden : 0) |
+        (e.corpse ? BossFlag.Dying : 0) |
+        (e.flight ? BossFlag.Flying : 0) |
+        (e.type === EnemyType.Mordak ? this.dragonFlags(e) : 0) |
         (e.shell ? EnemyFlag.Shelled : 0) |
         (e.exposedUntil > this.time ? EnemyFlag.Exposed : 0) |
         (e.linked ? EnemyFlag.Linked : 0) |
@@ -4765,11 +5306,13 @@ export class Game {
         x: arena.x,
         y: arena.y,
         r: arena.r,
-        state: this.bossPhase === 'waiting' ? 'idle' : this.bossPhase,
+        state: this.bossPhase === 'waiting' ? 'idle' : this.bossPhase === 'finale' ? 'fight' : this.bossPhase,
         safeR: this.bossPhase === 'waiting' ? 0 : Math.round(this.safeRadius),
         open: !this.gateShut,
       },
       lava: lava ? { x: lava.x, y: lava.y, r: Math.round(this.lavaR), closing: this.bossPhase === 'gather' } : null,
+      dying: this.dying && { x: Math.round(this.dying.x), y: Math.round(this.dying.y), progress: round2(Math.min(1, this.dying.t / BOSS_DEATH.total)) },
+      finale: this.finale && { stage: this.finale.stage, t: round1(this.finale.t) },
       bossFight:
         this.bossPhase === 'fight' && this.bosses.length > 0
           ? {
@@ -4782,13 +5325,15 @@ export class Game {
                 tags: [
                   b.shell ? 'shelled' : '',
                   b.exposedUntil > this.time ? 'exposed' : '',
-                  b.burrowed ? 'burrowed' : '',
+                  b.burrowed && !b.flight ? 'burrowed' : '',
                   b.linked ? 'kindred' : '',
+                  b.flight ? 'flying' : '',
+                  b.type === EnemyType.Mordak && b.wingsLost >= 2 ? 'grounded' : '',
                 ].filter(Boolean),
               })),
               // Health bars for what the team should kill: mission targets, eggs, carrion.
               targets: this.enemies
-                .filter((e) => !e.dead && (e.missionTarget || e.feeder || e.type === EnemyType.Egg))
+                .filter((e) => !e.dead && (e.missionTarget || e.feeder || e.partOf || e.type === EnemyType.Egg))
                 .flatMap((e) => [e.id, round2(Math.max(0, e.hp) / e.maxHp)]),
               berserkIn: round1(Math.max(0, BOSS_BERSERK.after - this.fightTime)),
               berserk: this.berserk,
@@ -4846,7 +5391,7 @@ export class Game {
       dodgeCooldown: stats.dodgeCooldown,
       ability: { cd: round1(p.abilityCd), cooldown: round1(this.abilityCooldown(p) * stats.cooldownMult) },
       relic: this.relicState(p),
-      ultimate: { cd: round1(p.ultCd), cooldown: round1(hero.ultimate.cooldown * stats.ultCooldown), active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil, p.wrath, hero.ultimate.id === 'elixir' ? p.elixir : 0, this.bearOf(p)?.life ?? 0)) },
+      ultimate: { cd: round1(p.ultCd), cooldown: round1(hero.ultimate.cooldown * stats.ultCooldown), active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil, p.wrath, hero.ultimate.id === 'elixir' ? p.elixir : 0, p.dragonForm, this.bearOf(p)?.life ?? 0)) },
       hits: this.takeHits(p),
       taken: p.taken.splice(0),
       sounds: [...new Set(p.sounds.splice(0))], // One of each per snapshot is plenty.
@@ -4880,6 +5425,8 @@ export class Game {
     const id = CHARACTERS[p.character].ability;
     const level = Math.max(1, p.upgrades[id] ?? 1);
     switch (id) {
+      case 'firewave':
+        return firewaveStats(level).cooldown;
       case 'meteor':
         return meteorStats(level).cooldown;
       case 'veil':

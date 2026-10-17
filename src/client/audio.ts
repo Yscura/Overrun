@@ -38,6 +38,8 @@ export type SoundName =
   | 'denied'
   | 'warlord'
   | 'bossRoar'
+  | 'shatter'
+  | 'rumble'
   | BossVoice
   | 'bossIntro'
   | `hurt${VoiceName}`
@@ -499,10 +501,20 @@ const RECIPES: Record<SoundName, Recipe> = {
   // A boss arrives; a warlord arrives.
   bossIntro: ROAR,
   bossRoar: ROAR,
+  // A final boss breaking apart, and the ground shaking.
+  shatter: {
+    play: (v) => {
+      v.noise({ filter: 'lowpass', from: 1500, to: 80, duration: 1.2, volume: 0.35 });
+      v.tone({ type: 'sine', from: 80, to: 25, duration: 1.2, volume: 0.35 });
+    },
+    max: 1,
+  },
+  rumble: { play: (v) => v.noise({ filter: 'lowpass', from: 200, to: 60, duration: 1.0, volume: 0.25 }), max: 1, gap: 0.6 },
   whisper: SILENT,
   hiss: SILENT,
   laugh: SILENT,
   demon: ROAR,
+  dragon: ROAR,
   warlord: ROAR,
   resume: {
     // Back into the fight: a rising rush that lands on a deep drum hit.
