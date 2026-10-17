@@ -286,12 +286,16 @@ export type SoundId =
   | 'flask'
   | 'hammer'
   | 'smite'
-  | 'holy';
+  | 'holy'
+  | 'brace'
+  | 'clock'
+  | 'acid';
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
-  | { k: 'ring'; x: number; y: number; r: number; c: number; snd?: 'slam' | 'explode' | 'pop' }
-  | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number }
+  | { k: 'ring'; x: number; y: number; r: number; c: number; snd?: 'slam' | 'bigSlam' | 'explode' | 'pop' }
+  /** A swing. `heavy`: a big one (a boss's sweep, the bear), which sounds like it. */
+  | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number; heavy?: true }
   | { k: 'zap'; x: number; y: number }
   | { k: 'boom'; x: number; y: number; r: number }
   /** A final boss arrives at (x, y): clients pan the camera there and play its roar. */

@@ -181,7 +181,10 @@ click their card in the lobby. `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.
 WASD / arrows to move. Aimed weapons (bolts, knives, cleave) go toward your mouse cursor; the rest work on their own.
 Space dodges in the direction you're moving (toward the cursor when standing still): a quick dash during which nothing can hurt you, so you can keep shooting behind you while dashing away. E casts your hero's ability, R their ultimate, and Q uses your artifact (if it can be activated).
 **Esc** or **P** pauses the game for everyone; it carries on once every player has pressed Ready. Hold Tab for the scoreboard: everyone's HP, kills, damage dealt and taken, build and stats. M mutes sound (volume slider in
-the top-left corner). All sound effects are synthesized in the browser (`src/client/audio.ts`), so there are no audio files.
+the top-left corner). Impacts, swings, explosions, roars and the like are recordings (`sfx/effects/`, listed in
+`src/client/samples.ts` with their volumes); everything else is synthesized in the browser (`src/client/audio.ts`),
+and so is a recorded sound until its file has loaded. The recordings are cut to start right on the sound, cleaned of
+sub-bass rumble and made equally loud, so a sound's `volume` in `samples.ts` is purely the mix.
 
 **Chat and pings.** The box in the bottom-left corner is both the chat and the event log: players joining and leaving,
 upgrade points and quests appearing, boss arrivals, players going down and getting back up, each with a timestamp (run

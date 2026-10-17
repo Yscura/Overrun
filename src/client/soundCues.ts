@@ -39,7 +39,7 @@ export class SoundCues {
           if (fx.snd) sound.play(fx.snd, ...near(fx.x, fx.y));
           break;
         case 'slash':
-          sound.play('slash', ...near(fx.x, fx.y));
+          sound.play(fx.heavy ? 'heavySlash' : 'slash', ...near(fx.x, fx.y));
           break;
         case 'zap':
           sound.play('zap', ...near(fx.x, fx.y));
@@ -48,7 +48,7 @@ export class SoundCues {
           sound.play('boom', ...near(fx.x, fx.y));
           break;
         case 'intro':
-          sound.play('roar');
+          sound.play('bossIntro');
           break;
         case 'ping':
           sound.play('ping');
@@ -87,6 +87,9 @@ export class SoundCues {
     }
 
     // Big moments.
+    if (snap.warlord && prev && !prev.warlord) sound.play('warlord');
+    // The arena gate swings open for the boss, and slams shut behind the last one in.
+    if (snap.arena && prev?.arena && snap.arena.open !== prev.arena.open) sound.play('gate');
     if (snap.pause?.kind === 'choose' && !prev?.pause) sound.play('levelup');
     if (prev?.pause && !snap.pause && snap.phase === 'playing') sound.play('resume');
     if (snap.result && prev && !prev.result) sound.play(snap.result.victory ? 'victory' : 'defeat');

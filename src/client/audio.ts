@@ -1,14 +1,18 @@
-// Sound effects, synthesized on the fly with the Web Audio API: no audio files needed.
-// Each sound is a small recipe of oscillators ("tones") and filtered white noise with volume and pitch sweeps.
+// Sound effects. Many are recordings (see samples.ts); the rest are synthesized on the fly with the Web Audio API:
+// each is a small recipe of oscillators ("tones") and filtered white noise with volume and pitch sweeps. Recorded sounds
+// have a recipe too, which plays until their files have loaded.
 
 import type { SoundId } from '../shared/protocol';
+import { SAMPLES } from './samples';
 
 export type SoundName =
   | SoundId
   | 'slam'
+  | 'bigSlam'
   | 'explode'
   | 'pop'
   | 'slash'
+  | 'heavySlash'
   | 'zap'
   | 'boom'
   | 'death'
@@ -26,7 +30,10 @@ export type SoundName =
   | 'bombWarn'
   | 'resume'
   | 'ping'
-  | 'message';
+  | 'message'
+  | 'gate'
+  | 'warlord'
+  | 'bossIntro';
 
 const VOLUME_KEY = 'overrun.volume';
 const MUTED_KEY = 'overrun.muted';
@@ -68,11 +75,29 @@ interface Voice {
   noise(o: NoiseOptions): void;
 }
 
+interface Recipe {
+  play: (v: Voice) => void;
+  max?: number;
+  gap?: number;
+}
+
+/** A deep, rising-then-falling growl with a rumble underneath. */
+const ROAR: Recipe = {
+  play: (v) => {
+    v.tone({ type: 'sawtooth', from: 55, to: 85, duration: 0.5, volume: 0.16, attack: 0.15, lowpass: 450 });
+    v.tone({ type: 'sawtooth', from: 85, to: 38, duration: 1.1, volume: 0.16, delay: 0.45, lowpass: 400 });
+    v.tone({ type: 'square', from: 41, to: 33, duration: 1.4, volume: 0.06, attack: 0.2, lowpass: 200 });
+    v.noise({ filter: 'lowpass', from: 300, to: 90, duration: 1.4, volume: 0.22 });
+    v.tone({ type: 'sine', from: 50, to: 28, duration: 1.5, volume: 0.3, delay: 0.1 });
+  },
+  max: 1,
+};
+
 /**
  * How each sound is made. `max` voices may overlap and they're at least `gap` seconds apart.
  * The palette is deliberately dark: low pitches, filtered sawtooths, thuds and rumbles, minor keys.
  */
-const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?: number }> = {
+const RECIPES: Record<SoundName, Recipe> = {
   // --- Your weapons and abilities ---
   bolt: {
     play: (v) => {
@@ -207,6 +232,32 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
     },
     max: 1,
   },
+  // Toxic pool: a long acid fizz.
+  acid: {
+    play: (v) => {
+      v.noise({ filter: 'highpass', from: 2500, to: 5000, duration: 0.8, volume: 0.06 });
+      v.tone({ type: 'sine', from: 300, to: 180, duration: 0.3, volume: 0.04 });
+    },
+    max: 1,
+  },
+  // Brace: a shield raised with a heavy clang.
+  brace: {
+    play: (v) => {
+      v.noise({ filter: 'lowpass', from: 900, to: 150, duration: 0.25, volume: 0.18 });
+      v.tone({ type: 'triangle', from: 330, duration: 0.6, volume: 0.06, delay: 0.02 });
+      v.tone({ type: 'triangle', from: 495, duration: 0.4, volume: 0.03, delay: 0.02 });
+    },
+    max: 1,
+  },
+  // Time stops: a heavy clock tick.
+  clock: {
+    play: (v) => {
+      v.tone({ type: 'square', from: 900, to: 700, duration: 0.03, volume: 0.06, lowpass: 2500 });
+      v.tone({ type: 'sine', from: 147, duration: 1.0, volume: 0.12, delay: 0.02 });
+      v.tone({ type: 'sine', from: 220, duration: 0.7, volume: 0.05, delay: 0.02 });
+    },
+    max: 1,
+  },
   heal: {
     play: (v) => {
       v.tone({ type: 'sine', from: 220, duration: 0.35, volume: 0.09, attack: 0.04 });
@@ -222,6 +273,15 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
     },
     max: 3,
   },
+  // A boss-sized slam: deeper, and it rumbles on.
+  bigSlam: {
+    play: (v) => {
+      v.noise({ filter: 'lowpass', from: 600, to: 50, duration: 0.9, volume: 0.3 });
+      v.tone({ type: 'sine', from: 70, to: 25, duration: 0.8, volume: 0.35 });
+    },
+    max: 2,
+    gap: 0.1,
+  },
   explode: {
     play: (v) => {
       v.noise({ filter: 'lowpass', from: 1100, to: 60, duration: 0.6, volume: 0.32 });
@@ -232,6 +292,17 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
   },
   pop: { play: (v) => v.noise({ filter: 'lowpass', from: 900, to: 250, duration: 0.09, volume: 0.12 }), max: 3, gap: 0.05 },
   slash: { play: (v) => v.noise({ filter: 'bandpass', from: 1800, to: 500, duration: 0.14, volume: 0.17, q: 1.2 }), max: 3 },
+  // A wide, heavy swing (the bear, a boss's sweep).
+  heavySlash: { play: (v) => v.noise({ filter: 'bandpass', from: 900, to: 250, duration: 0.25, volume: 0.2, q: 1 }), max: 2, gap: 0.08 },
+  // The arena gate: an iron clang.
+  gate: {
+    play: (v) => {
+      v.noise({ filter: 'lowpass', from: 800, to: 60, duration: 0.8, volume: 0.25 });
+      v.tone({ type: 'triangle', from: 196, duration: 1.0, volume: 0.06 });
+      v.tone({ type: 'sine', from: 55, to: 40, duration: 0.8, volume: 0.25 });
+    },
+    max: 1,
+  },
   zap: {
     play: (v) => {
       v.noise({ filter: 'bandpass', from: 2200, to: 700, duration: 0.18, volume: 0.13, q: 0.8 });
@@ -349,17 +420,10 @@ const RECIPES: Record<SoundName, { play: (v: Voice) => void; max?: number; gap?:
   },
   // A chat message: a soft, short tick.
   message: { play: (v) => v.tone({ type: 'sine', from: 660, to: 700, duration: 0.07, volume: 0.04 }), max: 1, gap: 0.1 },
-  roar: {
-    // A deep, rising-then-falling growl with a rumble underneath.
-    play: (v) => {
-      v.tone({ type: 'sawtooth', from: 55, to: 85, duration: 0.5, volume: 0.16, attack: 0.15, lowpass: 450 });
-      v.tone({ type: 'sawtooth', from: 85, to: 38, duration: 1.1, volume: 0.16, delay: 0.45, lowpass: 400 });
-      v.tone({ type: 'square', from: 41, to: 33, duration: 1.4, volume: 0.06, attack: 0.2, lowpass: 200 });
-      v.noise({ filter: 'lowpass', from: 300, to: 90, duration: 1.4, volume: 0.22 });
-      v.tone({ type: 'sine', from: 50, to: 28, duration: 1.5, volume: 0.3, delay: 0.1 });
-    },
-    max: 1,
-  },
+  roar: ROAR,
+  // A boss arrives; a warlord arrives.
+  bossIntro: ROAR,
+  warlord: ROAR,
   resume: {
     // Back into the fight: a rising rush that lands on a deep drum hit.
     play: (v) => {
@@ -401,6 +465,8 @@ export class Sound {
   private musicVolume: number;
   /** Sound effects' own volume, on top of the main one. */
   private sfxVolume: number;
+  /** Recordings that have loaded, by URL. */
+  private samples = new Map<string, AudioBuffer>();
 
   constructor() {
     const saved = Number(load(VOLUME_KEY));
@@ -474,6 +540,9 @@ export class Sound {
     const ctx = this.ctx;
     if (!ctx || !this.master || this.muted || this.volume === 0 || this.sfxVolume === 0 || ctx.state !== 'running') return;
     const recipe = RECIPES[name];
+    const sample = SAMPLES[name];
+    const buffers = sample ? sample.files.flatMap((url) => this.samples.get(url) ?? []) : [];
+    const recorded = sample && buffers.length > 0 ? sample : null;
 
     let gain = 1;
     let pan = 0;
@@ -488,8 +557,8 @@ export class Sound {
     // Limit how many copies overlap and how fast they can repeat, so a horde doesn't turn into noise.
     const now = ctx.currentTime;
     const voices = (this.playing.get(name) ?? []).filter((end) => end > now);
-    if (voices.length >= (recipe.max ?? 4)) return;
-    if (now - (this.lastStart.get(name) ?? -1) < (recipe.gap ?? 0.03)) return;
+    if (voices.length >= (recorded?.max ?? recipe.max ?? 4)) return;
+    if (now - (this.lastStart.get(name) ?? -1) < (recorded?.gap ?? recipe.gap ?? 0.03)) return;
 
     const out = ctx.createGain();
     out.gain.value = gain;
@@ -539,7 +608,18 @@ export class Sound {
         end = Math.max(end, stop);
       },
     };
-    recipe.play(voice);
+    if (recorded) {
+      const src = ctx.createBufferSource();
+      src.buffer = buffers[Math.floor(Math.random() * buffers.length)];
+      src.playbackRate.value = (recorded.rate ?? 1) * pitch;
+      const level = ctx.createGain();
+      level.gain.value = recorded.volume;
+      src.connect(level).connect(out);
+      src.start(now);
+      end = now + src.buffer.duration / src.playbackRate.value;
+    } else {
+      recipe.play(voice);
+    }
 
     voices.push(end);
     this.playing.set(name, voices);
@@ -573,8 +653,23 @@ export class Sound {
       for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
       this.ctx = ctx;
       this.applyVolume();
+      this.loadSamples(ctx);
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
+  }
+
+  /** Fetch and decode every recording (each sound is synthesized until its files are in). */
+  private loadSamples(ctx: AudioContext): void {
+    const urls = new Set(Object.values(SAMPLES).flatMap((sample) => sample.files));
+    for (const url of urls) {
+      fetch(url)
+        .then((r) => r.arrayBuffer())
+        .then((data) => ctx.decodeAudioData(data))
+        .then((buffer) => this.samples.set(url, buffer))
+        .catch(() => {
+          // Keeps the synthesized version.
+        });
+    }
   }
 
   private applyVolume(): void {

@@ -2064,7 +2064,7 @@ export class Game {
     for (const b of survivors) {
       b.vengeful = true;
       b.hp = Math.min(b.maxHp, b.hp + b.maxHp * BOSS_VENGEFUL.heal);
-      this.fx.push({ k: 'ring', x: Math.round(b.x), y: Math.round(b.y), r: 220, c: 0xff1744, snd: 'slam' });
+      this.fx.push({ k: 'ring', x: Math.round(b.x), y: Math.round(b.y), r: 220, c: 0xff1744, snd: 'bigSlam' });
       this.banner(`${ENEMY_TYPES[b.type].name} is consumed by rage over ${ENEMY_TYPES[e.type].name}!`, 'danger');
     }
   }
@@ -2296,7 +2296,7 @@ export class Game {
     e.attackTimer = cfg.stun + 1;
     e.stunUntil = this.time + cfg.stun;
     e.exposedUntil = this.time + cfg.stun + cfg.exposed;
-    this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: 220, c: 0xffd54f, snd: 'slam' });
+    this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: 220, c: 0xffd54f, snd: 'bigSlam' });
     this.banner(`${ENEMY_TYPES[e.type].name}'s shell cracks! Hit it while it's exposed!`, 'good');
   }
 
@@ -2793,7 +2793,7 @@ export class Game {
           const off = Math.abs(Math.atan2(Math.sin(Math.atan2(p.y - h.y, p.x - h.x) - h.a), Math.cos(Math.atan2(p.y - h.y, p.x - h.x) - h.a)));
           if (d < PLAYER_RADIUS * 2 || off <= half + PLAYER_RADIUS / Math.max(d, 1)) this.hurtPlayer(p, h.damage);
         }
-        this.fx.push({ k: 'slash', x: Math.round(h.x), y: Math.round(h.y), r: Math.round(h.b), a: round2(h.a), arc: round2(half * 2), c: DANGER_FX });
+        this.fx.push({ k: 'slash', x: Math.round(h.x), y: Math.round(h.y), r: Math.round(h.b), a: round2(h.a), arc: round2(half * 2), c: DANGER_FX, heavy: true });
         return;
       }
       case HazardKind.Ring: {
@@ -2845,7 +2845,7 @@ export class Game {
         for (const p of standing) {
           if (!this.lineBlocked(h.x, h.y, p.x, p.y)) this.hurtPlayer(p, this.stats(p).maxHp * h.damage, true);
         }
-        this.fx.push({ k: 'ring', x: Math.round(h.x), y: Math.round(h.y), r: 900, c: 0x80deea, snd: 'slam' });
+        this.fx.push({ k: 'ring', x: Math.round(h.x), y: Math.round(h.y), r: 900, c: 0x80deea, snd: 'bigSlam' });
         return;
       }
     }
@@ -3474,7 +3474,7 @@ export class Game {
       this.damageEnemy(target, damage, owner, 'physical');
       this.splash(target.x, target.y, BEAR.splash * stats.area, damage * BEAR.splashShare, owner, 'physical', target);
       const a = Math.atan2(target.y - m.y, target.x - m.x);
-      this.fx.push({ k: 'slash', x: Math.round(m.x), y: Math.round(m.y), r: Math.round(reach + BEAR.splash * 0.6), a: round2(a), arc: 1.8, c: 0xffcc80 });
+      this.fx.push({ k: 'slash', x: Math.round(m.x), y: Math.round(m.y), r: Math.round(reach + BEAR.splash * 0.6), a: round2(a), arc: 1.8, c: 0xffcc80, heavy: true });
       owner.sounds.push('bite');
     }
     if (dist2(m.x, m.y, owner.x, owner.y) > BEAR.tether ** 2) {
@@ -3867,7 +3867,7 @@ export class Game {
         if (!e.dead && dist2(e.x, e.y, p.x, p.y) < (r + ENEMY_TYPES[e.type].radius) ** 2) this.stun(e, a.stun.duration * stats.duration);
       }
       if (!a.blast) this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0x80d8ff });
-      sounds.push('rewind');
+      sounds.push('clock');
     }
     if (a.heal) {
       p.hp = Math.min(stats.maxHp, p.hp + stats.maxHp * a.heal);
@@ -3910,7 +3910,7 @@ export class Game {
     if (a.guard) {
       p.guardReduction = Math.max(p.guard > 0 ? p.guardReduction : 0, a.guard.reduction);
       p.guard = Math.max(p.guard, a.guard.duration);
-      sounds.push('warcry');
+      sounds.push('brace');
     }
     if (a.frenzy) {
       p.frenzy = a.frenzy.duration;
@@ -4070,7 +4070,7 @@ export class Game {
           dead: false,
         });
         this.fx.push({ k: 'ring', x: Math.round(x), y: Math.round(y), r, c: 0x9ccc65 });
-        p.sounds.push('flask');
+        p.sounds.push('acid');
         return s.cooldown;
       }
       case 'consecrate': {
@@ -4198,6 +4198,7 @@ export class Game {
         this.enemyShots = this.enemyShots.filter((s) => dist2(s.x, s.y, p.x, p.y) >= r ** 2);
         for (const h of this.hazards) if (dist2(h.x, h.y, p.x, p.y) < r ** 2) h.dead = true;
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0x80d8ff });
+        p.sounds.push('clock');
         break;
       }
       case 'elixir':
