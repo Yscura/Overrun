@@ -141,7 +141,26 @@ const RECIPES: Record<SoundName, Recipe> = {
       v.noise({ filter: 'lowpass', from: 200, to: 1200, duration: 0.9, volume: 0.07 });
     },
   },
-  dagger: { play: (v) => v.noise({ filter: 'bandpass', from: 3000, to: 1400, duration: 0.05, volume: 0.1, q: 2 }), max: 3, gap: 0.04 },
+  // Shadow Daggers: steel that rings ("cling"): bright, slightly inharmonic partials and a scrape of the edge.
+  dagger: {
+    play: (v) => {
+      v.noise({ filter: 'highpass', from: 7000, to: 4000, duration: 0.04, volume: 0.05 });
+      v.tone({ type: 'sine', from: 2490, to: 2470, duration: 0.32, volume: 0.065, delay: 0.01 });
+      v.tone({ type: 'sine', from: 3720, duration: 0.22, volume: 0.04, delay: 0.01 });
+      v.tone({ type: 'sine', from: 5210, duration: 0.14, volume: 0.025, delay: 0.01 });
+      v.tone({ type: 'triangle', from: 1245, duration: 0.12, volume: 0.035, delay: 0.01 });
+    },
+    max: 3,
+    gap: 0.04,
+  },
+  stab: {
+    play: (v) => {
+      v.noise({ filter: 'bandpass', from: 3000, to: 1200, duration: 0.08, volume: 0.15, q: 1.5 });
+      v.tone({ type: 'sine', from: 2490, duration: 0.3, volume: 0.05, delay: 0.01 });
+    },
+    max: 2,
+    gap: 0.05,
+  },
   fireball: {
     play: (v) => {
       v.noise({ filter: 'lowpass', from: 300, to: 1200, duration: 0.2, volume: 0.11 });
@@ -421,6 +440,16 @@ const RECIPES: Record<SoundName, Recipe> = {
   // A chat message: a soft, short tick.
   message: { play: (v) => v.tone({ type: 'sine', from: 660, to: 700, duration: 0.07, volume: 0.04 }), max: 1, gap: 0.1 },
   roar: ROAR,
+  bear: ROAR,
+  // The bear, sent after something: a short growl.
+  growl: {
+    play: (v) => {
+      v.tone({ type: 'sawtooth', from: 70, to: 55, duration: 0.5, volume: 0.12, attack: 0.08, lowpass: 400 });
+      v.noise({ filter: 'lowpass', from: 300, to: 120, duration: 0.5, volume: 0.12 });
+    },
+    max: 1,
+    gap: 0.3,
+  },
   // A boss arrives; a warlord arrives.
   bossIntro: ROAR,
   warlord: ROAR,
@@ -617,9 +646,8 @@ export class Sound {
       src.connect(level).connect(out);
       src.start(now);
       end = now + src.buffer.duration / src.playbackRate.value;
-    } else {
-      recipe.play(voice);
     }
+    if (!recorded || recorded.layer) recipe.play(voice);
 
     voices.push(end);
     this.playing.set(name, voices);

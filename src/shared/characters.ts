@@ -87,7 +87,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     dodgeCooldown: 1.6,
     startWeapon: 'daggers',
     ability: 'veil',
-    ultimate: { id: 'shadowstrike', damage: 'physical', name: 'Shadow Strike', text: 'Blink between up to 7 enemies nearby, striking each one hard. Untouchable while it lasts.', cooldown: 45 },
+    ultimate: { id: 'shadowstrike', damage: 'physical', name: 'Shadow Strike', text: 'Blink between up to 7 enemies nearby, striking each one hard. Untouchable while it lasts and for a second after, and your dodge is ready again.', cooldown: 45 },
     trait: '+40% damage but 20% smaller areas. Fastest, and shadowsteps through any wall',
     phaseWalls: true,
   },

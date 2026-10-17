@@ -238,7 +238,8 @@ const FLOW_INTERVAL = 5;
 const DESYNC_LIMIT = 120;
 
 // Ultimate effects.
-const STRIKE = { targets: 7, hop: 0.18, range: 650, damage: 120, perLevel: 8 };
+/** `after`: seconds you stay untouchable once it ends (you may land inside something big). */
+const STRIKE = { targets: 7, hop: 0.18, range: 650, damage: 120, perLevel: 8, after: 1 };
 const INFERNO = { duration: 3, fireballs: 16, spread: 380, radius: 110, damage: 80, perLevel: 5 };
 const ARROW_STORM = { duration: 4, interval: 0.06, damage: 20, perLevel: 2, pierce: 3, jitter: 0.12 };
 /**
@@ -3503,7 +3504,7 @@ export class Game {
     bear.prey = target;
     bear.ordered = true;
     this.fx.push({ k: 'ring', x: Math.round(target.x), y: Math.round(target.y), r: ENEMY_TYPES[target.type].radius + 18, c: 0xffcc80 });
-    p.sounds.push('roar');
+    p.sounds.push('growl');
   }
 
   /** A player's Spirit Bear, if it's out. */
@@ -4167,7 +4168,7 @@ export class Game {
         const m = this.summon(p, SummonKind.Bear, spot.x, spot.y, BEAR.life * stats.duration);
         m.timer = 0.3;
         this.fx.push({ k: 'ring', x: Math.round(spot.x), y: Math.round(spot.y), r: 140, c: 0xffcc80, snd: 'slam' });
-        p.sounds.push('roar');
+        p.sounds.push('bear');
         break;
       }
       case 'rewind': {
@@ -4300,8 +4301,13 @@ export class Game {
           p.epoch++;
           this.damageEnemy(target, (STRIKE.damage + STRIKE.perLevel * this.level) * stats.damageMult, p, 'physical');
           this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: r + 20, a: round2(Math.atan2(target.y - p.y, target.x - p.x)), arc: 1.4, c: AURA.strike });
-          p.sounds.push('dagger');
+          p.sounds.push('stab');
         }
+      }
+      // Back out of the shadows: a moment untouchable, and the dodge ready again.
+      if (p.strikes <= 0) {
+        p.invuln = Math.max(p.invuln, STRIKE.after);
+        p.dodgeCooldown = 0;
       }
     }
     if (p.inferno > 0) {

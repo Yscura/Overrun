@@ -2136,6 +2136,15 @@ body.paused #hud > :not(#loadout) {
   background: rgba(8, 9, 12, 0.75);
 }
 
+/* Home, profile, settings and the rest (not over a lobby): the theme art behind a dark wash, deepest in the middle
+   where the panel sits so the text stays easy to read. */
+#menu:not(.over-room) {
+  background:
+    radial-gradient(ellipse at center, rgba(8, 9, 12, 0.6) 0%, rgba(8, 9, 12, 0.3) 75%),
+    linear-gradient(rgba(8, 9, 12, 0.3), rgba(8, 9, 12, 0.3)),
+    #08090c url('../../img/background.webp') center / cover no-repeat;
+}
+
 .menu-panel {
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
