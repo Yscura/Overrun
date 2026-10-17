@@ -1,8 +1,8 @@
 import type { Wall } from './collision';
 import { ENEMY_TYPES, EnemyType, bossDisplayName } from './enemies';
 
-/** The named boss arrives this many seconds in; with the fight that makes a run about 10 minutes. */
-export const BOSS_TIME = 9 * 60;
+/** The named boss arrives this many seconds in; with the fight that makes a run about 16 minutes. */
+export const BOSS_TIME = 15 * 60;
 /**
  * On arena maps, when the boss is due a burning zone sweeps in from the map's far corners toward the arena,
  * reaching the arena's edge after this many seconds.

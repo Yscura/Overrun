@@ -520,11 +520,14 @@ export function prayerStats(level: number) {
   };
 }
 
+/** Overall cost of levels: higher means fewer, further-apart level-ups (above all early on). */
+const XP_SCALE = 1.5;
+
 /** XP is shared, so more players (more kills) need more XP per level; each level-up still upgrades everyone. */
 export function xpToNext(level: number, playerCount: number): number {
   // Grows faster later on, so level-up pauses don't come every few seconds once the kill rate ramps up.
   const n = level - 1;
-  return Math.round((5 + 4 * n + 0.1 * n * n) * (0.6 + 0.4 * playerCount));
+  return Math.round(XP_SCALE * (5 + 4 * n + 0.1 * n * n) * (0.6 + 0.4 * playerCount));
 }
 
 interface UpgradeDef {

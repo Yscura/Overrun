@@ -2,6 +2,7 @@
 // each is a small recipe of oscillators ("tones") and filtered white noise with volume and pitch sweeps. Recorded sounds
 // have a recipe too, which plays until their files have loaded.
 
+import type { Voice as HeroVoice } from '../shared/characters';
 import type { SoundId } from '../shared/protocol';
 import { SAMPLES } from './samples';
 
@@ -33,7 +34,17 @@ export type SoundName =
   | 'message'
   | 'gate'
   | 'warlord'
-  | 'bossIntro';
+  | 'bossIntro'
+  | `hurt${VoiceName}`
+  | `down${VoiceName}`;
+
+/** A hero's voice, as it appears in sound names ('hurtFemale', 'downDwarf'). */
+export type VoiceName = Capitalize<HeroVoice>;
+
+/** The sound of `voice` crying out: hurt, or going down. */
+export function voiceSound(kind: 'hurt' | 'down', voice: HeroVoice): SoundName {
+  return `${kind}${(voice[0].toUpperCase() + voice.slice(1)) as VoiceName}`;
+}
 
 const VOLUME_KEY = 'overrun.volume';
 const MUTED_KEY = 'overrun.muted';
@@ -92,6 +103,9 @@ const ROAR: Recipe = {
   },
   max: 1,
 };
+
+/** Voices are recordings only: until they've loaded, nothing. */
+const SILENT: Recipe = { play: () => {} };
 
 /**
  * How each sound is made. `max` voices may overlap and they're at least `gap` seconds apart.
@@ -441,6 +455,22 @@ const RECIPES: Record<SoundName, Recipe> = {
   message: { play: (v) => v.tone({ type: 'sine', from: 660, to: 700, duration: 0.07, volume: 0.04 }), max: 1, gap: 0.1 },
   roar: ROAR,
   bear: ROAR,
+  hurtMale: SILENT,
+  hurtDeep: SILENT,
+  hurtFemale: SILENT,
+  hurtDwarf: SILENT,
+  downMale: SILENT,
+  downDeep: SILENT,
+  downFemale: SILENT,
+  downDwarf: SILENT,
+  // Call of the Wild: a rising, wavering howl.
+  howl: {
+    play: (v) => {
+      v.tone({ type: 'sawtooth', from: 330, to: 520, duration: 0.5, volume: 0.05, attack: 0.15, lowpass: 1400 });
+      v.tone({ type: 'sawtooth', from: 520, to: 400, duration: 1.0, volume: 0.05, delay: 0.5, lowpass: 1400 });
+    },
+    max: 1,
+  },
   // The bear, sent after something: a short growl.
   growl: {
     play: (v) => {

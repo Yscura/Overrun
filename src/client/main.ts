@@ -159,7 +159,7 @@ async function main() {
   net.onSnapshot = (snap) => {
     if (myId === null) return; // Left the room; a last snapshot or two can still be on the way.
     buffer.push(snap);
-    cues.onSnapshot(latest, snap, local);
+    cues.onSnapshot(latest, snap, local, myId);
     latest = snap;
     const wallsKey = `${snap.map}:${snap.arena?.open ? 'open' : 'shut'}`;
     if (wallsKey !== wallsFor) {
@@ -268,7 +268,8 @@ async function main() {
           lastSent = { ...local, aim };
         }
       }
-    } else {
+    } else if (!latest?.pause) {
+      // Down (or out of the run): the dash is over. A pause only freezes it: it carries on when the game does.
       dodgeTime = 0;
     }
     if (meState) ui.setDodge(1 - dodgeCooldown / meState.dodgeCooldown);

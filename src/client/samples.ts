@@ -5,6 +5,28 @@
 
 import type { SoundName } from './audio';
 import acid from '../../sfx/effects/acid.wav?url';
+import deep1 from '../../sfx/effects/deep1.wav?url';
+import deep2 from '../../sfx/effects/deep2.wav?url';
+import deep3 from '../../sfx/effects/deep3.wav?url';
+import deep4 from '../../sfx/effects/deep4.wav?url';
+import deep5 from '../../sfx/effects/deep5.wav?url';
+import deep6 from '../../sfx/effects/deep6.wav?url';
+import deepdown from '../../sfx/effects/deepdown.wav?url';
+import dwarf1 from '../../sfx/effects/dwarf1.wav?url';
+import dwarf2 from '../../sfx/effects/dwarf2.wav?url';
+import dwarf3 from '../../sfx/effects/dwarf3.wav?url';
+import female1 from '../../sfx/effects/female1.wav?url';
+import female2 from '../../sfx/effects/female2.wav?url';
+import femaledown from '../../sfx/effects/femaledown.wav?url';
+import howl1 from '../../sfx/effects/howl1.wav?url';
+import howl2 from '../../sfx/effects/howl2.wav?url';
+import male1 from '../../sfx/effects/male1.wav?url';
+import male2 from '../../sfx/effects/male2.wav?url';
+import male3 from '../../sfx/effects/male3.wav?url';
+import male4 from '../../sfx/effects/male4.wav?url';
+import male5 from '../../sfx/effects/male5.wav?url';
+import male6 from '../../sfx/effects/male6.wav?url';
+import maledown from '../../sfx/effects/maledown.wav?url';
 import bear from '../../sfx/effects/bear.wav?url';
 import bigdeath from '../../sfx/effects/bigdeath.wav?url';
 import bigslam from '../../sfx/effects/bigslam.wav?url';
@@ -73,6 +95,8 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   bite: { files: [hit1, hit3], volume: 0.095, rate: 1.35, max: 2, gap: 0.08 },
   // Time bomb: the clock's tick, small and quick.
   mine: { files: [clock], volume: 0.19, rate: 1.8 },
+  // Call of the Wild: the pack howls.
+  howl: { files: [howl1, howl2], volume: 0.3, max: 1 },
   // Berserker's Mask: a beastly roar, pitched up.
   roar: { files: [roar], volume: 0.27, rate: 1.3, max: 1 },
   // The Spirit Bear: its roar when it appears, a growl when you send it after something.
@@ -98,5 +122,16 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   evade: { files: [evade1, evade2], volume: 0.3, max: 1, gap: 0.1 },
   dodge: { files: [dodge], volume: 0.31 },
   bossIntro: { files: [bossintro], volume: 0.51, max: 1 },
+
+  // --- Voices (each hero has one: see `voice` in src/shared/characters.ts) ---
+  // Hurt: you cry out when a hit takes a real bite out of you (see soundCues.ts). Down: anyone going down.
+  hurtMale: { files: [male1, male2, male3, male4, male5, male6], volume: 0.3, max: 1, gap: 1.6 },
+  hurtDeep: { files: [deep1, deep2, deep3, deep4, deep5, deep6], volume: 0.3, max: 1, gap: 1.6 },
+  hurtFemale: { files: [female1, female2], volume: 0.3, max: 1, gap: 1.6 },
+  hurtDwarf: { files: [dwarf1, dwarf2, dwarf3], volume: 0.3, max: 1, gap: 1.6 },
+  downMale: { files: [maledown], volume: 0.4, max: 2 },
+  downDeep: { files: [deepdown], volume: 0.4, max: 2 },
+  downFemale: { files: [femaledown], volume: 0.4, max: 2 },
+  downDwarf: { files: [dwarf2], volume: 0.4, rate: 0.85, max: 2 },
   warlord: { files: [warlord1, warlord2], volume: 0.44, max: 1 },
 };

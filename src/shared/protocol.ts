@@ -292,7 +292,8 @@ export type SoundId =
   | 'acid'
   | 'bear'
   | 'growl'
-  | 'stab';
+  | 'stab'
+  | 'howl';
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */

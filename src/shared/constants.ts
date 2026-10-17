@@ -26,7 +26,7 @@ export const MAX_GEMS = 400;
 /** Enemies spawn roughly this far from a player, i.e. just off screen. */
 export const SPAWN_DISTANCE = 1000;
 /** A boss shows up every this many seconds. */
-export const BOSS_INTERVAL = 120;
+export const BOSS_INTERVAL = 200;
 
 /** Seconds everyone gets to pick an upgrade before one is picked for them. */
 export const CHOOSE_TIME = 15;

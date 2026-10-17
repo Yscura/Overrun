@@ -2994,7 +2994,9 @@ export class Game {
   }
 
   private movePlayer(p: Player, x: unknown, y: unknown, aim: unknown, epoch: unknown): void {
-    if (p.downed || this.pause || epoch !== p.epoch) return;
+    // Moves still arrive just after a pause starts (sent before the client knew): take them, or the client would be
+    // snapped back and its dash cut short. Clients stand still while paused, so nothing more comes.
+    if (p.downed || epoch !== p.epoch) return;
     if (typeof aim === 'number' && Number.isFinite(aim)) p.aim = aim;
     if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return;
     // Trust the client, but cap how far one message can move you (further while dodging), and respect walls.
@@ -4046,7 +4048,7 @@ export class Game {
           m.damage = s.damage;
         }
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 160, c: 0x8bc34a });
-        p.sounds.push('summon');
+        p.sounds.push('howl');
         return s.cooldown;
       }
       case 'toxicpool': {
@@ -4588,7 +4590,7 @@ export class Game {
     const base = xpToNext(this.level, Math.max(1, this.players.size));
     if (this.bossPhase !== 'waiting' || this.players.size === 0) return base;
     const expectedLevel = 1 + UPGRADE_PICKS * Math.pow(Math.min(1, this.time / this.bossTime), 0.9);
-    const factor = clamp(2 ** ((this.level - expectedLevel) / 3), 0.35, 3);
+    const factor = clamp(2 ** ((this.level - expectedLevel) / 3), 0.6, 3);
     return Math.max(1, Math.round(base * factor));
   }
 

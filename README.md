@@ -65,16 +65,16 @@ Each map dresses the horde in its own colors (`enemyColors` in `maps.ts`): green
 the fortress, dusty grays and browns in the canyon, fire and ash in the caldera. Each type keeps its own shape and a
 color distinct from the others, and the bestiary shows every variant (click one to see which map it's from).
 
-A run is about 10 minutes: the named boss arrives at 9:00. The horde ramps up gently at first and steeply over the last
+A run is about 16 minutes: the named boss arrives at 15:00. The horde ramps up gently at first and steeply over the last
 few minutes (more health, more damage, faster, more elites; see `hordeScaling` in `src/shared/enemies.ts`), and keeps
 growing if the boss fight drags on. Hordes are kept smallish (`HORDE_DENSITY`): fewer enemies, each tougher.
 
-**Champions.** From about 2 minutes in, a few percent of enemies spawn as champions: bigger, with a colored ring,
+**Champions.** From about 3 minutes in, a few percent of enemies spawn as champions: bigger, with a colored ring,
 4x the health, 1.5x the damage and 5x the XP, plus an affix: **Hasted** (yellow, much faster), **Vampiric** (red,
 heals by hitting you), **Volatile** (orange, leaves a bomb when it dies) or **Splitting** (green, splits in three).
-**Warlords** still show up every 2 minutes as a mini-boss fight: the horde out of sight scatters when one arrives, only trickles in (30% of the usual rate) until it dies, and it gets a health bar at the top of the screen (tuned in `WARLORD_FIGHT` in `src/server/game.ts`).
+**Warlords** still show up every 3:20 (four per run) as a mini-boss fight: the horde out of sight scatters when one arrives, only trickles in (30% of the usual rate) until it dies, and it gets a health bar at the top of the screen (tuned in `WARLORD_FIGHT` in `src/server/game.ts`).
 
-**Getting to the boss.** Boss arenas are walled off by a big gate until 9:00. Then the gate opens, and a burning zone
+**Getting to the boss.** Boss arenas are walled off by a big gate until 15:00. Then the gate opens, and a burning zone
 sweeps in from the map's far corners, closing in on the arena over 45 seconds and burning anyone it catches. The fight
 starts when the first player walks in; anyone inside is locked in, and the gate slams shut once everyone still standing
 is inside (it opens again if a teammate is revived outside). On Ashen Caldera the lava instead closes in on the middle

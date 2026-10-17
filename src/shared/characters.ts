@@ -44,9 +44,13 @@ export interface UltimateDef {
   damage?: DamageType;
 }
 
+/** Whose cries of pain a hero has (sfx/effects): see SAMPLES in src/client/samples.ts. */
+export type Voice = 'male' | 'deep' | 'female' | 'dwarf';
+
 export interface CharacterDef {
   name: string;
   title: string;
+  voice: Voice;
   /** Decides which weapons the character can be offered. */
   role: Role;
   maxHp: number;
@@ -77,6 +81,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   assassin: {
     name: 'Kata',
     title: 'the Assassin',
+    voice: 'female',
     role: 'melee',
     maxHp: 70,
     speed: 250,
@@ -94,6 +99,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   mage: {
     name: 'Eldrin',
     title: 'the Mage',
+    voice: 'male',
     role: 'ranged',
     maxHp: 95,
     speed: 215,
@@ -109,6 +115,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   bruiser: {
     name: 'Thorik',
     title: 'the Barbarian',
+    voice: 'deep',
     role: 'melee',
     maxHp: 130,
     speed: 215,
@@ -129,6 +136,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   tank: {
     name: 'Torvald',
     title: 'the Tank',
+    voice: 'dwarf',
     role: 'melee',
     maxHp: 170,
     speed: 195,
@@ -145,6 +153,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   pyro: {
     name: 'Ignis',
     title: 'the Pyromancer',
+    voice: 'female',
     role: 'ranged',
     maxHp: 70,
     speed: 215,
@@ -162,6 +171,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   ranger: {
     name: 'Gale',
     title: 'the Ranger',
+    voice: 'male',
     role: 'ranged',
     maxHp: 90,
     speed: 245,
@@ -178,6 +188,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   druid: {
     name: 'Oakenhart',
     title: 'the Druid',
+    voice: 'female',
     role: 'melee',
     maxHp: 200,
     speed: 205,
@@ -200,6 +211,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   chronobreaker: {
     name: 'Helix',
     title: 'the Chronomancer',
+    voice: 'male',
     role: 'melee',
     maxHp: 120,
     speed: 225,
@@ -221,6 +233,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   alchemist: {
     name: 'Altor',
     title: 'the Alchemist',
+    voice: 'male',
     role: 'ranged',
     maxHp: 85,
     speed: 220,
@@ -242,6 +255,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   paladin: {
     name: 'Zarek',
     title: 'the Paladin',
+    voice: 'deep',
     role: 'melee',
     maxHp: 150,
     speed: 205,
@@ -263,6 +277,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   cleric: {
     name: 'Liora',
     title: 'the Cleric',
+    voice: 'female',
     role: 'ranged',
     maxHp: 100,
     speed: 215,

@@ -1,7 +1,11 @@
 // Decides which sounds a snapshot calls for: your own actions, what happens around you, and big moments.
 
 import { HAZARD_STRIDE, HazardKind, type Snapshot } from '../shared/protocol';
-import type { Sound } from './audio';
+import { CHARACTERS } from '../shared/characters';
+import { voiceSound, type Sound } from './audio';
+
+/** You cry out when the damage you take in one go is at least this share of your max HP. */
+const CRY_AT = 0.05;
 
 export class SoundCues {
   /** Hazards we've already warned about. */
@@ -11,7 +15,7 @@ export class SoundCues {
 
   constructor(private readonly sound: Sound) {}
 
-  onSnapshot(prev: Snapshot | null, snap: Snapshot, me: { x: number; y: number }): void {
+  onSnapshot(prev: Snapshot | null, snap: Snapshot, me: { x: number; y: number }, myId: number | null): void {
     const { sound } = this;
     const near = (x: number, y: number) => [{ x, y }, me] as const;
 
@@ -25,8 +29,12 @@ export class SoundCues {
         sound.play(crit ? 'crit' : 'hit');
       }
       const taken = snap.me.taken;
-      if (taken.some((amount) => amount > 0)) sound.play('hurt');
-      else if (taken.length > 0) sound.play('evade');
+      if (taken.some((amount) => amount > 0)) {
+        sound.play('hurt');
+        const self = snap.players.find((p) => p.id === myId);
+        const total = taken.reduce((sum, amount) => sum + Math.max(0, amount), 0);
+        if (self && !self.downed && total >= CRY_AT * self.maxHp) sound.play(voiceSound('hurt', CHARACTERS[self.character].voice));
+      } else if (taken.length > 0) sound.play('evade');
     }
 
     // Things happening in the world, quieter the farther away they are.
@@ -74,6 +82,7 @@ export class SoundCues {
     for (const p of snap.players) {
       const before = prev?.players.find((o) => o.id === p.id);
       if (p.downed) {
+        if (before && !before.downed) sound.play(voiceSound('down', CHARACTERS[p.character].voice), ...near(p.x, p.y));
         const last = this.reviveChimes.get(p.id) ?? 0;
         if (p.revive < last - 0.05) this.reviveChimes.set(p.id, p.revive); // The bar is draining: start over.
         else if (p.revive - last >= 0.08) {
