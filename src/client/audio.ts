@@ -3,6 +3,7 @@
 // have a recipe too, which plays until their files have loaded.
 
 import type { Voice as HeroVoice } from '../shared/characters';
+import type { BossVoice } from '../shared/enemies';
 import type { SoundId } from '../shared/protocol';
 import { SAMPLES } from './samples';
 
@@ -37,6 +38,7 @@ export type SoundName =
   | 'denied'
   | 'warlord'
   | 'bossRoar'
+  | BossVoice
   | 'bossIntro'
   | `hurt${VoiceName}`
   | `down${VoiceName}`;
@@ -497,6 +499,10 @@ const RECIPES: Record<SoundName, Recipe> = {
   // A boss arrives; a warlord arrives.
   bossIntro: ROAR,
   bossRoar: ROAR,
+  whisper: SILENT,
+  hiss: SILENT,
+  laugh: SILENT,
+  demon: ROAR,
   warlord: ROAR,
   resume: {
     // Back into the fight: a rising rush that lands on a deep drum hit.

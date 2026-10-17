@@ -62,6 +62,11 @@ export class SoundCues {
         case 'roar':
           sound.play('bossRoar');
           break;
+        case 'voice':
+          // The whisper, the laugh and the demons' growls fill the arena; the hiss comes from the serpent.
+          if (fx.snd !== 'hiss') sound.play(fx.snd);
+          else sound.play(fx.snd, ...near(fx.x, fx.y));
+          break;
         case 'ping':
           sound.play('ping');
           break;

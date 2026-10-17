@@ -54,6 +54,7 @@ const PASSIVE_PRIORITY: Partial<Record<UpgradeId, number>> = {
   lifesteal: 24,
   duration: 22,
   regen: 21,
+  devotion: 21,
   swift: 20,
   evasion: 20,
   magnet: 15,

@@ -14,6 +14,7 @@ import {
   type DamageType,
   ATTUNEMENT,
   ARCANA_PER_LEVEL,
+  DEVOTION_PER_LEVEL,
   damageType,
   type Role,
   type UpgradeId,
@@ -380,6 +381,8 @@ export function playerStats(upgrades: Upgrades, character: CharacterId, prestige
     projectiles: lv('multishot') + a('projectiles'),
     evasion: 0.03 * lv('evasion') + a('evasion'),
     xpMult: 1 + 0.1 * lv('wisdom') + a('xp'),
+    /** Devotion: healing this player gives (themselves included), and how long the shields they give last. */
+    support: 1 + DEVOTION_PER_LEVEL * lv('devotion'),
     goldMult: 1 + a('gold'),
     /** Once per run, a fatal blow leaves you at this share of max HP instead (0: no). */
     secondWind: effects.secondWind ?? 0,
@@ -414,8 +417,10 @@ export function heroDamageType(character: CharacterId): DamageType {
 
 /**
  * How likely an upgrade is to be offered to this hero, relative to 1: weapons of the hero's own damage type come up
- * more often, and so does the passive that boosts it (Crit for physical, Arcana for magic).
+ * more often, and so does the passive that boosts it (Crit for physical, Arcana for magic, Devotion for the heroes
+ * whose kit heals or shields).
  */
+const SUPPORT_HEROES: CharacterId[] = ['cleric', 'paladin', 'alchemist', 'tank'];
 export const OFFER_WEIGHT = { ownType: 3, ownPassive: 2, otherPassive: 0.5 };
 export function offerWeight(id: UpgradeId, character: CharacterId): number {
   const own = heroDamageType(character);
@@ -423,6 +428,7 @@ export function offerWeight(id: UpgradeId, character: CharacterId): number {
   if (def.kind === 'weapon') return !def.owner && damageType(id as WeaponId) === own ? OFFER_WEIGHT.ownType : 1;
   if (id === 'crit') return own === 'physical' ? OFFER_WEIGHT.ownPassive : OFFER_WEIGHT.otherPassive;
   if (id === 'arcana') return own === 'magic' ? OFFER_WEIGHT.ownPassive : OFFER_WEIGHT.otherPassive;
+  if (id === 'devotion') return SUPPORT_HEROES.includes(character) ? OFFER_WEIGHT.ownPassive : OFFER_WEIGHT.otherPassive;
   return 1;
 }
 

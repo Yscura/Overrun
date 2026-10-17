@@ -54,6 +54,8 @@ const ICONS: Record<ChoiceId, string> = {
   evasion: `<path d="M3 26 C5 14 13 5 29 3 C26 8 23 10 19 11 C23 11.5 25 12.5 26 14 C22 16 19 17 15 17 C18 18 19.5 19 20 21 C14 23 9 24 3 26 Z" fill="${STEEL}"/><path d="M3 26 C5 14 13 5 29 3 C20 8 12 15 3 26 Z" fill="#ffffff" opacity=".6"/>`,
   // Magic damage: a sparkle.
   arcana: `<path d="M16 1 L19.5 12.5 L31 16 L19.5 19.5 L16 31 L12.5 19.5 L1 16 L12.5 12.5 Z" fill="${BLUE}"/><path d="M16 1 L19.5 12.5 L16 16 L12.5 12.5 Z M31 16 L19.5 19.5 L16 16 L19.5 12.5 Z" fill="${BLUE_LIGHT}"/><circle cx="26" cy="5" r="2.2" fill="${BLUE_LIGHT}"/><circle cx="6" cy="27" r="1.6" fill="${BLUE_LIGHT}"/>`,
+  // Healing and shields you give: a heart on a shield, with a glint.
+  devotion: `<path d="M16 2 L28 6 L27 17 C26 23 21 27 16 30 C11 27 6 23 5 17 L4 6 Z" fill="${GOLD_DARK}"/><path d="M16 5 L25.5 8.2 L24.8 17 C24 21.5 20.5 24.6 16 27 C11.5 24.6 8 21.5 7.2 17 L6.5 8.2 Z" fill="${GOLD}"/><path d="M16 23 C11.5 19.8 9 17.3 9 14 C9 11.8 10.8 10.2 12.7 10.2 C14.2 10.2 15.3 11 16 12.2 C16.7 11 17.8 10.2 19.3 10.2 C21.2 10.2 23 11.8 23 14 C23 17.3 20.5 19.8 16 23 Z" fill="${GREEN}"/><path d="M11.5 13.5 C11.6 12.6 12.2 12 13 11.9" stroke="#8ef0b0" stroke-width="1.6" fill="none" stroke-linecap="round"/><path d="M26 1 L27 3.5 L29.5 4.5 L27 5.5 L26 8 L25 5.5 L22.5 4.5 L25 3.5 Z" fill="${CREAM}"/>`,
 
   // --- Weapons ---
   // Arcane Bolt: an orb with a trail.

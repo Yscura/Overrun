@@ -233,6 +233,8 @@ const MAX_VENOM = 80;
 const MAX_DAMAGE_NUMBERS = 25;
 const DAMAGE_NUMBER_INTERVAL = 0.3;
 const VENOM_TICK = 0.5;
+/** A boss with a voice first speaks up this many seconds into the fight (after its entrance roar). */
+const BOSS_VOICE_FIRST = 3;
 /** Recompute enemy pathfinding this often (in ticks). */
 const FLOW_INTERVAL = 5;
 /** If a client claims to be this far from where the server lets it be, snap the client back. */
@@ -546,8 +548,10 @@ interface Enemy {
   linked: boolean;
   /** Stands still (casting or winding up a cone) until this time. */
   channelUntil: number;
-  /** Grimjaw's carrion: crawls to him and heals him if it gets there. */
+  /** The Reaper's lost souls: drift to him and heal him if they get there. */
   feeder: boolean;
+  /** Named bosses with a voice: when they next speak up (fight time; 0 until the fight starts). */
+  voiceAt: number;
 }
 
 /** A boss side mission in progress; the bosses are shielded until it's done. */
@@ -1516,8 +1520,7 @@ export class Game {
   private applyUpgrade(p: Player, id: ChoiceId): void {
     if (isBonus(id)) {
       if (id === 'bonusHeal') {
-        const maxHp = this.stats(p).maxHp;
-        p.hp = Math.min(maxHp, p.hp + maxHp * BONUS.heal);
+        this.heal(p, this.stats(p).maxHp * BONUS.heal);
         p.sounds.push('heal');
       } else {
         p.profile.gold = (p.profile.gold ?? 0) + BONUS.gold;
@@ -1778,6 +1781,7 @@ export class Game {
       linked: false,
       channelUntil: 0,
       feeder: false,
+      voiceAt: 0,
     };
     this.enemies.push(enemy);
     return enemy;
@@ -1926,6 +1930,16 @@ export class Game {
   private updateBossFight(dt: number, alive: Player[]): void {
     this.fightTime += dt;
     if (this.bosses.length === 2) this.updateTwins(dt, alive);
+    // Bosses with a voice speak up every so often (the Reaper whispers, Sylvara hisses).
+    for (const [i, b] of this.bosses.entries()) {
+      const voice = NAMED_BOSSES[b.type]?.voice;
+      if (!voice || b.dead) continue;
+      // Twins take turns: the second one first speaks up a while after the first.
+      if (b.voiceAt === 0) b.voiceAt = this.fightTime + BOSS_VOICE_FIRST + i * (voice.every[0] / 2);
+      if (this.fightTime < b.voiceAt) continue;
+      b.voiceAt = this.fightTime + voice.every[0] + Math.random() * (voice.every[1] - voice.every[0]);
+      this.fx.push({ k: 'voice', snd: voice.sound, x: Math.round(b.x), y: Math.round(b.y) });
+    }
     const stacks = Math.max(0, Math.floor((this.fightTime - BOSS_BERSERK.after) / BOSS_BERSERK.every) + 1);
     if (stacks > this.berserk) {
       this.berserk = stacks;
@@ -1997,8 +2011,8 @@ export class Game {
       case 'brood':
         for (let i = 0; i < BOSS_MISSIONS.brood; i++) {
           const a = (i / BOSS_MISSIONS.brood) * Math.PI * 2;
-          const spot = this.missionSpot(center, a, 260 + Math.random() * 120, ENEMY_TYPES[EnemyType.Runner].radius);
-          const e = this.addEnemy(EnemyType.Runner, spot.x, spot.y, this.enemyHp(EnemyType.Runner) * BOSS_MISSIONS.broodHp * scale);
+          const spot = this.missionSpot(center, a, 260 + Math.random() * 120, ENEMY_TYPES[EnemyType.Spirit].radius);
+          const e = this.addEnemy(EnemyType.Spirit, spot.x, spot.y, this.enemyHp(EnemyType.Spirit) * BOSS_MISSIONS.broodHp * scale);
           e.missionTarget = true;
           ids.push(e.id);
         }
@@ -2090,6 +2104,11 @@ export class Game {
       b.hp = Math.min(b.maxHp, b.hp + b.maxHp * BOSS_VENGEFUL.heal);
       this.fx.push({ k: 'ring', x: Math.round(b.x), y: Math.round(b.y), r: 220, c: 0xff1744, snd: 'bigSlam' });
       this.banner(`${ENEMY_TYPES[b.type].name} is consumed by rage over ${ENEMY_TYPES[e.type].name}!`, 'danger');
+      const voice = NAMED_BOSSES[b.type]?.voice;
+      if (voice) {
+        this.fx.push({ k: 'voice', snd: voice.sound, x: Math.round(b.x), y: Math.round(b.y) });
+        b.voiceAt = Math.max(b.voiceAt, this.fightTime + 8);
+      }
     }
   }
 
@@ -2198,15 +2217,15 @@ export class Game {
         return [0, 0];
       }
       case 'feeders': {
-        // Carrion crawl in from the edge of the arena.
-        this.hint('feeders', `Carrion! Kill them before they reach ${ENEMY_TYPES[e.type].name} and heal him.`);
+        // Lost souls drift in from the edge of the arena.
+        this.hint('feeders', `Lost souls! Destroy them before they reach ${ENEMY_TYPES[e.type].name} and heal him.`);
         const center = this.map.arena;
         const reach = center ? arenaReach(center) - 50 : 500;
         const from = center ?? e;
         for (let i = 0; i < M.feeders.count; i++) {
           const a = Math.random() * Math.PI * 2;
-          const spot = pushOut(this.walls, from.x + Math.cos(a) * reach, from.y + Math.sin(a) * reach, ENEMY_TYPES[EnemyType.Runner].radius);
-          this.addEnemy(EnemyType.Runner, spot.x, spot.y, this.enemyHp(EnemyType.Runner) * M.feeders.hp).feeder = true;
+          const spot = pushOut(this.walls, from.x + Math.cos(a) * reach, from.y + Math.sin(a) * reach, ENEMY_TYPES[EnemyType.Spirit].radius);
+          this.addEnemy(EnemyType.Spirit, spot.x, spot.y, this.enemyHp(EnemyType.Spirit) * M.feeders.hp).feeder = true;
         }
         break;
       }
@@ -2303,13 +2322,13 @@ export class Game {
     this.fx.push({ k: 'ring', x: Math.round(egg.x), y: Math.round(egg.y), r: 70, c: 0x9ccc65, snd: 'pop' });
   }
 
-  /** A carrion reaching Grimjaw is eaten, healing him. True if it got there. */
+  /** A lost soul reaching the Reaper is reaped, healing him. True if it got there. */
   private feed(e: Enemy, boss: Enemy): boolean {
     if (dist2(e.x, e.y, boss.x, boss.y) > (ENEMY_TYPES[e.type].radius + ENEMY_TYPES[boss.type].radius + 4) ** 2) return false;
     e.dead = true;
     boss.hp = Math.min(boss.maxHp, boss.hp + boss.maxHp * BOSS_MECHANICS.feeders.heal);
-    this.fx.push({ k: 'ring', x: Math.round(boss.x), y: Math.round(boss.y), r: 110, c: 0x66bb6a, snd: 'pop' });
-    this.log(`${ENEMY_TYPES[boss.type].name} feeds and heals`, 'danger');
+    this.fx.push({ k: 'ring', x: Math.round(boss.x), y: Math.round(boss.y), r: 110, c: ENEMY_TYPES[e.type].color, snd: 'pop' });
+    this.log(`${ENEMY_TYPES[boss.type].name} reaps a soul and heals`, 'danger');
     return true;
   }
 
@@ -2511,7 +2530,7 @@ export class Game {
       // The horde gets faster toward the end (bosses and the thief keep their pace).
       let speed = def.behavior === 'named' || def.behavior === 'flee' ? def.speed : def.speed * hordeSpeed * (e.affix === Affix.Hasted ? AFFIX_TUNING.hasteSpeed : 1);
       if (e.slowUntil > this.time) speed *= 1 - (this.isBoss(e) ? POISON_SLOW.boss : POISON_SLOW.amount);
-      // Carrion ignore everyone and crawl straight to Grimjaw.
+      // Lost souls ignore everyone and drift straight to the Reaper.
       if (e.feeder) {
         const boss = this.bosses.find((b) => !b.dead && !b.burrowed);
         if (boss && !this.feed(e, boss)) {
@@ -2932,7 +2951,7 @@ export class Game {
       return;
     }
     const stats = this.stats(p);
-    p.hp = Math.min(stats.maxHp, p.hp + stats.regen * dt);
+    p.hp = Math.min(stats.maxHp, p.hp + stats.regen * stats.support * dt);
     p.lifestealBudget = Math.min(stats.maxHp * stats.lifestealCap, p.lifestealBudget + stats.maxHp * stats.lifestealCap * dt);
 
     // Chronobreak: remember where you were and how healthy.
@@ -2988,6 +3007,14 @@ export class Game {
       p.hp = 0;
       p.downed = true;
       this.log('An ally has fallen', 'danger');
+      // A boss that gloats laughs at every fallen hero.
+      if (this.bossPhase === 'fight') {
+        for (const b of this.bosses) {
+          if (b.dead || !NAMED_BOSSES[b.type]?.voice?.gloat) continue;
+          this.fx.push({ k: 'voice', snd: NAMED_BOSSES[b.type]!.voice!.sound, x: Math.round(b.x), y: Math.round(b.y) });
+          b.voiceAt = Math.max(b.voiceAt, this.fightTime + 6); // Not again right after.
+        }
+      }
       p.revive = 0;
       p.epoch++; // Pin the client to where the server says they went down.
     }
@@ -3200,7 +3227,7 @@ export class Game {
         if (z.heal) {
           for (const ally of this.players.values()) {
             if (ally.downed || dist2(ally.x, ally.y, z.x, z.y) >= (z.r + PLAYER_RADIUS) ** 2) continue;
-            ally.hp = Math.min(this.stats(ally).maxHp, ally.hp + z.heal);
+            this.heal(ally, z.heal, owner);
           }
         }
         for (const e of this.grid.query(z.x, z.y, z.r + MAX_ENEMY_RADIUS, this.near)) {
@@ -3333,7 +3360,7 @@ export class Game {
         patient = ally;
       }
     }
-    if (patient) patient.hp = Math.min(this.stats(patient).maxHp, patient.hp + s.heal);
+    if (patient) this.heal(patient, s.heal, p);
     p.sounds.push('smite');
     return s.cooldown;
   }
@@ -3711,7 +3738,7 @@ export class Game {
         // Capped per second, or it would scale with enemy health and outheal anything late in the run.
         const heal = Math.min(dealt * stats.lifesteal, by.lifestealBudget);
         by.lifestealBudget -= heal;
-        by.hp = Math.min(stats.maxHp, by.hp + heal);
+        by.hp = Math.min(stats.maxHp, by.hp + heal * stats.support);
       }
     }
     e.hp -= amount;
@@ -3853,6 +3880,20 @@ export class Game {
     }
   }
 
+  /** Heals `target` by `amount`, more with the healer's Devotion (`by`: the target itself unless someone else heals). */
+  private heal(target: Player, amount: number, by: Player | undefined = target): void {
+    target.hp = Math.min(this.stats(target).maxHp, target.hp + amount * (by ? this.stats(by).support : 1));
+  }
+
+  /**
+   * A shield: `target` takes `reduction` less damage for `seconds` (longer with the giver's Devotion). Stacks with a
+   * shield that's already up by keeping the stronger reduction and the longer time.
+   */
+  private shield(target: Player, reduction: number, seconds: number, by: Player = target): void {
+    target.guardReduction = Math.max(target.guard > 0 ? target.guardReduction : 0, reduction);
+    target.guard = Math.max(target.guard, seconds * this.stats(by).support);
+  }
+
   /** Q: the equipped artifact's active effect (see ArtifactActive). Its parts combine, in this order. */
   private useArtifact(p: Player, stats: PlayerStats): void {
     const a = p.artifact ? artifactDef(p.artifact).active : undefined;
@@ -3899,7 +3940,7 @@ export class Game {
       sounds.push('clock');
     }
     if (a.heal) {
-      p.hp = Math.min(stats.maxHp, p.hp + stats.maxHp * a.heal);
+      this.heal(p, stats.maxHp * a.heal);
       sounds.push('heal');
     }
     if (a.sanctuary) {
@@ -3930,15 +3971,14 @@ export class Game {
           ally.revive = 0;
           ally.hp = maxHp * a.rally.heal;
         } else {
-          ally.hp = Math.min(maxHp, ally.hp + maxHp * a.rally.heal);
+          this.heal(ally, maxHp * a.rally.heal, p);
         }
       }
       this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: a.rally.radius, c: color });
       sounds.push('revived');
     }
     if (a.guard) {
-      p.guardReduction = Math.max(p.guard > 0 ? p.guardReduction : 0, a.guard.reduction);
-      p.guard = Math.max(p.guard, a.guard.duration);
+      this.shield(p, a.guard.reduction, a.guard.duration);
       sounds.push('brace');
     }
     if (a.frenzy) {
@@ -4011,9 +4051,8 @@ export class Game {
           e.tauntUntil = this.time + s.taunt;
         }
         // Stack with a guard that's already running (e.g. from Rally) by keeping the stronger reduction.
-        p.guardReduction = Math.max(p.guard > 0 ? p.guardReduction : 0, s.reduction);
-        p.guard = Math.max(p.guard, s.duration);
-        if (s.heal > 0) p.hp = Math.min(stats.maxHp, p.hp + stats.maxHp * s.heal);
+        this.shield(p, s.reduction, s.duration);
+        if (s.heal > 0) this.heal(p, stats.maxHp * s.heal);
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: s.radius, c: AURA.guard });
         p.sounds.push('warcry');
         return s.cooldown;
@@ -4142,10 +4181,9 @@ export class Game {
             ally.revive = 0;
             ally.hp = maxHp * s.revive;
           } else {
-            ally.hp = Math.min(maxHp, ally.hp + maxHp * s.heal);
+            this.heal(ally, maxHp * s.heal, p);
           }
-          ally.guardReduction = Math.max(ally.guard > 0 ? ally.guardReduction : 0, s.reduction);
-          ally.guard = Math.max(ally.guard, s.guard * stats.duration);
+          this.shield(ally, s.reduction, s.guard * stats.duration, p);
         }
         const damage = s.damage * stats.damageMult;
         this.splash(p.x, p.y, r, damage, p, 'magic');
@@ -4231,7 +4269,7 @@ export class Game {
         break;
       }
       case 'elixir':
-        p.hp = Math.min(stats.maxHp, p.hp + stats.maxHp * ELIXIR.heal);
+        this.heal(p, stats.maxHp * ELIXIR.heal);
         p.elixir = ELIXIR.duration * stats.duration;
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 90, c: AURA.elixir });
         p.sounds.push('heal');
@@ -4270,10 +4308,9 @@ export class Game {
             ally.revive = 0;
             ally.hp = maxHp * RALLY.heal;
           } else {
-            ally.hp = Math.min(maxHp, ally.hp + maxHp * RALLY.heal);
+            this.heal(ally, maxHp * RALLY.heal, p);
           }
-          ally.guardReduction = Math.max(ally.guard > 0 ? ally.guardReduction : 0, RALLY.reduction);
-          ally.guard = Math.max(ally.guard, RALLY.guard * stats.duration);
+          this.shield(ally, RALLY.reduction, RALLY.guard * stats.duration, p);
         }
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: RALLY.radius, c: AURA.guard });
         break;
@@ -4549,7 +4586,7 @@ export class Game {
         const maxHp = this.stats(p).maxHp;
         // Players at full health walk over hearts, leaving them for teammates.
         if (p.hp >= maxHp || dist2(p.x, p.y, h.x, h.y) >= (PLAYER_RADIUS + HEART_RADIUS) ** 2) continue;
-        p.hp = Math.min(maxHp, p.hp + maxHp * HEART_HEAL);
+        this.heal(p, maxHp * HEART_HEAL);
         p.sounds.push('heal');
         h.dead = true;
         break;

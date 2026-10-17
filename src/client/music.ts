@@ -1,5 +1,5 @@
 // Background music: each map has one or more themes (a run picks one at random) and a boss theme that takes over when
-// the boss phase starts (the arena gates open, or the lava starts closing in). Songs are shorter than a run, so after
+// the boss fight starts (someone walks into the arena). Songs are shorter than a run, so after
 // the first play-through each one jumps from `loopOut` back to `loopIn` and keeps going for as long as it's needed.
 // The song's own ending is never reached; the music fades out when the run ends.
 
@@ -37,7 +37,7 @@ interface Track {
 interface MapMusic {
   /** A run picks one of these at random. */
   themes: Track[];
-  /** Plays from the moment the boss phase starts. */
+  /** Plays from the moment the boss fight starts. */
   boss?: Track;
 }
 

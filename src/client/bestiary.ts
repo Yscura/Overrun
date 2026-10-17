@@ -16,14 +16,15 @@ const LORE: Record<string, string> = {
   Charger: 'Winds up, then charges in a straight line. Step out of its lane.',
   Thief: 'Shows up on hunt quests carrying loot, and runs. Catch it before it gets away.',
   Wraith: 'Drifts over walls, and physical attacks pass half through it.',
-  Grimjaw: 'The Ruin Beast. Bites everything in front of him (get behind him), sends out shockwaves to dodge through, and heals by eating carrion: kill them before they reach him.',
-  Rime: 'The frozen tyrant of the fortress, warded against magic. Her Glacial Wrath blasts everyone she can see: hide behind a column. Carry a Frost Bomb away from your friends.',
+  Grimm: 'The Reaper of the ruins. Swings his scythe through everything in front of him (get behind him), sends out shockwaves to dodge through, and calls lost souls to him to heal: destroy them before they get there.',
+  Rime: 'The Frost Queen of the fortress, warded against magic, who laughs at every hero who falls. Her Glacial Wrath blasts everyone she can see: hide behind a column. Carry a Frost Bomb away from your friends.',
   'Ashlord Vael': "Lord of the caldera, armored in cooled lava. Drops meteors: stack up to share the hit. Tethered to Embra by fire: don't stand in it.",
   Embra: "The Ashlord's fiery twin, warded against magic. Throws homing cinder orbs. While the twins stand close they shield each other: pull them apart.",
   Ward: 'A totem that shields the boss during a side mission. Break them all.',
   Sylvara: 'The Glade Serpent. Spits fans of venom, leaves venom pools, lunges, marks one of you (spread out) and lays eggs that hatch unless broken.',
   Kharzak: 'An armored scorpion. Burrows and bursts out under you, sweeps its pincers and stings in a line. At 66% and 33% it hardens its shell: bait its charge into a boulder to crack it.',
   'Serpent Egg': "Laid by Sylvara around her glade. Break it before it hatches into runners.",
+  Spirit: 'A lost soul called up by the Reaper. Drifts through walls; the ones that reach him heal him.',
 };
 
 const AFFIX_TEXT: Record<string, string> = {

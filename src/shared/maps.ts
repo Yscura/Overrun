@@ -344,7 +344,7 @@ export const MAPS: MapDef[] = [
     width: 4750,
     height: 3600,
     spawn: { x: 1800, y: 1800 },
-    boss: EnemyType.Grimjaw,
+    boss: EnemyType.Reaper,
     arena: { x: 4150, y: 1800, r: 470, zone: 640, gate: RUINS_ARENA.gate },
     difficulty: 1,
     prestigeReward: 1,

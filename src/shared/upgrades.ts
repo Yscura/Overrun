@@ -38,7 +38,8 @@ export type PassiveId =
   | 'multishot'
   | 'evasion'
   | 'wisdom'
-  | 'arcana';
+  | 'arcana'
+  | 'devotion';
 export type UpgradeId = WeaponId | PassiveId;
 
 /** Offered on a level-up once there's nothing left to upgrade (or to fill up a short list of choices). */
@@ -520,6 +521,9 @@ export function prayerStats(level: number) {
   };
 }
 
+/** Devotion: healing you give, and how long your shields (damage-cut buffs) last, per level. */
+export const DEVOTION_PER_LEVEL = 0.12;
+
 /** Poison (Venom Trail, Flask Toss's acid, Toxic Pool) slows enemies in it by `amount` (bosses by `boss`) for a moment. */
 export const POISON_SLOW = { amount: 0.35, boss: 0.15, linger: 0.6 };
 const slowPct = `${Math.round(POISON_SLOW.amount * 100)}%`;
@@ -889,6 +893,11 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   evasion: { name: 'Evasion', kind: 'passive', describe: () => '+3% chance to dodge bullets, bombs and charges entirely.' },
   wisdom: { name: 'Wisdom', kind: 'passive', describe: () => '+10% XP from gems you pick up.' },
   arcana: { name: 'Arcana', kind: 'passive', describe: () => `+${Math.round(ARCANA_PER_LEVEL * 100)}% magic damage.` },
+  devotion: {
+    name: 'Devotion',
+    kind: 'passive',
+    describe: () => `+${Math.round(DEVOTION_PER_LEVEL * 100)}% healing you give (yourself included), and the shields you give last ${Math.round(DEVOTION_PER_LEVEL * 100)}% longer.`,
+  },
 };
 
 export const ALL_UPGRADES = Object.keys(UPGRADES) as UpgradeId[];

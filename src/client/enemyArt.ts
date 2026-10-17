@@ -94,6 +94,42 @@ function gloss(pen: Pen, x: number, y: number, rx: number, ry: number): void {
 }
 
 /**
+ * A demon's bat wings, spread to both sides and swept back: a membrane stretched between bony fingers.
+ * `span` is how far out the tips reach, in body radii.
+ */
+function batWings(pen: Pen, r: number, span: number, membrane: number, bone: number): void {
+  const tips = [
+    [0.2, span],
+    [-0.4, span * 0.95],
+    [-0.95, span * 0.72],
+  ];
+  for (const side of [-1, 1]) {
+    // From the shoulder up the wing's leading edge, then scalloped between the finger tips, back to the body.
+    const pts = [
+      r * 0.2, side * r * 0.45,
+      r * 0.35, side * r * span * 0.72,
+      tips[0][0] * r, side * tips[0][1] * r,
+      -r * 0.2, side * r * span * 0.74,
+      tips[1][0] * r, side * tips[1][1] * r,
+      -r * 0.62, side * r * span * 0.6,
+      tips[2][0] * r, side * tips[2][1] * r,
+      -r * 0.7, side * r * 0.4,
+    ];
+    solid(pen, (g) => g.poly(pts), membrane, INK);
+    detail(pen, (g) => {
+      for (const [x, y] of tips) g.moveTo(0, side * r * 0.55).lineTo(x * r, side * y * r).stroke({ width: 3, color: bone, cap: 'round' });
+    });
+  }
+}
+
+/** A ring of flames around (x, 0): an outer orange layer and a bright core. */
+function flames(pen: Pen, x: number, outer: number, points = 9): void {
+  const at = (pts: number[]) => pts.map((v, i) => (i % 2 === 0 ? v + x : v));
+  solid(pen, (g) => g.poly(at(star(points, outer, outer * 0.62, 0.3))), 0xff6d00, 0xbf360c);
+  detail(pen, (g) => g.poly(at(star(points, outer * 0.8, outer * 0.52, 0.65))).fill({ color: 0xffd180, alpha: 0.75 }));
+}
+
+/**
  * Draws enemy `type` into `g`, facing +x, centered on (0, 0), in `color` (its own, or the map's for it). Returns how far
  * it reaches from the center.
  */
@@ -191,7 +227,8 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
       eyes(pen, r * 0.5, r * 0.3, r * 0.17);
       return r * 1.7;
     }
-    case EnemyType.Wraith: {
+    case EnemyType.Wraith:
+    case EnemyType.Spirit: {
       // A ghost: a round head trailing a wavy tail, with hollow eyes.
       const tail = [
         r * 0.2, -r * 0.9, -r * 0.6, -r * 0.8, -r * 1.5, -r * 0.55, -r * 1.1, -r * 0.15, -r * 1.6, r * 0.15,
@@ -202,71 +239,140 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
       detail(pen, (g) => {
         g.ellipse(r * 0.5, -r * 0.33, r * 0.2, r * 0.27).fill(INK);
         g.ellipse(r * 0.5, r * 0.33, r * 0.2, r * 0.27).fill(INK);
-        g.circle(r * 0.55, -r * 0.33, r * 0.08).fill(0xe1bee7);
-        g.circle(r * 0.55, r * 0.33, r * 0.08).fill(0xe1bee7);
+        // A spirit's eyes glow pale teal; a wraith's lilac.
+        const glint = type === EnemyType.Spirit ? 0xe0f7fa : 0xe1bee7;
+        g.circle(r * 0.55, -r * 0.33, r * 0.08).fill(glint);
+        g.circle(r * 0.55, r * 0.33, r * 0.08).fill(glint);
       });
       return r * 1.9;
     }
-    case EnemyType.Grimjaw: {
-      // All mouth: a huge maw full of teeth, little eyes, spikes down the back.
-      solid(pen, (g) => g.poly(star(7, r * 1.15, r * 0.8, Math.PI / 2 + 0.25).map((v, i) => (i % 2 === 0 ? Math.min(v, r * 0.2) : v))), pen.dark, INK);
-      solid(pen, (g) => g.circle(0, 0, r));
-      gloss(pen, -r * 0.3, -r * 0.45, r * 0.4, r * 0.18);
+    case EnemyType.Reaper: {
+      // A hooded reaper in a tattered cloak, a skull in the hood's shadow, his scythe held out along his side.
+      // A cold glow of souls around him.
+      detail(pen, (g) => g.circle(0, 0, r * 1.25).fill({ color: 0x64ffda, alpha: 0.12 }));
+      const cloak = [
+        r * 0.55, -r * 0.72, 0, -r * 0.95, -r * 0.55, -r * 0.88, -r * 0.8, -r * 1.08, -r * 0.95, -r * 0.62,
+        -r * 1.32, -r * 0.4, -r * 1.02, -r * 0.08, -r * 1.3, r * 0.3, -r * 0.95, r * 0.62, -r * 0.82, r * 1.06,
+        -r * 0.55, r * 0.88, 0, r * 0.95, r * 0.55, r * 0.72, r * 0.78, 0,
+      ];
+      solid(pen, (g) => g.poly(cloak), color, INK);
+      // Folds running back from the shoulders.
       detail(pen, (g) => {
-        g.moveTo(r * 0.98, 0).arc(r * 0.98, 0, r * 0.62, Math.PI * 0.55, Math.PI * 1.45).fill(INK);
-        for (let i = 0; i < 6; i++) {
-          const a = Math.PI * 0.62 + (i / 5) * Math.PI * 0.76;
-          const bx = r * 0.98 + Math.cos(a) * r * 0.6;
-          const by = Math.sin(a) * r * 0.6;
-          g.poly([bx, by - 5, bx + 10, by, bx, by + 5]).fill(0xfff8e1);
+        for (const y of [-0.5, 0, 0.5]) {
+          g.moveTo(-r * 0.15, y * r * 0.55).lineTo(-r * 0.95, y * r * 1.25).stroke({ width: 3, color: pen.dark, alpha: 0.7, cap: 'round' });
         }
       });
-      eyes(pen, r * 0.05, r * 0.45, r * 0.12, { angry: true, glow: 0xffca28 });
-      return r * 1.3;
+      // The scythe: a long shaft along his side, the blade curving out from its front end.
+      solid(pen, (g) => g.poly([-r * 0.95, r * 0.78, r * 1.02, r * 0.68, r * 1.04, r * 0.84, -r * 0.93, r * 0.94]), 0x8d6e63, INK);
+      const blade = [
+        r * 0.98, r * 0.7, r * 1.28, r * 0.95, r * 1.36, r * 1.3, r * 1.2, r * 1.66, r * 0.8, r * 1.92,
+        r * 0.98, r * 1.58, r * 1.06, r * 1.26, r * 1.0, r * 0.98, r * 0.9, r * 0.86,
+      ];
+      solid(pen, (g) => g.poly(blade), 0xb0bec5, 0x263238);
+      detail(pen, (g) => {
+        g.moveTo(r * 1.28, r * 0.95).lineTo(r * 1.36, r * 1.3).lineTo(r * 1.2, r * 1.66).lineTo(r * 0.8, r * 1.92).stroke({ width: 2.5, color: 0xe0f7fa, cap: 'round', join: 'round' });
+      });
+      // The hood, and the skull peering out of its dark opening.
+      solid(pen, (g) => g.circle(r * 0.08, 0, r * 0.62), shade(color, -0.35), INK);
+      detail(pen, (g) => {
+        g.ellipse(r * 0.38, 0, r * 0.38, r * 0.44).fill(INK);
+        g.ellipse(r * 0.44, 0, r * 0.3, r * 0.34).fill(0xf2f0e6);
+        // The jaw: a row of teeth at the front.
+        g.rect(r * 0.66, -r * 0.15, r * 0.1, r * 0.3).fill(0xf2f0e6);
+        for (const y of [-0.09, 0, 0.09]) g.moveTo(r * 0.66, y * r).lineTo(r * 0.76, y * r).stroke({ width: 1.5, color: INK });
+        // Hollow sockets.
+        g.circle(r * 0.47, -r * 0.13, r * 0.1).fill(INK);
+        g.circle(r * 0.47, r * 0.13, r * 0.1).fill(INK);
+      });
+      eyes(pen, r * 0.48, r * 0.13, r * 0.055, { glow: 0x64ffda });
+      return r * 1.95;
     }
     case EnemyType.Rime: {
-      // An ice crystal with cold, glowing eyes.
-      solid(pen, (g) => g.poly(star(6, r * 1.2, r * 0.75, 0)), shade(color, 0.3), shade(color, -0.4));
-      solid(pen, (g) => g.poly(ngon(6, r * 0.9, Math.PI / 6)));
+      // The Frost Queen: a gown of ice flaring out behind her with a jagged hem, a tall collar of ice, silver hair,
+      // a crown of ice and an ice scepter held out at her side.
+      detail(pen, (g) => g.circle(0, 0, r * 1.3).fill({ color: 0x80deea, alpha: 0.12 }));
+      const hem: number[] = [];
+      for (let i = 0; i <= 12; i++) {
+        const a = Math.PI * 0.5 + (i / 12) * Math.PI;
+        const d = r * (i % 2 === 0 ? 1.3 : 1.0);
+        hem.push(Math.cos(a) * d - r * 0.05, Math.sin(a) * d * 0.95);
+      }
+      solid(pen, (g) => g.poly([r * 0.45, r * 0.85, ...hem, r * 0.45, -r * 0.85, r * 0.6, 0]), color, shade(color, -0.5));
+      // Frosted folds down the gown.
       detail(pen, (g) => {
-        for (let i = 0; i < 6; i++) {
-          const a = Math.PI / 6 + (i / 6) * Math.PI * 2;
-          g.moveTo(0, 0).lineTo(Math.cos(a) * r * 0.9, Math.sin(a) * r * 0.9).stroke({ width: 2, color: 0xffffff, alpha: 0.35 });
-        }
+        for (const y of [-0.55, 0, 0.55]) g.moveTo(-r * 0.1, y * r * 0.5).lineTo(-r * 1.0, y * r * 1.3).stroke({ width: 3, color: 0xffffff, alpha: 0.35, cap: 'round' });
       });
-      gloss(pen, -r * 0.2, -r * 0.4, r * 0.4, r * 0.16);
-      eyes(pen, r * 0.35, r * 0.3, r * 0.13, { glow: 0x00e5ff });
-      return r * 1.3;
+      // The collar: shards of ice fanning up behind her head.
+      solid(pen, (g) => g.poly(star(7, r * 0.64, r * 0.42, Math.PI).map((v, i) => (i % 2 === 0 ? v + r * 0.04 : v))), 0xe0f7fa, 0x4fb3c8);
+      // The scepter: a pale shaft with a glowing crystal at its tip.
+      solid(pen, (g) => g.poly([-r * 0.4, -r * 0.86, r * 1.05, -r * 0.8, r * 1.05, -r * 0.7, -r * 0.4, -r * 0.76]), 0xb3e5fc, 0x2b6f8a);
+      solid(pen, (g) => g.poly(ngon(4, r * 0.2, 0, r * 1.18, -r * 0.75)), 0xe0f7fa, 0x00acc1);
+      detail(pen, (g) => g.circle(r * 1.18, -r * 0.75, r * 0.32).fill({ color: 0x00e5ff, alpha: 0.25 }));
+      // Silver hair falling back, then her face.
+      solid(pen, (g) => g.ellipse(-r * 0.02, 0, r * 0.42, r * 0.36), 0xeceff1, 0x90a4ae);
+      solid(pen, (g) => g.circle(r * 0.26, 0, r * 0.3), 0xd7eef7, 0x4f8fa6);
+      // The crown on top of her head: a small ring of ice spikes, with a gem at the front.
+      solid(pen, (g) => g.poly(star(6, r * 0.2, r * 0.12, 0).map((v, i) => (i % 2 === 0 ? v + r * 0.15 : v))), 0x80deea, 0x00838f);
+      detail(pen, (g) => g.circle(r * 0.31, 0, r * 0.045).fill(0x00e5ff));
+      eyes(pen, r * 0.45, r * 0.12, r * 0.055, { glow: 0x00e5ff });
+      return r * 1.4;
     }
     case EnemyType.AshlordVael: {
-      // Horned, with molten cracks across the body.
-      // Big horns sweeping back.
-      for (const side of [-1, 1]) {
-        solid(pen, (g) => g.poly([r * 0.25, side * r * 0.75, -r * 0.35, side * r * 1.35, -r * 0.95, side * r * 1.45, -r * 0.45, side * r * 1.05, -r * 0.2, side * r * 0.8]), 0xbcaaa4, 0x3e2723);
-      }
-      solid(pen, (g) => g.circle(0, 0, r), shade(color, -0.3), INK);
+      // A balrog: great bat wings, a mane of fire, a body of cooled lava with molten cracks, curved horns and a
+      // flaming sword held out at his side.
+      detail(pen, (g) => g.circle(0, 0, r * 1.2).fill({ color: 0xff3d00, alpha: 0.12 }));
+      batWings(pen, r, 1.9, 0x4a1410, 0x1f0805);
+      flames(pen, -r * 0.1, r * 0.95, 11);
+      solid(pen, (g) => g.circle(0, 0, r * 0.78), 0x3a2622, INK);
       detail(pen, (g) => {
         const cracks = [
-          [-0.7, -0.2, -0.3, -0.35, 0, -0.1],
-          [-0.6, 0.45, -0.25, 0.3, 0.1, 0.45],
-          [0.2, -0.6, 0.35, -0.3, 0.6, -0.25],
+          [-0.6, -0.15, -0.25, -0.3, 0.05, -0.08],
+          [-0.5, 0.4, -0.2, 0.25, 0.1, 0.38],
+          [0.0, -0.55, 0.15, -0.3, 0.4, -0.25],
         ];
         for (const c of cracks) {
           g.moveTo(c[0] * r, c[1] * r).lineTo(c[2] * r, c[3] * r).lineTo(c[4] * r, c[5] * r).stroke({ width: 5, color: 0xff6d00, alpha: 0.5, cap: 'round' });
           g.moveTo(c[0] * r, c[1] * r).lineTo(c[2] * r, c[3] * r).lineTo(c[4] * r, c[5] * r).stroke({ width: 2, color: 0xffd180, cap: 'round' });
         }
       });
-      eyes(pen, r * 0.5, r * 0.3, r * 0.12, { angry: true, glow: 0xffea00 });
-      return r * 1.5;
+      // The sword: a blade of fire along his right side.
+      solid(pen, (g) => g.poly([-r * 0.2, r * 0.9, r * 1.35, r * 0.78, r * 1.55, r * 0.86, r * 1.35, r * 0.94, -r * 0.2, r * 1.0]), 0xffab40, 0xbf360c);
+      detail(pen, (g) => {
+        g.moveTo(-r * 0.1, r * 0.95).lineTo(r * 1.4, r * 0.86).stroke({ width: 2, color: 0xfff3e0, cap: 'round' });
+        g.rect(-r * 0.3, r * 0.82, r * 0.12, r * 0.26).fill(0x212121);
+      });
+      // The head, and the horns sweeping forward and out.
+      for (const side of [-1, 1]) {
+        solid(pen, (g) => g.poly([r * 0.35, side * r * 0.2, r * 0.3, side * r * 0.55, r * 0.6, side * r * 0.85, r * 0.95, side * r * 0.8, r * 0.62, side * r * 0.65, r * 0.5, side * r * 0.3]), 0xd7ccc8, 0x3e2723);
+      }
+      solid(pen, (g) => g.circle(r * 0.42, 0, r * 0.32), 0x2a1a17, INK);
+      eyes(pen, r * 0.58, r * 0.13, r * 0.07, { angry: true, glow: 0xffea00 });
+      detail(pen, (g) => g.moveTo(r * 0.68, -r * 0.08).lineTo(r * 0.72, 0).lineTo(r * 0.68, r * 0.08).stroke({ width: 2, color: 0xff6d00 }));
+      return r * 2.0;
     }
     case EnemyType.Embra: {
-      // Wreathed in flame.
-      solid(pen, (g) => g.poly(star(10, r * 1.25, r * 0.85, 0.2)), 0xff6d00, 0xbf360c);
-      detail(pen, (g) => g.poly(star(10, r * 1.05, r * 0.8, 0.5)).fill({ color: 0xffd180, alpha: 0.6 }));
-      solid(pen, (g) => g.circle(0, 0, r * 0.82), shade(color, -0.15), 0x6d2a00);
-      gloss(pen, -r * 0.2, -r * 0.35, r * 0.35, r * 0.15);
-      eyes(pen, r * 0.38, r * 0.28, r * 0.12, { glow: 0xfff176 });
-      return r * 1.35;
+      // The Ashlord's twin: a lither demon with wings of flame, small horns, a body of embers and a fire orb in hand.
+      detail(pen, (g) => g.circle(0, 0, r * 1.25).fill({ color: 0xffab40, alpha: 0.12 }));
+      batWings(pen, r, 1.6, 0xff6d00, 0xffd180);
+      detail(pen, (g) => {
+        for (const side of [-1, 1]) g.moveTo(-r * 0.2, side * r * 0.6).lineTo(-r * 0.6, side * r * 1.05).stroke({ width: 4, color: 0xffea00, alpha: 0.5, cap: 'round' });
+      });
+      flames(pen, -r * 0.15, r * 0.8, 9);
+      solid(pen, (g) => g.circle(0, 0, r * 0.7), 0x6d2a12, INK);
+      detail(pen, (g) => {
+        g.circle(-r * 0.15, 0, r * 0.45).fill({ color: 0xff6d00, alpha: 0.35 });
+        for (const [x, y] of [[-0.3, -0.25], [-0.1, 0.3], [0.1, -0.35], [-0.4, 0.15]]) g.circle(x * r, y * r, r * 0.06).fill(0xffd180);
+      });
+      // The fire orb, held out front.
+      detail(pen, (g) => g.circle(r * 1.0, -r * 0.62, r * 0.36).fill({ color: 0xff9100, alpha: 0.3 }));
+      solid(pen, (g) => g.circle(r * 1.0, -r * 0.62, r * 0.22), 0xffea00, 0xff6d00);
+      // The head with two small horns.
+      for (const side of [-1, 1]) {
+        solid(pen, (g) => g.poly([r * 0.35, side * r * 0.18, r * 0.42, side * r * 0.5, r * 0.62, side * r * 0.42, r * 0.52, side * r * 0.2]), 0xffe0b2, 0x5d1f0a);
+      }
+      solid(pen, (g) => g.circle(r * 0.4, 0, r * 0.28), 0x8a3414, INK);
+      eyes(pen, r * 0.54, r * 0.12, r * 0.065, { glow: 0xfff59d });
+      return r * 1.7;
     }
     case EnemyType.Sylvara: {
       // A coiled serpent: one smooth body spiraling out behind the head, thickening as it goes, with a pattern

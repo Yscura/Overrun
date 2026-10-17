@@ -44,8 +44,8 @@ Then give your friends a URL to that port, create a Multiplayer lobby and tell t
 | Map | Final boss | Boss fight | Enemy health and damage | Prestige per level |
 |---|---|---|---|---|
 | Emerald Woods | Sylvara, the Glade Serpent | A glade ringed by trees, east of the river | ×0.7 | 0.75 |
-| Verdant Ruins | Grimjaw, the Ruin Beast | A ruined colosseum east of the courtyard | ×1 | 1 |
-| Frozen Fortress | Rime, Queen of the Frozen Fortress | The throne hall inside the castle keep | ×1.5 | 1.5 |
+| Verdant Ruins | Grimm, the Reaper | A ruined colosseum east of the courtyard | ×1 | 1 |
+| Frozen Fortress | Rime, the Frost Queen | The throne hall inside the castle keep | ×1.5 | 1.5 |
 | Sunscar Canyon | Kharzak, Tyrant of the Canyon | A rocky den at the canyon's east end | ×1.85 | 1.75 |
 | Ashen Caldera | Ashlord Vael and Embra, the Twin Flames | The heart of the caldera, as the lava closes in | ×2.2 | 2 |
 
@@ -90,7 +90,7 @@ Bosses only take a short stun and are briefly immune afterwards, and they ignore
 - **The horde backs off:** in an arena or the lava ring it's just you and the bosses (and their summons). On a map
   without either, all but the 30 enemies closest to the team scatter, and only a trickle keeps coming during the fight. Boss summons are smaller and skipped when the fight is crowded.
 - **Phases:** at 66% and 33% of their health, bosses do their phase. Most put up a shield and are immune until the
-  team completes a side mission (Sylvara and the twins: destroy 4 Wards; Grimjaw: kill a marked brood; Rime: charge 3
+  team completes a side mission (Sylvara and the twins: destroy 4 Wards; Grimm: banish 10 marked spirits; Rime: charge 3
   Sigils by standing in them). Kharzak hardens its shell instead. The berserk clock keeps running.
 - **Twin Flames:** on Ashen Caldera you fight Ashlord Vael and Embra, a caster who keeps her distance, at the same time.
   Kill them close together: when one dies, the other heals 25% and turns **vengeful** (harder hits, faster and bigger
@@ -103,10 +103,10 @@ pointing in for "stack up", magenta with arrows pointing out for "spread out".
 | Boss | Mechanics |
 |---|---|
 | Sylvara | **Venom spit** (a fan of shots), **venom pools** at everyone's feet, a **lunge**, **Hunter's Mark** (a circle that follows one player, then strikes: spread out), and a **clutch of eggs** that hatch into runners unless broken. The starter boss: one basic mechanic at a time. |
-| Grimjaw | **Maw cleave** (a wide cone in front: get behind him), **shockwave** (a ring rolling outward: dodge through it or be out of reach), a charge, falling rubble, and **carrion** that crawl in from the arena's edge and heal him 4% each if they reach him. |
-| Rime | **Glacial Wrath**: she channels, then blasts everyone she can see for 65% of their max HP. Hide behind one of the hall's columns; the safe shadows are shown. Plus **Frost Bomb** (follows one player and goes off on everyone near them), **frost breath** (a long cone) and her ice nova. |
+| Grimm, the Reaper | **Scythe swing** (a wide cone in front: get behind him), **shockwave** (a ring rolling outward: dodge through it or be out of reach), a charge, falling rubble, and teal **lost souls** that drift in through the walls from the arena's edge and heal him 4% each if they reach him. He whispers through the fight. |
+| Rime, the Frost Queen | She laughs through the fight, and at every hero who falls. **Glacial Wrath**: she channels, then blasts everyone she can see for 65% of their max HP. Hide behind one of the hall's columns; the safe shadows are shown. Plus **Frost Bomb** (follows one player and goes off on everyone near them), **frost breath** (a long cone) and her ice nova. |
 | Kharzak | **Burrow** (it vanishes, a mark hunts one player, and it bursts out there), a **pincer sweep** (a very wide short cone), its tail **sting** line, and a charge. **Hardened shell** at 66% and 33%: it shrugs off 85% of damage and keeps charging. Bait a charge into one of the den's boulders to crack it: it's stunned, then takes 50% extra damage for a while. |
-| Twin Flames | A **burning tether** between the twins hurts anyone standing in it. While they're close they're **kindred** and shrug off 40% of damage: pull them apart. Vael drops **meteors** whose damage is split between everyone inside (stack up); Embra throws **homing cinder orbs**. |
+| Twin Flames | Two winged demons who growl in turn through the fight (and the survivor roars when its twin dies). A **burning tether** between the twins hurts anyone standing in it. While they're close they're **kindred** and shrug off 40% of damage: pull them apart. Vael drops **meteors** whose damage is split between everyone inside (stack up); Embra throws **homing cinder orbs**. |
 
 All of this is tuned in `src/shared/enemies.ts` (`NAMED_BOSSES` for each boss's rotation and phase, `BOSS_MECHANICS`, `BOSS_BERSERK`, `BOSS_VENGEFUL`, `BOSS_MISSIONS`). Beating the boss shows **Victory** and unlocks the next map.
 Unlocks are saved in `data/progress.json` on the server, so the whole group shares them.
@@ -151,7 +151,7 @@ berserk), **J** skips to just before the boss (picking the level-ups you'd have 
 
 **Music.** Every map has a theme and a boss theme (`sfx/<map>/`, rendered from the MIDI that
 `scripts/compose_midi.py` writes to `sfx/midi/`). A map can list several themes; a run picks one at random. The boss
-theme takes over when the boss phase starts (the arena gates open, or the lava starts closing in).
+theme takes over when the fight starts (someone walks into the arena, or the boss shows up on maps without one).
 Songs are shorter than a run, so each one jumps from a point late in the song back to an earlier one and keeps going
 as long as it's needed: the songs loop exactly on the bar line (themes from bar 9, boss themes from bar 5). Music fades in when a run starts, dips while paused and
 fades out when the run ends. Settings has a master volume plus separate sliders for music and sound effects. It's all set up in `MAP_MUSIC` in
@@ -196,7 +196,7 @@ damage taken, ult charge, HP or one of their weapons, e.g. "(Bo) 3,214 damage" o
 
 **Damage types.** Every weapon and ability deals **physical** (orange numbers), **magic** (blue) or **true** (white)
 damage; level-up cards and weapon slots show which. Only physical damage can crit. Some enemies resist a type, shown as a
-rim around them: steel for armor (Brutes, Chargers, Warlords, Wraiths, Grimjaw, Ashlord Vael), blue for a ward
+rim around them: steel for armor (Brutes, Chargers, Warlords, Wraiths, Ashlord Vael), blue for a ward
 (Bombardiers, Warlords, Rime, Embra, the boss-fight wards), and champions can be **Armored** or **Warded** on top of that.
 True damage (crate bombs, Vex's Time Bomb and Chronobreak) goes through everything. The Twin Flames are the big test:
 Ashlord resists physical, Embra resists magic. Hold Tab to see each player's damage split.

@@ -38,6 +38,11 @@ import clock from '../../sfx/effects/clock.wav?url';
 import crit1 from '../../sfx/effects/crit1.wav?url';
 import crit2 from '../../sfx/effects/crit2.wav?url';
 import death from '../../sfx/effects/death.wav?url';
+import demon1 from '../../sfx/effects/demon1.wav?url';
+import demon2 from '../../sfx/effects/demon2.wav?url';
+import demon3 from '../../sfx/effects/demon3.wav?url';
+import demon4 from '../../sfx/effects/demon4.wav?url';
+import demon5 from '../../sfx/effects/demon5.wav?url';
 import dodge from '../../sfx/effects/dodge.wav?url';
 import evade1 from '../../sfx/effects/evade1.wav?url';
 import evade2 from '../../sfx/effects/evade2.wav?url';
@@ -50,7 +55,13 @@ import growl1 from '../../sfx/effects/growl1.wav?url';
 import growl2 from '../../sfx/effects/growl2.wav?url';
 import hammer from '../../sfx/effects/hammer.wav?url';
 import heavyslash from '../../sfx/effects/heavyslash.wav?url';
+import hiss1 from '../../sfx/effects/hiss1.wav?url';
+import hiss2 from '../../sfx/effects/hiss2.wav?url';
+import hiss3 from '../../sfx/effects/hiss3.wav?url';
+import hiss4 from '../../sfx/effects/hiss4.wav?url';
 import hit1 from '../../sfx/effects/hit1.wav?url';
+import laugh1 from '../../sfx/effects/laugh1.wav?url';
+import laugh2 from '../../sfx/effects/laugh2.wav?url';
 import hit2 from '../../sfx/effects/hit2.wav?url';
 import hit3 from '../../sfx/effects/hit3.wav?url';
 import roar from '../../sfx/effects/roar.wav?url';
@@ -61,6 +72,7 @@ import slash from '../../sfx/effects/slash.wav?url';
 import stab from '../../sfx/effects/stab.wav?url';
 import ult from '../../sfx/effects/ult.wav?url';
 import warlord1 from '../../sfx/effects/warlord1.wav?url';
+import whisper from '../../sfx/effects/whisper.wav?url';
 import warlord2 from '../../sfx/effects/warlord2.wav?url';
 
 export interface Sample {
@@ -140,4 +152,10 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   warlord: { files: [warlord1, warlord2], volume: 0.8, max: 1 },
   // A final boss: the warlords' roars, deeper (it's bigger). On its entrance, when it's enraged, and going berserk.
   bossRoar: { files: [warlord1, warlord2], volume: 0.75, rate: 0.8, max: 1 },
+  // Bosses' voices through the fight: Grimm whispers and Rime laughs (heard the same everywhere), Sylvara hisses.
+  whisper: { files: [whisper], volume: 0.5, max: 1 },
+  laugh: { files: [laugh1, laugh2], volume: 0.5, max: 1, gap: 2 },
+  // The twin demons of the caldera growl (both use the same voice; never two at once).
+  demon: { files: [demon1, demon2, demon3, demon4, demon5], volume: 0.5, max: 1, gap: 2 },
+  hiss: { files: [hiss1, hiss2, hiss3, hiss4], volume: 0.45, max: 1 },
 };

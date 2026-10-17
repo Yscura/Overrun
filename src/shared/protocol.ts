@@ -2,7 +2,7 @@
 
 import type { ArtifactId } from './artifacts';
 import type { CharacterId } from './characters';
-import type { MissionKind } from './enemies';
+import type { BossVoice, MissionKind } from './enemies';
 import type { EventKind, QuestKind } from './objectives';
 import type { ModeId } from './modes';
 import type { PrestigeId, PrestigeRanks } from './prestige';
@@ -306,6 +306,8 @@ export type Fx =
   | { k: 'intro'; x: number; y: number }
   /** A boss roars (enraged, berserk): everyone hears it. */
   | { k: 'roar'; x: number; y: number }
+  /** A boss's voice during the fight: the Reaper's whisper, Sylvara's hiss. */
+  | { k: 'voice'; snd: BossVoice; x: number; y: number }
   /** A friendly area that fills up over `t` seconds before it hits (Meteor). */
   | { k: 'cast'; x: number; y: number; r: number; c: number; t: number }
   /** Big announcement text (also goes in the event log). */

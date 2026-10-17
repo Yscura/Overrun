@@ -44,7 +44,7 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Thief', radius: 15, speed: 190, hp: 160, damage: 0, xp: 0, color: 0xffd700, behavior: 'flee', spawnAfter: 0, weight: 0, elite: true },
   { name: 'Wraith', radius: 12, speed: 115, hp: 14, damage: 8, xp: 2, color: 0xb39ddb, behavior: 'chase', spawnAfter: 40, weight: 1.5, flying: true, armor: 0.5 },
   // Named final bosses, one per map (see maps.ts).
-  { name: 'Grimjaw', radius: 60, speed: 85, hp: 30000, damage: 45, xp: 0, color: 0xa1887f, behavior: 'named', spawnAfter: 0, weight: 0, elite: true },
+  { name: 'Grimm', radius: 60, speed: 85, hp: 30000, damage: 45, xp: 0, color: 0x6e8a96, behavior: 'named', spawnAfter: 0, weight: 0, elite: true },
   { name: 'Rime', radius: 54, speed: 70, hp: 38000, damage: 40, xp: 0, color: 0x81d4fa, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, ward: 0.2 },
   { name: 'Ashlord Vael', radius: 64, speed: 80, hp: 28000, damage: 50, xp: 0, color: 0xff5722, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, armor: 0.3 },
   { name: 'Embra', radius: 52, speed: 95, hp: 24000, damage: 35, xp: 0, color: 0xffab40, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, ward: 0.3 },
@@ -55,6 +55,8 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Kharzak', radius: 62, speed: 85, hp: 34000, damage: 48, xp: 0, color: 0xd4a056, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, armor: 0.35 },
   // Laid by Sylvara: hatches into a few runners unless it's broken first.
   { name: 'Serpent Egg', radius: 20, speed: 0, hp: 120, damage: 0, xp: 0, color: 0xc5e1a5, behavior: 'egg', spawnAfter: 0, weight: 0, elite: true },
+  // Called up by Grimm, the Reaper: lost souls that drift through walls.
+  { name: 'Spirit', radius: 13, speed: 120, hp: 10, damage: 8, xp: 1, color: 0x4dd0c8, behavior: 'chase', spawnAfter: 0, weight: 0, flying: true },
 ];
 
 export const EnemyType = {
@@ -67,7 +69,7 @@ export const EnemyType = {
   Charger: 6,
   Thief: 7,
   Wraith: 8,
-  Grimjaw: 9,
+  Reaper: 9,
   Rime: 10,
   AshlordVael: 11,
   Embra: 12,
@@ -75,6 +77,7 @@ export const EnemyType = {
   Sylvara: 14,
   Kharzak: 15,
   Egg: 16,
+  Spirit: 17,
 } as const;
 
 export const MAX_ENEMY_RADIUS = Math.max(...ENEMY_TYPES.map((e) => e.radius));
@@ -154,6 +157,9 @@ export type BossAttack =
   | 'meteor'
   | 'orbs';
 
+/** A boss's voice, heard every so often during the fight (see NamedBossDef.voice). */
+export type BossVoice = 'whisper' | 'hiss' | 'laugh' | 'demon';
+
 /** What happens when a boss drops below each BOSS_MISSIONS.at share: a side mission, or Kharzak's shell. */
 export type BossPhase = MissionKind | 'shell';
 
@@ -168,6 +174,8 @@ export interface NamedBossDef {
   keepAway?: number;
   /** What it does at 66% and 33% health. */
   phase: BossPhase;
+  /** It speaks up every `every[0]` to `every[1]` seconds of the fight, and (`gloat`) whenever it downs a player. */
+  voice?: { sound: BossVoice; every: [number, number]; gloat?: boolean };
 }
 
 export const NAMED_BOSSES: Record<number, NamedBossDef> = {
@@ -178,22 +186,25 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
     cooldown: 3.4,
     minions: [EnemyType.Grunt, EnemyType.Runner],
     phase: 'wards',
+    voice: { sound: 'hiss', every: [6, 11] },
   },
-  // Get behind him, dodge through his shockwaves, and don't let the carrion reach him.
-  [EnemyType.Grimjaw]: {
-    title: 'the Ruin Beast',
+  // Get behind his scythe, dodge through his shockwaves, and don't let the lost souls reach him.
+  [EnemyType.Reaper]: {
+    title: 'the Reaper',
     attacks: ['cleave', 'shockwave', 'charge', 'feeders', 'cleave', 'barrage'],
     cooldown: 3.3,
-    minions: [EnemyType.Grunt, EnemyType.Runner],
+    minions: [EnemyType.Spirit, EnemyType.Wraith],
     phase: 'brood',
+    voice: { sound: 'whisper', every: [9, 16] },
   },
   // Hide behind a column from Glacial Wrath, and carry a Frost Bomb away from your friends.
   [EnemyType.Rime]: {
-    title: 'Queen of the Frozen Fortress',
+    title: 'the Frost Queen',
     attacks: ['frostbomb', 'breath', 'nova', 'glacial', 'breath', 'summon'],
     cooldown: 3.2,
     minions: [EnemyType.Wraith, EnemyType.Spitter],
     phase: 'sigils',
+    voice: { sound: 'laugh', every: [12, 20], gloat: true },
   },
   // The twins share a burning tether and shrug off damage when close: pull them apart. Stack for meteors.
   [EnemyType.AshlordVael]: {
@@ -202,6 +213,7 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
     cooldown: 3.4,
     minions: [EnemyType.Charger, EnemyType.Runner],
     phase: 'wards',
+    voice: { sound: 'demon', every: [14, 24] },
   },
   // Fights alongside the Ashlord, from a distance.
   [EnemyType.Embra]: {
@@ -211,6 +223,7 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
     minions: [EnemyType.Wraith, EnemyType.Spitter],
     keepAway: 320,
     phase: 'wards',
+    voice: { sound: 'demon', every: [14, 24] },
   },
   // Burrows after you, sweeps with its pincers, and hardens its shell: bait its charge into a boulder to crack it.
   [EnemyType.Kharzak]: {
@@ -233,11 +246,11 @@ export const BOSS_MECHANICS = {
   mark: { radius: 115, follow: 2.2, delay: 0.7, damage: 36 },
   /** Sylvara: eggs around the glade that hatch into `hatchlings` runners after `hatch` seconds. */
   eggs: { count: 4, hatch: 8, hatchlings: 3, distance: 300 },
-  /** Grimjaw: a wide bite in front of him. */
+  /** Grimm: a wide swing of his scythe in front of him. */
   cleave: { length: 300, half: 0.8, windup: 1.1, damage: 55 },
-  /** Grimjaw: a ring that rolls out from him; dodge through it or be out of reach. */
+  /** Grimm: a ring that rolls out from him; dodge through it or be out of reach. */
   shockwave: { windup: 0.8, speed: 340, width: 46, range: 760, damage: 34 },
-  /** Grimjaw: carrion crawl in from the arena's edge; each one that reaches him heals him by `heal`. */
+  /** Grimm: lost souls drift in from the arena's edge; each one that reaches him heals him by `heal`. */
   feeders: { count: 4, heal: 0.04, hp: 5 },
   /** Rime: she channels, then blasts everyone she can see. */
   glacial: { channel: 3.5, damage: 0.65 },
@@ -305,7 +318,7 @@ export type MissionKind = 'wards' | 'sigils' | 'brood';
 export const MISSIONS: Record<MissionKind, { goal: string }> = {
   wards: { goal: 'Destroy the wards' },
   sigils: { goal: 'Charge the sigils' },
-  brood: { goal: 'Slay the marked brood' },
+  brood: { goal: 'Banish the marked spirits' },
 };
 export const MISSION_KINDS = Object.keys(MISSIONS) as MissionKind[];
 
