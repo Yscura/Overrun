@@ -155,6 +155,7 @@ export class Menu {
       }
     });
     $<HTMLInputElement>('settings-volume').addEventListener('input', (e) => this.sound?.setVolume(Number((e.target as HTMLInputElement).value) / 100));
+    $<HTMLInputElement>('settings-sfx').addEventListener('input', (e) => this.sound?.setSfxVolume(Number((e.target as HTMLInputElement).value) / 100));
     $<HTMLInputElement>('settings-music').addEventListener('input', (e) => this.sound?.setMusicVolume(Number((e.target as HTMLInputElement).value) / 100));
     $<HTMLInputElement>('settings-mute').addEventListener('change', (e) => this.sound?.setMuted((e.target as HTMLInputElement).checked));
   }
@@ -207,6 +208,7 @@ export class Menu {
     if (screen === 'settings') {
       $<HTMLInputElement>('settings-volume').value = String(Math.round((this.sound?.getVolume() ?? 1) * 100));
       $<HTMLInputElement>('settings-mute').checked = this.sound?.isMuted() ?? false;
+      $<HTMLInputElement>('settings-sfx').value = String(Math.round((this.sound?.getSfxVolume() ?? 1) * 100));
       $<HTMLInputElement>('settings-music').value = String(Math.round((this.sound?.getMusicVolume() ?? 0.5) * 100));
     }
     if (screen === 'name') $<HTMLInputElement>('name').focus();

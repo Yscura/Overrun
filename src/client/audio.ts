@@ -31,6 +31,7 @@ export type SoundName =
 const VOLUME_KEY = 'overrun.volume';
 const MUTED_KEY = 'overrun.muted';
 const MUSIC_KEY = 'overrun.music';
+const SFX_KEY = 'overrun.sfx';
 /** Positional sounds fade out completely at this distance from you. */
 const HEARING_RANGE = 1000;
 /** ...and pan fully left or right this far to the side. */
@@ -398,6 +399,8 @@ export class Sound {
   /** Music has its own bus (no compressor), its own volume on top of the main one, and follows mute. */
   private music: GainNode | null = null;
   private musicVolume: number;
+  /** Sound effects' own volume, on top of the main one. */
+  private sfxVolume: number;
 
   constructor() {
     const saved = Number(load(VOLUME_KEY));
@@ -405,6 +408,8 @@ export class Sound {
     this.muted = load(MUTED_KEY) === '1';
     const music = Number(load(MUSIC_KEY));
     this.musicVolume = Number.isFinite(music) && load(MUSIC_KEY) !== null ? Math.min(1, Math.max(0, music)) : 0.5;
+    const sfx = Number(load(SFX_KEY));
+    this.sfxVolume = Number.isFinite(sfx) && load(SFX_KEY) !== null ? Math.min(1, Math.max(0, sfx)) : 1;
     // Browsers only allow audio after the player has interacted with the page.
     const unlock = () => this.unlock();
     window.addEventListener('pointerdown', unlock);
@@ -422,6 +427,16 @@ export class Sound {
   setMusicVolume(volume: number): void {
     this.musicVolume = Math.min(1, Math.max(0, volume));
     save(MUSIC_KEY, String(this.musicVolume));
+    this.applyVolume();
+  }
+
+  getSfxVolume(): number {
+    return this.sfxVolume;
+  }
+
+  setSfxVolume(volume: number): void {
+    this.sfxVolume = Math.min(1, Math.max(0, volume));
+    save(SFX_KEY, String(this.sfxVolume));
     this.applyVolume();
   }
 
@@ -457,7 +472,7 @@ export class Sound {
    */
   play(name: SoundName, at?: { x: number; y: number }, listener?: { x: number; y: number }, pitchScale = 1): void {
     const ctx = this.ctx;
-    if (!ctx || !this.master || this.muted || this.volume === 0 || ctx.state !== 'running') return;
+    if (!ctx || !this.master || this.muted || this.volume === 0 || this.sfxVolume === 0 || ctx.state !== 'running') return;
     const recipe = RECIPES[name];
 
     let gain = 1;
@@ -564,7 +579,7 @@ export class Sound {
 
   private applyVolume(): void {
     // Squared, so the slider feels even to the ear.
-    if (this.master) this.master.gain.value = this.muted ? 0 : this.volume * this.volume;
+    if (this.master) this.master.gain.value = this.muted ? 0 : this.volume * this.volume * this.sfxVolume * this.sfxVolume;
     if (this.music) this.music.gain.value = this.muted ? 0 : this.volume * this.volume * this.musicVolume * this.musicVolume;
   }
 }

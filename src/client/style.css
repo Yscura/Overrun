@@ -2254,7 +2254,9 @@ button.wide {
   font-weight: 700;
 }
 
-#settings-volume {
+#settings-volume,
+#settings-sfx,
+#settings-music {
   width: 100%;
   accent-color: var(--accent);
 }

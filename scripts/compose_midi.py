@@ -10,8 +10,8 @@ Boss themes are faster and heavier: a 4-bar intro, A (the map theme's tune, in b
 tune), a choir-chant bridge, A, B and a climax: loop from bar 5 to the end. The files have "loop start" and
 "loop end" markers. The tempo never changes, so the loop points in seconds are exact: printed when you run this.
 
-A choir ("oohs") sings a slow line through the chords of every song, quietly in A, fuller in B, out front in the
-breaks.
+A choir runs through every song: an "oohs" line moving through the chords and a sustained "aahs" pad under it,
+gentle in the intro and A, fuller in B, out front in the breaks and bridges, biggest in the climax.
 
 Chords and melodies are written out per section below; the accompaniment (pads, bass, ostinatos, arpeggios, drums)
 is generated from the chords. No dependencies: the MIDI bytes are written by hand.
@@ -376,7 +376,7 @@ def ruins():
                'Bb5:1 D6:1 F6:2 C6:1 E6:1 G6:2 A5:4 C#6:2 E6:2', vel=92)
     hits(timp, t, CLIMAX, 38, 50, 104, beats=(0, 1, 2, 3))
     crash(kit, t)
-    add_choir(s, 10)
+    add_choir(s, 10, pad_too=False)  # Its own choir already carries the song.
     return s
 
 
@@ -637,26 +637,34 @@ def choir_line(track, start, chords, low, high, vel):
             prev = p
 
 
-# Per section: velocity and range. Quiet under the tune in A, fuller in B, out front in the break.
+# Per section: the oohs line's velocity and range, and the aahs pad's velocity. Gentle in the intro and under the tune
+# in A, fuller in B, out front in the break and bridge, biggest in the climax. (Measured in a render: this puts the
+# choir roughly 6-8 dB under the rest of the band; the first version, 10-14 velocity lower, sat 12-15 dB under.)
 CHOIR_STYLE = {
-    'Intro': (52, 55, 67),
-    'A': (56, 60, 72),
-    'A again': (64, 60, 72),
-    'B': (72, 62, 76),
-    'B again': (78, 62, 76),
-    'Break': (76, 60, 74),
-    'Bridge': (70, 60, 74),
-    'Climax': (88, 64, 79),
+    'Intro': (76, 55, 67, 74),
+    'A': (84, 60, 72, 82),
+    'A again': (92, 60, 72, 90),
+    'B': (98, 62, 76, 98),
+    'B again': (104, 62, 76, 104),
+    'Break': (100, 60, 74, 94),
+    'Bridge': (96, 60, 74, 98),
+    'Climax': (110, 64, 79, 110),
 }
 
 
-def add_choir(song, channel):
-    oohs = song.track('Choir oohs', channel, 53, volume=92, pan=64, reverb=100)
+def add_choir(song, channel, pad_channel=12, pad_too=True, boost=0):
+    """The choir through the whole song: a slow oohs line, and (`pad_too`) a sustained aahs pad under it. `boost`
+    raises every velocity (the boss themes' bands are denser)."""
+    oohs = song.track('Choir oohs', channel, 53, volume=124, pan=64, reverb=100)
+    aahs = song.track('Choir aahs (pad)', pad_channel, 52, volume=127, pan=64, reverb=100) if pad_too else None
     for name, first, bars, chords in song.sections:
-        vel, low, high = CHOIR_STYLE.get(name, (64, 60, 74))
+        vel, low, high, pad_vel = CHOIR_STYLE.get(name, (88, 60, 74, 86))
+        vel, pad_vel = min(122, vel + boost), min(122, pad_vel + boost)
         start = song.beats(first)
+        if aahs:
+            pad(aahs, start, chords, 50, 70, pad_vel)
         if name == 'Intro' and bars == 8:
-            start, chords = start + 16, chords[4:]  # It comes in halfway through a long intro.
+            start, chords = start + 16, chords[4:]  # The line comes in halfway through a long intro.
         choir_line(oohs, start, chords, low, high, vel)
 
 
@@ -917,7 +925,7 @@ def arrange_boss(spec):
     p.lead.line(t, ' '.join(_up(tok) for tok in M['climax'].split()), vel=96)
     hits(p.timp, t, C['climax'], 38, 50, 110, beats=(0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5))
     crash(p.kit, t)
-    add_choir(s, 10)
+    add_choir(s, 10, boost=8)
     return s
 
 

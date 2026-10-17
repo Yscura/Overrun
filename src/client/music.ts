@@ -5,8 +5,6 @@
 
 import type { MapDef } from '../shared/maps';
 import type { Sound } from './audio';
-import calderaSteel from '../../sfx/Steel_Against_the_Sky.mp3?url';
-import woodsStarlight from '../../sfx/Where_Starlight_Touches_Ground.mp3?url';
 import woodsTheme from '../../sfx/Emerald Woods/emerald_woods.mp3?url';
 import woodsBoss from '../../sfx/Emerald Woods/emerald_woods_boss.mp3?url';
 import ruinsTheme from '../../sfx/Desecrated Ruins/desecrated_ruins.mp3?url';
@@ -45,33 +43,36 @@ interface MapMusic {
 
 /**
  * Songs written to loop (sfx/midi, from scripts/compose_midi.py): a theme loops from bar 9 to its last bar (88), a boss
- * theme from bar 5 to its last bar (84). Their loop points come straight from the tempo.
+ * theme from bar 5 to its last bar (84). Their loop points come straight from the tempo, plus the mp3 encoder's delay
+ * (the renders start 1105 samples late). `gain` evens out how loud the renders came out (measured: themes all play at
+ * about -20 dBFS, boss themes 2.5 dB louder).
  */
-function composed(url: string, bpm: number, boss: boolean, gain = 0.85): Track {
+const ENCODER_DELAY = 1105 / 44100;
+
+function composed(url: string, bpm: number, boss: boolean, gain: number): Track {
   const bar = (4 * 60) / bpm;
+  const at = (bars: number) => bars * bar + ENCODER_DELAY;
   return boss
-    ? { url, loopIn: 4 * bar, loopOut: 84 * bar, crossfade: 2, seamless: true, gain }
-    : { url, loopIn: 8 * bar, loopOut: 88 * bar, crossfade: 2.5, seamless: true, gain };
+    ? { url, start: ENCODER_DELAY, loopIn: at(4), loopOut: at(84), crossfade: 0.05, seamless: true, gain }
+    : { url, start: ENCODER_DELAY, loopIn: at(8), loopOut: at(88), crossfade: 0.05, seamless: true, gain };
 }
 
 /**
- * Which map plays what (by the map's `art`). Two songs were picked by ear:
- * - Steel Against the Sky (2:45): loud from the start, fades out from 2:34. Loops 2:27.7 back to 0:12.0, 186 beats
- *   apart.
- * - Where Starlight Touches Ground (2:58): a slow build until 1:00, loud 1:04-1:34, a calm break, loud again 2:08-2:39,
- *   then the ending. A run starts it at 1:00, and it loops 2:36.0 back to 1:06.2 (120 beats).
+ * Which map plays what (by the map's `art`). A song made elsewhere works too: give it its own loop points (where the
+ * beat and loudness match) and leave `seamless` off, so both sides crossfade. For example, Where Starlight Touches
+ * Ground once ran as { start: 60, loopOut: 155.95, loopIn: 66.22, crossfade: 4, gain: 0.75 }.
  */
 const MAP_MUSIC: Partial<Record<MapDef['art'], MapMusic>> = {
   forest: {
-    themes: [composed(woodsTheme, 120, false), { url: woodsStarlight, start: 60, loopOut: 155.95, loopIn: 66.22, crossfade: 4, gain: 0.75 }],
-    boss: composed(woodsBoss, 150, true),
+    themes: [composed(woodsTheme, 120, false, 1.23)],
+    boss: composed(woodsBoss, 150, true, 1.19),
   },
-  ruins: { themes: [composed(ruinsTheme, 140, false)], boss: composed(ruinsBoss, 160, true) },
-  frost: { themes: [composed(frozenTheme, 150, false)], boss: composed(frozenBoss, 170, true) },
-  canyon: { themes: [composed(canyonTheme, 130, false)], boss: composed(canyonBoss, 150, true) },
+  ruins: { themes: [composed(ruinsTheme, 140, false, 1.62)], boss: composed(ruinsBoss, 160, true, 1.15) },
+  frost: { themes: [composed(frozenTheme, 150, false, 1.22)], boss: composed(frozenBoss, 170, true, 1.35) },
+  canyon: { themes: [composed(canyonTheme, 130, false, 1.14)], boss: composed(canyonBoss, 150, true, 1.1) },
   caldera: {
-    themes: [composed(calderaTheme, 135, false), { url: calderaSteel, loopOut: 147.73, loopIn: 11.98, crossfade: 4, gain: 0.8 }],
-    boss: composed(calderaBoss, 165, true),
+    themes: [composed(calderaTheme, 135, false, 1.18)],
+    boss: composed(calderaBoss, 165, true, 1.16),
   },
 };
 
