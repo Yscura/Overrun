@@ -108,10 +108,10 @@ export function boltStats(level: number) {
 export function knivesStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   return {
-    damage: 7 + 2 * n,
+    damage: 8 + 3 * n,
     cooldown: Math.max(0.35, 0.6 - 0.05 * n),
     count: 3 + Math.floor(n / 2),
-    pierce: n >= 3 ? 1 : 0,
+    pierce: n >= 2 ? 1 : 0,
     speed: 650,
     range: 320,
     spread: 0.12,
@@ -151,9 +151,9 @@ export function cleaveStats(level: number) {
 export function slamStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   return {
-    damage: 20 + 10 * n,
+    damage: (20 + 10 * n) * (level >= EVOLVED_LEVEL ? 1.5 : 1),
     cooldown: Math.max(1.2, 2.5 - 0.25 * n),
-    radius: 110 + 15 * n,
+    radius: (110 + 15 * n) * (level >= EVOLVED_LEVEL ? 1.25 : 1),
     knockback: 40,
     /** Evolved: enemies hit are stunned this many seconds. */
     stun: level >= EVOLVED_LEVEL ? 1.5 : 0,
@@ -166,12 +166,12 @@ export function orbitStats(level: number) {
   return {
     // Evolved: more blades, wider and faster.
     count: n + 2 + (evolved ? 3 : 0),
-    damage: 8 + 3 * n,
-    radius: 70 + 8 * n + (evolved ? 25 : 0),
+    damage: (10 + 4 * n) * (evolved ? 1.5 : 1),
+    radius: 52 + 8 * n + (evolved ? 25 : 0),
     /** Radians per second. */
     spin: evolved ? 4 : 3,
-    /** How often the same enemy can be hit by blades. */
-    hitCooldown: 0.5,
+    /** The same enemy can be hit once every `hitCooldown / count` seconds: more blades, more hits. */
+    hitCooldown: 1.05,
     bladeRadius: 12,
   };
 }
@@ -181,11 +181,11 @@ export function hexStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   const evolved = level >= EVOLVED_LEVEL;
   return {
-    damage: 14 + 5 * n,
-    cooldown: Math.max(0.6, 1.2 - 0.1 * n),
-    // Evolved: three more hexes, and each pierces once.
+    damage: 18 + 7 * n,
+    cooldown: Math.max(0.5, 1.0 - 0.1 * n),
+    // Evolved: three more hexes, and each pierces twice.
     count: 1 + Math.floor(n / 2) + (evolved ? 3 : 0),
-    pierce: evolved ? 1 : 0,
+    pierce: evolved ? 2 : n >= 2 ? 1 : 0,
     speed: 380,
     range: 900,
     spread: 0.5,
@@ -210,10 +210,10 @@ export function venomStats(level: number) {
   const evolved = level >= EVOLVED_LEVEL;
   return {
     /** Per tick (every 0.5s) to every enemy standing in a puddle. */
-    damage: 8 + 4 * n,
+    damage: 6 + 3 * n,
     radius: (40 + 5 * n) * (evolved ? 1.5 : 1),
     /** Seconds a puddle lasts. Evolved: twice as long. */
-    life: 2.5 * (evolved ? 2 : 1),
+    life: 2 * (evolved ? 2 : 1),
     /** You have to move at least this far between puddles. */
     spacing: 30,
   };
@@ -254,10 +254,10 @@ export function daggersStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   const evolved = level >= EVOLVED_LEVEL;
   return {
-    damage: 28 + 10 * n,
+    damage: 32 + 11 * n,
     cooldown: Math.max(0.3, 0.5 - 0.04 * n) * (evolved ? 0.7 : 1),
     range: 105,
-    targets: 2 + Math.floor(n / 2),
+    targets: 3 + Math.floor(n / 2),
     /** Evolved: every enemy within reach, 30% faster. */
     all: evolved,
   };
@@ -286,11 +286,11 @@ export function arrowsStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   const evolved = level >= EVOLVED_LEVEL;
   return {
-    damage: 16 + 6 * n,
-    cooldown: Math.max(0.45, 0.9 - 0.09 * n),
+    damage: 18 + 6 * n,
+    cooldown: Math.max(0.45, 0.85 - 0.09 * n),
     // Evolved: a volley of three that pierces everything.
     count: 1 + Math.floor(n / 3) + (evolved ? 2 : 0),
-    pierce: evolved ? 99 : 1 + Math.floor(n / 2),
+    pierce: evolved ? 99 : 2 + Math.floor(n / 2),
     speed: 820,
     range: 780,
     spread: 0.08,
@@ -302,14 +302,14 @@ export function wolvesStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   const evolved = level >= EVOLVED_LEVEL;
   return {
-    count: 1 + Math.floor((n + 1) / 2) + (evolved ? 2 : 0),
-    damage: 14 + 6 * n,
+    count: 2 + Math.floor((n + 1) / 2) + (evolved ? 2 : 0),
+    damage: 16 + 7 * n,
     biteCooldown: 0.6,
     speed: 480,
     /** They only chase enemies within this distance of you. */
     leash: 450,
     /** Evolved: each bite also hurts enemies around the target. */
-    splash: evolved ? 50 : 0,
+    splash: evolved ? 60 : n >= 2 ? 30 : 0,
   };
 }
 
@@ -318,11 +318,11 @@ export function flaskStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   const evolved = level >= EVOLVED_LEVEL;
   return {
-    damage: 15 + 6 * n,
+    damage: (15 + 6 * n) * (evolved ? 1.3 : 1),
     cooldown: Math.max(0.9, 1.6 - 0.14 * n),
     // Evolved: one more flask per throw.
     count: 1 + Math.floor(n / 3) + (evolved ? 1 : 0),
-    radius: 55 + 5 * n,
+    radius: (55 + 5 * n) * (evolved ? 1.25 : 1),
     range: 520,
     /** Seconds from the throw to the splash. */
     flight: 0.45,
@@ -356,7 +356,7 @@ export function smiteStats(level: number) {
     cooldown: Math.max(0.55, 1 - 0.1 * n),
     range: 480,
     // Evolved: two more strikes, and twice the healing.
-    targets: 1 + (evolved ? 2 : 0),
+    targets: 1 + Math.floor(n / 2) + (evolved ? 2 : 0),
     heal: (2 + n) * (evolved ? 2 : 1),
     healRange: 500,
   };
@@ -438,7 +438,7 @@ export function tumbleStats(level: number) {
     distance: 230,
     arrows: (5 + n) * (evolved ? 2 : 1),
     damage: 18 + 7 * n,
-    pierce: evolved ? 3 : 0,
+    pierce: evolved ? 3 : 1,
     cooldown: Math.max(3, 6 - 0.6 * n),
   };
 }
@@ -478,11 +478,11 @@ export function toxicpoolStats(level: number) {
   return {
     radius: (190 + 12 * n) * (evolved ? 1.3 : 1),
     /** Seconds it lasts. Evolved: much longer. */
-    life: (8 + 0.5 * n) * (evolved ? 1.6 : 1),
+    life: (6 + 0.5 * n) * (evolved ? 1.6 : 1),
     /** Damage to every enemy in the pool, every `tick` seconds. */
     damage: 4 + 2 * n,
     tick: 0.3,
-    cooldown: Math.max(9, 14 - n),
+    cooldown: Math.max(10, 15 - n),
     maxRange: 550,
   };
 }
@@ -602,9 +602,9 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     role: 'ranged',
     describe: (level) => {
       const s = hexStats(level);
-      return `Launches ${plural(s.count, 'homing hex', 'homing hexes')} that hunt down enemies for ${s.damage} damage every ${s.cooldown.toFixed(1)}s.`;
+      return `Launches ${plural(s.count, 'homing hex', 'homing hexes')} that hunt down enemies for ${s.damage} damage every ${s.cooldown.toFixed(1)}s${pierceText(s.pierce)}.`;
     },
-    evolution: { name: 'Hex Swarm', text: 'Three more hexes per volley, and every hex pierces an extra enemy.' },
+    evolution: { name: 'Hex Swarm', text: 'Three more hexes per volley, and every hex pierces two enemies.' },
   },
   cleave: {
     name: 'Cleave',
@@ -626,7 +626,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const s = slamStats(level);
       return `Slams the ground for ${s.damage} damage around you and knocks enemies back every ${s.cooldown.toFixed(1)}s.`;
     },
-    evolution: { name: 'Earthshatter', text: 'Enemies hit by the slam are stunned for 1.5 seconds.' },
+    evolution: { name: 'Earthshatter', text: 'The slam hits 50% harder in a 25% wider circle, and stuns everything it hits for 1.5 seconds.' },
   },
   venom: {
     name: 'Venom Trail',
@@ -667,7 +667,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const s = orbitStats(level);
       return `${s.count} blades circle you, dealing ${s.damage} damage on contact.`;
     },
-    evolution: { name: 'Spirit Vortex', text: '3 extra blades that spin faster in a wider circle.' },
+    evolution: { name: 'Spirit Vortex', text: '3 extra blades that hit 50% harder and spin faster in a wider circle.' },
   },
   shuriken: {
     name: 'Shuriken',
@@ -733,7 +733,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       const s = flaskStats(level);
       return `Lobs ${plural(s.count, 'flask')} at nearby enemies every ${s.cooldown.toFixed(1)}s, splashing for ${s.damage} damage and leaving acid that burns for ${s.puddle.damage} every 0.5s and slows by ${slowPct}.`;
     },
-    evolution: { name: 'Volatile Concoction', text: 'One more flask per throw, and the acid spreads 50% wider.' },
+    evolution: { name: 'Volatile Concoction', text: 'One more flask per throw, 30% more damage in 25% wider splashes, and the acid spreads 50% wider.' },
   },
   hammer: {
     name: 'Judgment Hammer',
@@ -753,7 +753,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     role: 'ranged',
     describe: (level) => {
       const s = smiteStats(level);
-      return `Holy light strikes the nearest enemy for ${s.damage} damage every ${s.cooldown.toFixed(2)}s and heals the most hurt ally nearby for ${s.heal} HP.`;
+      return `Holy light strikes the ${s.targets === 1 ? 'nearest enemy' : `${s.targets} nearest enemies`} for ${s.damage} damage every ${s.cooldown.toFixed(2)}s and heals the most hurt ally nearby for ${s.heal} HP.`;
     },
     evolution: { name: 'Holy Fire', text: 'Strikes two more enemies, and heals twice as much.' },
   },

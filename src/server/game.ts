@@ -233,6 +233,8 @@ const MAX_VENOM = 80;
 const MAX_DAMAGE_NUMBERS = 25;
 const DAMAGE_NUMBER_INTERVAL = 0.3;
 const VENOM_TICK = 0.5;
+/** Enemies' damage grows with the map's difficulty to this power (their health grows with it in full). */
+const DIFFICULTY_DAMAGE = 0.6;
 /** A boss with a voice first speaks up this many seconds into the fight (after its entrance roar). */
 const BOSS_VOICE_FIRST = 3;
 /** Recompute enemy pathfinding this often (in ticks). */
@@ -244,7 +246,7 @@ const DESYNC_LIMIT = 120;
 /** `after`: seconds you stay untouchable once it ends (you may land inside something big). */
 const STRIKE = { targets: 7, hop: 0.18, range: 650, damage: 120, perLevel: 8, after: 1 };
 const INFERNO = { duration: 3, fireballs: 16, spread: 380, radius: 110, damage: 80, perLevel: 5 };
-const ARROW_STORM = { duration: 4, interval: 0.06, damage: 20, perLevel: 2, pierce: 3, jitter: 0.12 };
+const ARROW_STORM = { duration: 4, interval: 0.06, damage: 26, perLevel: 3, pierce: 3, jitter: 0.12 };
 /**
  * Spirit Bear: slower than the wolves but hits much harder, swiping its target and everything around it. Damage grows
  * with the team level. R again sends it at the enemy nearest the cursor (within `directRange` of it).
@@ -1608,7 +1610,8 @@ export class Game {
     if (alive.length === 0) return;
     if (this.hordeHeldBack()) return;
     // More enemies over time, and more with more players. Fewer while fighting the boss out in the open.
-    let perSecond = this.horde().spawnRate * (0.6 + 0.4 * this.players.size);
+    // A solo player faces 65% of the base rate; each extra player adds 45%.
+    let perSecond = this.horde().spawnRate * (0.2 + 0.45 * this.players.size);
     if (this.bossPhase === 'fight') perSecond *= BOSS_FIGHT_HORDE;
     else if (this.warlord()) perSecond *= WARLORD_FIGHT.horde;
     this.spawnAcc += perSecond * dt;
@@ -1730,7 +1733,7 @@ export class Game {
     // Fewer-but-tougher only applies to the horde, not to one-off enemies like warlords.
     const horde = behavior === 'boss' || behavior === 'flee' ? this.horde().damage * HORDE_DENSITY ** 0.7 : this.horde().damage;
     const scale = behavior === 'named' ? BOSS_POWER.damage * this.bossMods(e).damage : horde;
-    return scale * this.map.difficulty * (e.affix ? CHAMPION.damage : 1);
+    return scale * this.map.difficulty ** DIFFICULTY_DAMAGE * (e.affix ? CHAMPION.damage : 1);
   }
 
   /** A regular enemy's health at this point in the run, on this map. */
@@ -1913,7 +1916,7 @@ export class Game {
     this.bosses = types.map((t, i) => {
       const offset = types.length > 1 ? (i === 0 ? -160 : 160) : 0;
       const spot = pushOut(this.walls, x + offset, y, ENEMY_TYPES[t].radius);
-      const hp = ENEMY_TYPES[t].hp * BOSS_POWER.hp * (1 + 0.75 * (this.players.size - 1)) * this.map.difficulty;
+      const hp = ENEMY_TYPES[t].hp * BOSS_POWER.hp * (1 + 0.85 * (this.players.size - 1)) * this.map.difficulty;
       const boss = this.addEnemy(t, spot.x, spot.y, hp);
       boss.attackTimer = 2 + i;
       return boss;
@@ -3678,9 +3681,16 @@ export class Game {
       for (const e of this.grid.query(bx, by, s.bladeRadius + MAX_ENEMY_RADIUS, this.near)) {
         if (e.dead || e.orbitHitUntil > this.time) continue;
         if (dist2(e.x, e.y, bx, by) >= (s.bladeRadius + ENEMY_TYPES[e.type].radius) ** 2) continue;
-        e.orbitHitUntil = this.time + s.hitCooldown;
+        e.orbitHitUntil = this.time + s.hitCooldown / s.count;
         this.damageEnemy(e, s.damage * stats.damageMult, p, 'physical');
       }
+    }
+    // Enemies pressed right up against you are inside the ring, where no blade passes: they get cut up anyway.
+    for (const e of this.grid.query(p.x, p.y, PLAYER_RADIUS + MAX_ENEMY_RADIUS + 4, this.near)) {
+      if (e.dead || e.orbitHitUntil > this.time) continue;
+      if (dist2(e.x, e.y, p.x, p.y) >= (PLAYER_RADIUS + ENEMY_TYPES[e.type].radius + 4) ** 2) continue;
+      e.orbitHitUntil = this.time + s.hitCooldown / s.count;
+      this.damageEnemy(e, s.damage * stats.damageMult, p, 'physical');
     }
   }
 

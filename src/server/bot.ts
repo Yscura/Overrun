@@ -5,6 +5,7 @@
 // client. Plays decently, not perfectly: it kites, dodges telegraphs, uses its E and R, grabs upgrade points,
 // hearts and revives, and does the boss side missions.
 
+import { ARTIFACTS } from '../shared/artifacts';
 import { CHARACTERS, heroDamageType, ownedPassives, ownedWeapons, type CharacterId } from '../shared/characters';
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, REVIVE_RADIUS, TICK_DT } from '../shared/constants';
@@ -249,7 +250,7 @@ export class Bot {
     const hpShare = me.hp / me.maxHp;
     const near = (r: number) => this.countNear(enemies, this.local.x, this.local.y, r);
     const boss = enemies.find((e) => e.boss && e.d < 600);
-    const cast = (slot: 'e' | 'r', angle: number, dist: number) => {
+    const cast = (slot: 'e' | 'r' | 'q', angle: number, dist: number) => {
       this.send({ t: 'cast', slot, aim: angle, dist });
       // People don't mash both buttons on the same frame.
       this.castDelay = 0.3 + (1 - this.skill) * 0.7;
@@ -299,6 +300,21 @@ export class Bot {
         intervention: snap.players.some((q) => q.downed) || (allyHurt && hpShare < 0.5),
       };
       if (use[hero.ultimate.id]) return cast('r', aim.angle, aim.dist);
+    }
+    // Q: the artifact's active, when it would help.
+    const relic = snap.me!.relic;
+    const active = me.artifact ? ARTIFACTS[me.artifact].active : undefined;
+    if (relic && relic.cd <= 0 && active) {
+      const crowded = near(250) >= 6 || !!(boss && boss.d < 300);
+      const allyInTrouble = snap.players.some((q) => q.id !== me.id && (q.downed || q.hp / q.maxHp < 0.4) && Math.hypot(q.x - this.local.x, q.y - this.local.y) < (active.rally?.radius ?? 0));
+      const use = active.rally
+        ? allyInTrouble || hpShare < 0.4
+        : active.heal || active.invuln || active.guard || active.sanctuary
+          ? hpShare < 0.45 || (!!(active.guard || active.sanctuary) && crowded && hpShare < 0.7)
+          : active.blink
+            ? near(140) >= 4
+            : crowded;
+      if (use) return cast('q', aim.angle, aim.dist);
     }
   }
 

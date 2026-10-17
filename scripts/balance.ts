@@ -20,7 +20,7 @@
 
 import { ARTIFACTS, ARTIFACT_IDS, isArtifactId } from '../src/shared/artifacts';
 import { CHARACTERS, isCharacterId, type CharacterId } from '../src/shared/characters';
-import { MAPS } from '../src/shared/maps';
+import { BOSS_TIME, MAPS } from '../src/shared/maps';
 import { PRESTIGE_IDS } from '../src/shared/prestige';
 import { EVOLVED_LEVEL } from '../src/shared/upgrades';
 import { Game, type Profile } from '../src/server/game';
@@ -98,7 +98,7 @@ for (const map of maps) {
     let samples = 0;
     let lastLog = 0;
     const started = performance.now();
-    const limit = (bossTime ?? 540) + 900;
+    const limit = (bossTime ?? BOSS_TIME) + 900;
     while (g.phase === 'playing' && g.time < limit) {
       for (const bot of bots) bot.think();
       game.tick();

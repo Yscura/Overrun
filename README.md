@@ -45,9 +45,9 @@ Then give your friends a URL to that port, create a Multiplayer lobby and tell t
 |---|---|---|---|---|
 | Emerald Woods | Sylvara, the Glade Serpent | A glade ringed by trees, east of the river | ×0.7 | 0.75 |
 | Verdant Ruins | Grimm, the Reaper | A ruined colosseum east of the courtyard | ×1 | 1 |
-| Frozen Fortress | Rime, the Frost Queen | The throne hall inside the castle keep | ×1.5 | 1.5 |
-| Sunscar Canyon | Kharzak, Tyrant of the Canyon | A rocky den at the canyon's east end | ×1.85 | 1.75 |
-| Ashen Caldera | Ashlord Vael and Embra, the Twin Flames | The heart of the caldera, as the lava closes in | ×2.2 | 2 |
+| Frozen Fortress | Rime, the Frost Queen | The throne hall inside the castle keep | ×1.4 | 1.5 |
+| Sunscar Canyon | Kharzak, Tyrant of the Canyon | A rocky den at the canyon's east end | ×1.5 | 1.75 |
+| Ashen Caldera | Ashlord Vael and Embra, the Twin Flames | The heart of the caldera, as the lava closes in | ×2 | 2 |
 
 - **Emerald Woods:** the first map, kept simple to get into the game: a sunny forest with groves of trees and a river
   down the middle. Cross it on one of two bridges or the ford on the path (or dodge across). Mostly the basic horde.

@@ -34,7 +34,7 @@ export function isBossType(type: number): boolean {
 export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Grunt', radius: 14, speed: 85, hp: 12, damage: 10, xp: 1, color: 0xe57373, behavior: 'chase', spawnAfter: 0, weight: 10 },
   { name: 'Runner', radius: 10, speed: 145, hp: 8, damage: 8, xp: 1, color: 0xffd54f, behavior: 'chase', spawnAfter: 25, weight: 4 },
-  { name: 'Brute', radius: 24, speed: 60, hp: 70, damage: 20, xp: 5, color: 0xba68c8, behavior: 'chase', spawnAfter: 60, weight: 2, elite: true, armor: 0.3 },
+  { name: 'Brute', radius: 24, speed: 60, hp: 70, damage: 17, xp: 5, color: 0xba68c8, behavior: 'chase', spawnAfter: 60, weight: 2, elite: true, armor: 0.3 },
   // Mini-boss every few minutes.
   { name: 'Warlord', radius: 56, speed: 75, hp: 1200, damage: 40, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.25, ward: 0.25 },
   { name: 'Spitter', radius: 13, speed: 80, hp: 16, damage: 6, xp: 2, color: 0x9ccc65, behavior: 'ranged', spawnAfter: 50, weight: 1.2 },
@@ -85,7 +85,7 @@ export const MAX_ENEMY_RADIUS = Math.max(...ENEMY_TYPES.map((e) => e.radius));
 // Attack tuning for the special enemies.
 
 /** Keeps its distance and spits slow, dodgeable orbs. */
-export const SPITTER = { minRange: 260, maxRange: 380, fireRange: 560, cooldown: 3, shotSpeed: 220, shotDamage: 8, shotLife: 3.2 };
+export const SPITTER = { minRange: 260, maxRange: 380, fireRange: 560, cooldown: 3, shotSpeed: 220, shotDamage: 7, shotLife: 3.2 };
 
 /**
  * Lobs a bomb at where you are; a circle marks the spot until it explodes. Each bombardier waits
@@ -102,7 +102,7 @@ export const BOMBARDIER = {
   maxActive: 4,
   radius: 75,
   delay: 1.3,
-  damage: 22,
+  damage: 19,
 };
 
 /** A dash attack: stop, show the path, then dash along it. */
@@ -123,7 +123,7 @@ export const CHARGER: ChargeConfig & { triggerRange: number; cooldown: number } 
   duration: 0.7,
   recover: 0.5,
   cooldown: 3,
-  damage: 25,
+  damage: 21,
   width: 40,
 };
 
@@ -299,7 +299,7 @@ export const BOSS_STUN = { share: 0.3, immunity: 4 };
  * Named bosses' health and damage on top of their base stats (and the map's difficulty). Their damage doesn't
  * follow the horde's curve, or their attacks would one-shot everyone.
  */
-export const BOSS_POWER = { hp: 2.5, damage: 1.5 };
+export const BOSS_POWER = { hp: 2.8, damage: 1.5 };
 /**
  * Kill the final boss within `after` seconds of the fight starting, or it goes berserk: every `every` seconds
  * it gains a stack, and each stack adds `damage` to its damage, `haste` to its attack speed and `area` to the size
@@ -374,7 +374,7 @@ export function hordeScaling(progress: number) {
   const f = Math.min(progress, 1.2);
   return {
     hp: (1 + 4 * f + 25 * f ** 4) / HORDE_DENSITY,
-    damage: (1 + 2 * f * f) / HORDE_DENSITY ** 0.7,
+    damage: (1 + 1.4 * f * f) / HORDE_DENSITY ** 0.7,
     speed: 1 + 0.25 * f * f,
     /** XP per enemy. */
     xp: 1 / HORDE_DENSITY,

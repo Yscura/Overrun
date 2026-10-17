@@ -396,7 +396,7 @@ export const MAPS: MapDef[] = [
       zone: (KEEP.w - K) / 2 + K + 10,
       gate: [wall(KEEP.x, KEEP.y + (KEEP.h - KEEP_GATE) / 2, K, KEEP_GATE)],
     },
-    difficulty: 1.5,
+    difficulty: 1.4,
     prestigeReward: 1.5,
     enemyWeights: { [EnemyType.Spitter]: 1.6, [EnemyType.Wraith]: 1, [EnemyType.Bombardier]: 0.5 },
     // Ice blues, frost whites and cold violets.
@@ -482,9 +482,9 @@ export const MAPS: MapDef[] = [
     spawn: { x: 500, y: 1500 },
     boss: EnemyType.Kharzak,
     arena: { x: 4600, y: 1500, r: 440, zone: 680, gate: DEN.gate },
-    difficulty: 1.85,
+    difficulty: 1.5,
     prestigeReward: 1.75,
-    enemyWeights: { [EnemyType.Charger]: 1.4, [EnemyType.Spitter]: 1.4, [EnemyType.Runner]: 1.3, [EnemyType.Wraith]: 0.6 },
+    enemyWeights: { [EnemyType.Charger]: 1, [EnemyType.Spitter]: 1.1, [EnemyType.Runner]: 1.3, [EnemyType.Wraith]: 0.6 },
     // Dust: grays, browns, sand and rust.
     enemyColors: {
       [EnemyType.Grunt]: 0xbcaaa4,
@@ -532,7 +532,7 @@ export const MAPS: MapDef[] = [
     bossName: 'Ashlord Vael and Embra, the Twin Flames',
     arena: null,
     lava: { x: CALDERA.x, y: CALDERA.y, r: 1950, final: 720 },
-    difficulty: 2.2,
+    difficulty: 2,
     prestigeReward: 2,
     enemyWeights: { [EnemyType.Charger]: 1.6, [EnemyType.Bombardier]: 1.6, [EnemyType.Wraith]: 1.2, [EnemyType.Spitter]: 0.8 },
     // Fire and ash.
