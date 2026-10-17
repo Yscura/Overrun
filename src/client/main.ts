@@ -12,6 +12,7 @@ import { SnapshotBuffer } from './snapshots';
 import { SoundCues } from './soundCues';
 import { Chat } from './chat';
 import { Menu } from './menu';
+import { Music } from './music';
 import { UI, formatTime } from './ui';
 import './style.css';
 
@@ -37,6 +38,7 @@ async function main() {
   const buffer = new SnapshotBuffer();
   const sound = new Sound();
   const cues = new SoundCues(sound);
+  const music = new Music(sound);
   ui.bindSound(sound);
   renderer.onEnemyDeath = (x, y, big) => sound.play(big ? 'explode' : 'death', { x, y }, local);
 
@@ -126,6 +128,7 @@ async function main() {
     ui.leaveRoom();
     chat.dock(null);
     chat.setVisible(false);
+    music.update(null, false);
   };
 
   net.onOpen = () => {
@@ -190,6 +193,11 @@ async function main() {
     if (snap.me) renderer.addDamageNumbers(snap.me.hits, snap.me.taken, local);
     if (snap.me?.found.length) ui.showFinds(snap.me.found);
     ui.update(snap, myId);
+    // The map's music during a run (not in the lobby or on the results), quieter while paused. The boss theme takes
+    // over when the boss phase starts: the arena gates open, the lava starts closing in, or the boss shows up.
+    const bossTime = !!snap.bossFight || (!!snap.arena && snap.arena.state !== 'idle') || !!snap.lava?.closing;
+    music.update(snap.phase === 'playing' ? MAPS[snap.map] : null, bossTime);
+    music.setPaused(snap.pause?.kind === 'menu');
     chat.dock(snap.phase === 'lobby' ? ui.lobbyChatDock : null);
   };
 

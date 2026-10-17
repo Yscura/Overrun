@@ -149,6 +149,16 @@ berserk), **U** gives a free level-up pick, **F** a free Forge pick, and **B** f
 **Testing switches** for the server: `OVERRUN_BOSS_TIME=60` brings the final boss after a minute and
 `OVERRUN_UNLOCK_ALL=1` unlocks every map. In PowerShell: `$env:OVERRUN_BOSS_TIME=60; npm run dev`.
 
+**Music.** Every map has a theme and a boss theme (`sfx/<map>/`, rendered from the MIDI that
+`scripts/compose_midi.py` writes to `sfx/midi/`). The Emerald Woods and the Ashen Caldera also have a second theme
+(`sfx/Where_Starlight_Touches_Ground.mp3`, started at 1:00, and `sfx/Steel_Against_the_Sky.mp3`); a run picks one
+at random. The boss theme takes over when the boss phase starts (the arena gates open, or the lava starts closing in).
+Songs are shorter than a run, so each one jumps from a point late in the song back to an earlier one and keeps going
+as long as it's needed: the composed songs loop exactly on the bar line (themes from bar 9, boss themes from bar 5),
+the two others crossfade where the beat and loudness line up. Music fades in when a run starts, dips while paused and
+fades out when the run ends, and has its own volume slider in Settings. It's all set up in `MAP_MUSIC` in
+`src/client/music.ts`.
+
 ## Controls
 
 Pick a hero in the lobby. Ranged and melee heroes are offered different weapons:
