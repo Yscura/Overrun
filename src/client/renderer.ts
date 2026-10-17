@@ -4,7 +4,7 @@ import { CHARACTER_IDS, type CharacterId, REWIND_SECONDS } from '../shared/chara
 import { BOMB, BOSS_DEATH, BOSS_INTRO, COIN, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
 import { DAMAGE_COLORS, DAMAGE_TYPES, type DamageType } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
-import { NO_ROTATE, drawEnemy, shade } from './enemyArt';
+import { DRAGON_SHOULDER, NO_ROTATE, drawDragonWing, drawEnemy, shade } from './enemyArt';
 import { TILE, decorations, drawGate, lavaField, drawWalls, groundTile } from './mapArt';
 import { MAPS, mapWalls, enemyColor, zoneRect } from '../shared/maps';
 import { Minimap } from './minimap';
@@ -66,6 +66,21 @@ interface DamageNumber {
 }
 /** The Dragonmancer's dragon: fiery orange, so it's never mistaken for Mordak. */
 const DRAGON_FORM_COLOR = 0xe65100;
+/** Dragon Form's body parts along its spine, in Mordak's radii: x is along the body (head forward). */
+const DRAGON_PARTS = {
+  head: { x: 0.92 },
+  neck: [
+    { x: 0.58, r: 0.13 },
+    { x: 0.74, r: 0.11 },
+  ],
+  chest: { x: 0.3, rx: 0.28, ry: 0.24 },
+  belly: { x: 0.0, rx: 0.26, ry: 0.19 },
+  hips: { x: -0.3, rx: 0.23, ry: 0.19 },
+  tail: { from: -0.45, to: -1.75, width: 0.14 },
+};
+/** How it moves: a stride of this many radians of its walk cycle a second (at full speed), and wings swept back this far. */
+const DRAGON_STRIDE = 7;
+const DRAGON_WING_TILT = 0.28;
 /** Off-screen objective arrows stay this far inside the screen edge. */
 const POINTER_MARGIN = 40;
 /** ...and are drawn this many times the aim arrow's size. */
@@ -110,14 +125,26 @@ interface EnemyView extends TypedView {
   facing: number;
 }
 
+/** A Dragon Form dragon: legs (redrawn every frame), two wings that flap at the shoulder, and the body on top. */
+interface DragonView {
+  root: Container;
+  legs: Graphics;
+  wings: [Sprite, Sprite];
+  /** Head, neck, chest, belly, hips and tail along a spine that bends as it walks (redrawn every frame). */
+  body: Graphics;
+  /** Its own stride (slower than a hero's walk), and when it was last drawn. */
+  stride: number;
+  last: number;
+}
+
 interface PlayerView {
   root: Container;
   bladeLayer: Container;
   blades: Sprite[];
   /** The Ember Halo's fireballs. */
   embers: Sprite[];
-  /** In Dragon Form: drawn as a dragon instead. */
-  dragon: Sprite | null;
+  /** In Dragon Form: drawn as a dragon instead, built from parts so it can walk and beat its wings. */
+  dragon: DragonView | null;
   /** On the ground: a shadow and two feet. */
   shadow: Graphics;
   feet: Graphics;
@@ -247,6 +274,8 @@ export class GameRenderer {
   private frame = 0;
   private artCache = new Map<string, string>();
   private enemyTextures = new Map<string, Texture>();
+  /** Dragon Form's wings, one per side (and hit flash), with the shoulder they flap around. */
+  private dragonWings = new Map<string, { texture: Texture; anchor: { x: number; y: number } }>();
   /** Each enemy type's color on the current map (for death bursts). */
   private enemyColors: number[] = ENEMY_TYPES.map((def) => def.color);
   private shrineViews = new Map<number, ShrineView>();
@@ -1845,22 +1874,185 @@ export class GameRenderer {
     g.rect(-3 * s, y - 8 * s, 6 * s, 16 * s).rect(-8 * s, y - 3 * s, 16 * s, 6 * s).fill(DOWNED_RED);
   }
 
-  /** Dragon Form: a fiery dragon in place of the hero's token, facing where they aim. */
+  /**
+   * Dragon Form: a fiery dragon in place of the hero's token, facing where they aim. It's drawn in Mordak's units (his
+   * radius) and scaled down. Its legs step in a trot while it walks, its wings beat (slowly at rest, harder on the
+   * move) and its body sways along.
+   */
   private updateDragon(view: PlayerView, p: PlayerState, aim: number | null): void {
     const dragon = p.dragon && !p.downed;
     if (dragon && !view.dragon) {
-      view.dragon = new Sprite();
-      view.dragon.anchor.set(0.5);
-      view.root.addChildAt(view.dragon, view.root.getChildIndex(view.avatar));
+      const root = new Container();
+      const legs = new Graphics();
+      const wings: [Sprite, Sprite] = [new Sprite(), new Sprite()];
+      const body = new Graphics();
+      // Wings first (the legs step over their roots), then the legs, then the body on top.
+      root.addChild(...wings, legs, body);
+      view.root.addChildAt(root, view.root.getChildIndex(view.avatar));
+      view.dragon = { root, legs, wings, body, stride: 0, last: performance.now() };
     }
     view.avatar.visible = !dragon;
     view.feet.visible = !dragon;
     if (!view.dragon) return;
-    view.dragon.visible = dragon;
+    const d = view.dragon;
+    d.root.visible = dragon;
     if (!dragon) return;
-    view.dragon.texture = this.enemyTexture(EnemyType.Mordak, p.hurt, DRAGON_FORM_COLOR, 3);
-    view.dragon.scale.set((TOKEN_R * 2) / ENEMY_TYPES[EnemyType.Mordak].radius);
-    view.dragon.rotation = aim ?? p.aim;
+
+    const R = ENEMY_TYPES[EnemyType.Mordak].radius;
+    const now = performance.now() / 1000;
+    const moving = view.moving;
+    // A big, slow stride: its own clock, not the hero's quick steps.
+    const dt = Math.min(0.1, now - d.last / 1000);
+    d.last = performance.now();
+    d.stride += dt * DRAGON_STRIDE * moving;
+    const step = d.stride;
+    d.root.scale.set((TOKEN_R * 2.3) / R);
+    d.root.rotation = aim ?? p.aim;
+
+    // The spine: a slow wave runs down the body as it walks, and the tail sways on its own (more toward the tip).
+    const sway = (x: number) => {
+      const walk = Math.sin(step - (x / R) * 2.4) * 0.07 * R * moving;
+      const tail = x < -0.4 * R ? Math.sin(now * 1.7 + p.id + (x / R) * 2.2) * 0.06 * R * (-x / R - 0.4) : 0;
+      return walk + tail;
+    };
+    const breath = 1 + Math.sin(now * 2.4 + p.id) * 0.03;
+    this.drawDragonBody(d.body, R, sway, breath, p.hurt);
+
+    // The wings: hinged at the shoulders (on the chest). A beat folds them in and sweeps them further back.
+    const beat = Math.sin(now * (moving > 0.3 ? 11 : 4.5) + p.id);
+    const depth = 0.12 + 0.33 * moving;
+    const shoulderX = DRAGON_PARTS.chest.x * R;
+    for (const [i, side] of [-1, 1].entries()) {
+      const wing = d.wings[i];
+      const art = this.dragonWingTexture(side, p.hurt);
+      wing.texture = art.texture;
+      wing.anchor.set(art.anchor.x, art.anchor.y);
+      wing.position.set(shoulderX, sway(shoulderX) + side * DRAGON_PARTS.chest.ry * 0.8 * R);
+      wing.scale.set(0.85 * (1 - 0.08 * depth * (beat + 1)), 0.85 * (1 - depth * (beat + 1) * 0.5));
+      wing.rotation = side * (DRAGON_WING_TILT + 0.12 * depth * (beat + 1));
+    }
+
+    // The legs: front ones on the chest, back ones on the hips, trotting (front left with back right, then the other
+    // pair). Mid-stride a foot lifts and tucks in a little; planted, it's out wide. Claws out.
+    const g = d.legs.clear();
+    const legColor = shade(DRAGON_FORM_COLOR, -0.45);
+    for (const [part, side, phase] of [
+      ['chest', -1, 0],
+      ['chest', 1, Math.PI],
+      ['hips', -1, Math.PI],
+      ['hips', 1, 0],
+    ] as const) {
+      const at = DRAGON_PARTS[part];
+      const cycle = Math.sin(step + phase);
+      const lift = Math.max(0, Math.cos(step + phase)) * moving;
+      const hipX = at.x * R;
+      const hipY = sway(hipX) + side * at.ry * 0.7 * R;
+      const footX = hipX + cycle * 0.26 * R * moving;
+      const footY = sway(hipX) + side * (0.56 - 0.08 * lift) * R;
+      const kneeX = (hipX + footX) / 2 + (part === 'chest' ? 0.06 : -0.06) * R;
+      const kneeY = sway(hipX) + side * 0.44 * R;
+      g.moveTo(hipX, hipY).lineTo(kneeX, kneeY).lineTo(footX, footY).stroke({ width: R * 0.15, color: 0x140404, cap: 'round', join: 'round' });
+      g.moveTo(hipX, hipY).lineTo(kneeX, kneeY).lineTo(footX, footY).stroke({ width: R * 0.09, color: legColor, cap: 'round', join: 'round' });
+      for (const c of [-1, 0, 1]) {
+        g.moveTo(footX, footY).lineTo(footX + R * 0.1, footY + side * R * 0.03 + c * R * 0.05).stroke({ width: R * 0.04, color: 0xfff3e0, cap: 'round' });
+      }
+    }
+  }
+
+  /**
+   * Dragon Form's body, in parts along a spine (`sway(x)` is how far the spine bends sideways at x): a long tail of
+   * tapering segments ending in a spade, then hips, belly and a broad chest (a lean, long build), a two-part neck and a
+   * wedge of a head with horns swept back. Spines down the back, scales on the plates, and lava between them. All
+   * white when hit.
+   */
+  private drawDragonBody(g: Graphics, R: number, sway: (x: number) => number, breath: number, flash: boolean): void {
+    g.clear();
+    const color = DRAGON_FORM_COLOR;
+    const fill = (c: number) => (flash ? 0xffffff : c);
+    const ink = 0x2b0d02;
+    const dark = shade(color, -0.35);
+    const P = DRAGON_PARTS;
+    // The tail: a tapering ribbon along the spine, then its spade.
+    const top: number[] = [];
+    const bottom: number[] = [];
+    const steps = 14;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = (P.tail.from + (P.tail.to - P.tail.from) * t) * R;
+      const w = (P.tail.width * (1 - t) + 0.025) * R;
+      top.push(x, sway(x) - w);
+      bottom.unshift(x, sway(x) + w);
+    }
+    g.poly([...top, ...bottom]).fill(fill(dark)).stroke({ width: 3, color: ink, join: 'round' });
+    const tipX = P.tail.to * R;
+    const tipY = sway(tipX);
+    g.poly([tipX + 0.04 * R, tipY, tipX - 0.1 * R, tipY - 0.11 * R, tipX - 0.22 * R, tipY, tipX - 0.1 * R, tipY + 0.11 * R]).fill(fill(0x1a0606)).stroke({ width: 2, color: ink });
+    // Hips, belly and chest: overlapping plates, the chest broadest.
+    for (const part of [P.hips, P.belly, P.chest]) {
+      const x = part.x * R;
+      g.ellipse(x, sway(x), part.rx * R, part.ry * R * breath).fill(fill(color)).stroke({ width: 3, color: ink });
+    }
+    // The neck, in two parts, and the head.
+    for (const n of P.neck) {
+      const x = n.x * R;
+      g.circle(x, sway(x), n.r * R).fill(fill(color)).stroke({ width: 3, color: ink });
+    }
+    const hx = P.head.x * R;
+    const hy = sway(hx);
+    for (const side of [-1, 1]) {
+      g.poly([hx + 0.05 * R, hy + side * 0.08 * R, hx - 0.18 * R, hy + side * 0.24 * R, hx - 0.3 * R, hy + side * 0.26 * R, hx - 0.14 * R, hy + side * 0.13 * R]).fill(fill(0x1a0606)).stroke({ width: 2, color: 0x000000 });
+    }
+    g.poly([hx - 0.12 * R, hy - 0.14 * R, hx + 0.14 * R, hy - 0.1 * R, hx + 0.36 * R, hy - 0.04 * R, hx + 0.4 * R, hy, hx + 0.36 * R, hy + 0.04 * R, hx + 0.14 * R, hy + 0.1 * R, hx - 0.12 * R, hy + 0.14 * R])
+      .fill(fill(shade(color, 0.08)))
+      .stroke({ width: 3, color: ink, join: 'round' });
+    if (flash) return;
+    // Eyes like coals, and smoldering nostrils.
+    for (const side of [-1, 1]) {
+      g.circle(hx + 0.08 * R, hy + side * 0.065 * R, 0.035 * R).fill(0xffab00);
+      g.circle(hx + 0.36 * R, hy + side * 0.025 * R, 0.015 * R).fill(0xff6d00);
+    }
+    // Scales on the plates, and lava glowing where they meet.
+    for (const part of [P.hips, P.belly, P.chest]) {
+      const x = part.x * R;
+      const y = sway(x);
+      for (let k = -1; k <= 1; k++) {
+        g.moveTo(x - 0.07 * R + k * 0.09 * R, y + 0.08 * R).arc(x + k * 0.09 * R, y + 0.08 * R, 0.07 * R, Math.PI, Math.PI * 2).stroke({ width: 2, color: 0x3b1003, alpha: 0.8 });
+        g.moveTo(x - 0.07 * R + k * 0.09 * R, y - 0.04 * R).arc(x + k * 0.09 * R, y - 0.04 * R, 0.07 * R, Math.PI, Math.PI * 2).stroke({ width: 2, color: 0x3b1003, alpha: 0.8 });
+      }
+    }
+    for (const [a, b] of [
+      [P.hips, P.belly],
+      [P.belly, P.chest],
+    ]) {
+      const x = ((a.x + a.rx * 0.6 + b.x - b.rx * 0.6) / 2) * R;
+      const y = sway(x);
+      g.moveTo(x, y - 0.14 * R).lineTo(x + 0.02 * R, y).lineTo(x, y + 0.14 * R).stroke({ width: 3, color: 0xff9100, alpha: 0.75, cap: 'round' });
+    }
+    // A ridge of spines down the back, from the neck to the tail.
+    for (let i = 0; i < 12; i++) {
+      const x = (0.62 - i * 0.16) * R;
+      const y = sway(x);
+      const size = R * 0.06 * (1 - i * 0.05);
+      g.poly([x + size, y, x - size * 0.8, y - size * 0.7, x - size * 0.8, y + size * 0.7]).fill(0x140404);
+    }
+  }
+
+  /** One dragon wing (see drawDragonWing), and where its shoulder falls in it (its anchor, to flap around). */
+  private dragonWingTexture(side: number, flash: boolean): { texture: Texture; anchor: { x: number; y: number } } {
+    const key = `dragonWing|${side}|${flash}`;
+    const cached = this.dragonWings.get(key);
+    if (cached) return cached;
+    const g = new Graphics();
+    drawDragonWing(g, side, flash, DRAGON_FORM_COLOR);
+    const b = g.getLocalBounds();
+    const frame = new Rectangle(b.x - 4, b.y - 4, b.width + 8, b.height + 8);
+    const texture = this.app.renderer.generateTexture({ target: g, frame, resolution: 2 });
+    g.destroy();
+    const R = ENEMY_TYPES[EnemyType.Mordak].radius;
+    const anchor = { x: (DRAGON_SHOULDER.x * R - frame.x) / frame.width, y: (side * DRAGON_SHOULDER.y * R - frame.y) / frame.height };
+    const wing = { texture, anchor };
+    this.dragonWings.set(key, wing);
+    return wing;
   }
 
   private updateBlades(view: PlayerView, p: PlayerState, time: number): void {

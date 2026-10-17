@@ -86,9 +86,9 @@ export interface CharacterDef {
  * Dragon Form: for `duration` seconds the Dragonmancer is a dragon, with these multipliers (`reduction`: damage
  * taken cut by that share), and his E breathes fire (see FIREBREATH) on a `breathCooldown`.
  */
-export const DRAGON_FORM = { duration: 12, damage: 1.5, maxHp: 1.4, reduction: 0.25, speed: 1.15, area: 1.2, breathCooldown: 2.4 };
+export const DRAGON_FORM = { duration: 25, damage: 1.5, maxHp: 1.4, reduction: 0.25, speed: 1.15, area: 1.2, breathCooldown: 2.4 };
 /** His fire breath: a cone (`half` its half-angle) burning every `tick` seconds for `duration`, following his aim. */
-export const FIREBREATH = { duration: 1.3, tick: 0.12, range: 300, half: 0.5, damage: 26, perLevel: 9 };
+export const FIREBREATH = { duration: 1.3, tick: 0.12, range: 420, half: 0.5, damage: 26, perLevel: 9 };
 
 export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   assassin: {

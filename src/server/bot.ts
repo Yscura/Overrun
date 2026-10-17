@@ -63,7 +63,7 @@ const PASSIVE_PRIORITY: Partial<Record<UpgradeId, number>> = {
 };
 
 /** Which E abilities are aimed at a spot (and how far they reach). */
-const TARGETED_E: Partial<Record<string, number>> = { meteor: 650, timebomb: 600, leap: 340, toxicpool: 550, firewave: 450 };
+const TARGETED_E: Partial<Record<string, number>> = { meteor: 650, timebomb: 600, leap: 340, toxicpool: 550, firewave: 560 };
 
 export class Bot {
   private snap: Snapshot | null = null;

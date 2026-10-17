@@ -122,6 +122,24 @@ function batWings(pen: Pen, r: number, span: number, membrane: number, bone: num
   }
 }
 
+/** One of Mordak's great wings (`side` -1 left, 1 right), with glowing veins across the membrane. */
+function dragonWing(pen: Pen, r: number, side: number): void {
+  batWings(pen, r, 1.65, 0x4a0b0b, 0x120303, [side]);
+  detail(pen, (g) => {
+    g.moveTo(0, side * r * 0.6).lineTo(-r * 0.3, side * r * 1.25).stroke({ width: 2, color: 0xff6d00, alpha: 0.5 });
+    g.moveTo(0, side * r * 0.6).lineTo(-r * 0.7, side * r * 1.1).stroke({ width: 2, color: 0xff6d00, alpha: 0.4 });
+  });
+}
+
+/** Where a dragon wing joins the body (in body radii): it flaps around this point. */
+export const DRAGON_SHOULDER = { x: 0.2, y: 0.45 };
+
+/** Just one dragon wing (Mordak's art), drawn where it sits on his body (his center at (0, 0)): for animating it alone. */
+export function drawDragonWing(g: Graphics, side: number, flash: boolean, color = ENEMY_TYPES[EnemyType.Mordak].color): void {
+  const pen: Pen = { g, flash, body: color, dark: shade(color, -0.55), light: shade(color, 0.6) };
+  dragonWing(pen, ENEMY_TYPES[EnemyType.Mordak].radius, side);
+}
+
 /** A ring of flames around (x, 0): an outer orange layer and a bright core. */
 function flames(pen: Pen, x: number, outer: number, points = 9): void {
   const at = (pts: number[]) => pts.map((v, i) => (i % 2 === 0 ? v + x : v));
@@ -379,17 +397,8 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
       // right, so torn ones are gone), a spiked tail, scales with lava glowing between them, horns swept back from
       // a wedge of a head, and eyes like coals.
       detail(pen, (g) => g.circle(0, 0, r * 1.3).fill({ color: 0xff3d00, alpha: 0.1 }));
-      const sides = [variant & 1 ? -1 : 0, variant & 2 ? 1 : 0].filter((x) => x !== 0);
-      if (sides.length > 0) {
-        batWings(pen, r, 1.65, 0x4a0b0b, 0x120303, sides);
-        // Glowing veins across the membranes.
-        detail(pen, (g) => {
-          for (const side of sides) {
-            g.moveTo(0, side * r * 0.6).lineTo(-r * 0.3, side * r * 1.25).stroke({ width: 2, color: 0xff6d00, alpha: 0.5 });
-            g.moveTo(0, side * r * 0.6).lineTo(-r * 0.7, side * r * 1.1).stroke({ width: 2, color: 0xff6d00, alpha: 0.4 });
-          }
-        });
-      }
+      if (variant & 1) dragonWing(pen, r, -1);
+      if (variant & 2) dragonWing(pen, r, 1);
       // The tail, tapering away behind him with a row of spikes.
       const tail: number[] = [];
       const tailBack: number[] = [];

@@ -452,8 +452,8 @@ export function embersStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   const evolved = level >= EVOLVED_LEVEL;
   return {
-    // Evolved: two more, bigger and hotter.
-    count: 2 + Math.floor((n + 1) / 2) + (evolved ? 2 : 0),
+    // Three to start with (he's a late, hard-earned hero). Evolved: two more, bigger and hotter.
+    count: 3 + Math.floor((n + 1) / 2) + (evolved ? 2 : 0),
     damage: (14 + 6 * n) * (evolved ? 1.4 : 1),
     radius: 72 + 8 * n + (evolved ? 20 : 0),
     /** Radians per second. */
@@ -470,7 +470,7 @@ export function firewaveStats(level: number) {
   return {
     count: 5 + Math.floor(n / 2) + (evolved ? 3 : 0),
     /** Between blasts, and how long each waits after the one before. */
-    spacing: 70,
+    spacing: 95,
     stagger: 0.07,
     radius: 60 + 5 * n,
     damage: 36 + 14 * n,

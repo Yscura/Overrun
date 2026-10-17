@@ -175,7 +175,7 @@ Pick a hero in the lobby. Ranged and melee heroes are offered different weapons:
 | Vessa, the Alchemist | Ranged | Flask Toss: splash and acid puddles | Toxic Pool: a wide, long-lasting pool of poison at the cursor | Grand Elixir (75s): heal 30%, then 8s of +25% damage, faster attacks, speed and armor | +15% damage |
 | Aldric, the Paladin | Melee | Judgment Hammer (magic) | Consecration: hallowed ground that burns enemies and heals allies | Avenging Wrath (70s): 8s of light pillars, half damage taken | 150 HP, armored |
 | Seraphine, the Cleric | Ranged | Smite: strikes the nearest enemy, heals the most hurt ally | Prayer of Light: heal and shield allies around you, sear enemies | Divine Intervention (120s): every ally up, full HP, 3s invulnerable | The healer |
-| Kaelor, the Dragonmancer *(secret)* | Melee | Ember Halo: fireballs circle him, burning what they touch | Fire Wave: blasts of fire burst up in a row toward the cursor (evolved: they leave the ground burning) | Dragon Form (60s): 12s as a dragon: +50% damage, +40% max HP, 25% less damage taken, faster, bigger areas, and E breathes fire | Earned only by slaying Mordak; +20% damage |
+| Kaelor, the Dragonmancer *(secret)* | Melee | Ember Halo: fireballs circle him, burning what they touch | Fire Wave: blasts of fire burst up in a row toward the cursor (evolved: they leave the ground burning) | Dragon Form (60s): 25s as a dragon: +50% damage, +40% max HP, 25% less damage taken, faster, bigger areas, and E breathes fire | Earned only by slaying Mordak; +20% damage |
 
 The first four heroes are free. Ignis, Sylva, Oakhart, Vex, Vessa, Aldric and Seraphine cost 500 gold each (a full run brings in a few hundred):
 click their card in the lobby. `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.
