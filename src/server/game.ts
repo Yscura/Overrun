@@ -159,6 +159,7 @@ import {
   DAMAGE_TYPES,
   type DamageType,
   UPGRADES,
+  POISON_SLOW,
   upgradeMax,
   CRIT_MULTIPLIER,
   arrowsStats,
@@ -503,6 +504,8 @@ interface Enemy {
   flashUntil: number;
   orbitHitUntil: number;
   stunUntil: number;
+  /** Slowed by poison until this time (see POISON_SLOW). */
+  slowUntil: number;
   /** Bosses can't be stunned again until this time. */
   stunImmuneUntil: number;
   dead: boolean;
@@ -1096,7 +1099,11 @@ export class Game {
   private devCheat(p: Player, action: DevAction): void {
     switch (action) {
       case 'skip':
-        if (!this.pause) this.skipMinute();
+        if (!this.pause) this.skipAhead(60);
+        break;
+      case 'boss':
+        // To 3 seconds before it arrives.
+        if (!this.pause && this.bossPhase === 'waiting') this.skipAhead(Math.max(0, this.bossTime - 3 - this.time), true);
         break;
       case 'level':
         this.choices.push('level');
@@ -1115,16 +1122,29 @@ export class Game {
   }
 
   /** Jumps the clock a minute ahead, as if the team had played it: same difficulty, and the level-ups earned. */
-  private skipMinute(): void {
-    this.time += 60;
-    if (this.bossPhase === 'fight') this.fightTime += 60; // Straight toward berserk.
+  /**
+   * Dev: jumps the clock ahead, with the level-ups the team would have earned meanwhile: picked one by one, or
+   * (`autoPick`, for long jumps) picked at random for everyone on the spot.
+   */
+  private skipAhead(seconds: number, autoPick = false): void {
+    this.time += seconds;
+    if (this.bossPhase === 'fight') this.fightTime += seconds; // Straight toward berserk.
     // Don't unleash every warlord that was skipped over at once.
     this.nextBossAt = Math.max(this.nextBossAt, Math.ceil(this.time / BOSS_INTERVAL) * BOSS_INTERVAL);
     // Of the Forges skipped over, only the latest one appears.
     while (this.forgesSpawned < FORGE_SCHEDULE.length - 1 && this.time >= FORGE_SCHEDULE[this.forgesSpawned + 1] * this.bossTime) this.forgesSpawned++;
     if (this.bossPhase === 'waiting') {
       const expected = Math.round(1 + UPGRADE_PICKS * Math.pow(Math.min(1, this.time / this.bossTime), 0.9));
-      for (; this.level < expected; this.level++) this.choices.push('level');
+      for (; this.level < expected; this.level++) {
+        if (!autoPick) {
+          this.choices.push('level');
+          continue;
+        }
+        for (const p of this.players.values()) {
+          const upgrades = (this.rollOptions(p, 'level') ?? []).filter((id) => !isBonus(id));
+          if (upgrades.length > 0) this.applyUpgrade(p, pick(upgrades));
+        }
+      }
       this.xp = 0;
     }
     const m = Math.floor(this.time / 60);
@@ -1732,6 +1752,7 @@ export class Game {
       flashUntil: 0,
       orbitHitUntil: 0,
       stunUntil: 0,
+      slowUntil: 0,
       stunImmuneUntil: 0,
       dead: false,
       // Stagger first attacks so enemies spawned together don't fire together.
@@ -1909,6 +1930,8 @@ export class Game {
     if (stacks > this.berserk) {
       this.berserk = stacks;
       this.banner(stacks === 1 ? 'Out of time! The boss goes berserk!' : `Berserk x${stacks}: it keeps getting stronger!`, 'danger');
+      const boss = this.bosses.find((b) => !b.dead);
+      if (boss) this.fx.push({ k: 'roar', x: Math.round(boss.x), y: Math.round(boss.y) });
     }
 
     if (this.mission) {
@@ -2077,6 +2100,7 @@ export class Game {
     if (!e.enraged && e.hp < e.maxHp * BOSS_ENRAGE_AT) {
       e.enraged = true;
       this.banner(`${ENEMY_TYPES[e.type].name} is enraged!`, 'danger');
+      this.fx.push({ k: 'roar', x: Math.round(e.x), y: Math.round(e.y) });
     }
     const def = NAMED_BOSSES[e.type];
     // Casters back off when you get close, and only walk in when you're far.
@@ -2485,7 +2509,8 @@ export class Game {
         continue;
       }
       // The horde gets faster toward the end (bosses and the thief keep their pace).
-      const speed = def.behavior === 'named' || def.behavior === 'flee' ? def.speed : def.speed * hordeSpeed * (e.affix === Affix.Hasted ? AFFIX_TUNING.hasteSpeed : 1);
+      let speed = def.behavior === 'named' || def.behavior === 'flee' ? def.speed : def.speed * hordeSpeed * (e.affix === Affix.Hasted ? AFFIX_TUNING.hasteSpeed : 1);
+      if (e.slowUntil > this.time) speed *= 1 - (this.isBoss(e) ? POISON_SLOW.boss : POISON_SLOW.amount);
       // Carrion ignore everyone and crawl straight to Grimjaw.
       if (e.feeder) {
         const boss = this.bosses.find((b) => !b.dead && !b.burrowed);
@@ -3181,6 +3206,7 @@ export class Game {
         for (const e of this.grid.query(z.x, z.y, z.r + MAX_ENEMY_RADIUS, this.near)) {
           if (!e.dead && (hitsFlying || !ENEMY_TYPES[e.type].flying) && dist2(e.x, e.y, z.x, z.y) < (z.r + ENEMY_TYPES[e.type].radius) ** 2) {
             this.damageEnemy(e, z.damage, owner, z.type);
+            if (!hitsFlying) e.slowUntil = Math.max(e.slowUntil, this.time + POISON_SLOW.linger);
           }
         }
       } else if (z.timer <= 0) {
@@ -4275,7 +4301,7 @@ export class Game {
           if (s.stun > 0) this.stun(e, s.stun * stats.duration);
         }
         this.hitCratesAround(p.x, p.y, r, damage);
-        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0x7e57c2, snd: 'slam' });
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0x7e57c2, snd: 'blades' });
       }
     }
     p.ultTimer -= dt;

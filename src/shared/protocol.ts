@@ -73,7 +73,7 @@ export type ClientMessage =
  * Cheats for testing: 'skip' jumps the clock a minute ahead (with the level-ups you'd have earned), 'level' and
  * 'forge' hand out a free pick, 'max' fills your slots and maxes everything, 'god' toggles god mode.
  */
-export type DevAction = 'skip' | 'level' | 'forge' | 'max' | 'god';
+export type DevAction = 'skip' | 'boss' | 'level' | 'forge' | 'max' | 'god';
 export const DEV_NAME = 'dev';
 
 export type ServerMessage =
@@ -297,13 +297,15 @@ export type SoundId =
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
-  | { k: 'ring'; x: number; y: number; r: number; c: number; snd?: 'slam' | 'bigSlam' | 'explode' | 'pop' }
+  | { k: 'ring'; x: number; y: number; r: number; c: number; snd?: 'slam' | 'bigSlam' | 'explode' | 'pop' | 'blades' }
   /** A swing. `heavy`: a big one (a boss's sweep, the bear), which sounds like it. */
   | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number; heavy?: true }
   | { k: 'zap'; x: number; y: number }
   | { k: 'boom'; x: number; y: number; r: number }
   /** A final boss arrives at (x, y): clients pan the camera there and play its roar. */
   | { k: 'intro'; x: number; y: number }
+  /** A boss roars (enraged, berserk): everyone hears it. */
+  | { k: 'roar'; x: number; y: number }
   /** A friendly area that fills up over `t` seconds before it hits (Meteor). */
   | { k: 'cast'; x: number; y: number; r: number; c: number; t: number }
   /** Big announcement text (also goes in the event log). */

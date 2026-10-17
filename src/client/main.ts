@@ -1,4 +1,4 @@
-import { DEV_NAME } from '../shared/protocol';
+import { DEV_NAME, SUMMON_STRIDE, SummonKind } from '../shared/protocol';
 import { CHARACTERS, DEFAULT_CHARACTER, isCharacterId } from '../shared/characters';
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, TICK_RATE } from '../shared/constants';
@@ -15,6 +15,12 @@ import { Menu } from './menu';
 import { Music } from './music';
 import { UI, formatTime } from './ui';
 import './style.css';
+
+/** Is a Spirit Bear out? (Summons don't say whose, which only matters with two druids.) */
+function hasBear(summons: number[]): boolean {
+  for (let i = 0; i < summons.length; i += SUMMON_STRIDE) if (summons[i + 1] === SummonKind.Bear) return true;
+  return false;
+}
 
 /** The hero you last picked (the lobby remembers it). */
 function loadHero(): string | null {
@@ -201,6 +207,18 @@ async function main() {
     chat.dock(snap.phase === 'lobby' ? ui.lobbyChatDock : null);
   };
 
+  /** Whether a cast in this slot would go off (else it gets the "not ready" sound). */
+  const ready = (slot: 'e' | 'r' | 'q'): boolean => {
+    const meState = latest?.me;
+    const me = latest?.players.find((p) => p.id === myId);
+    if (!meState || !me) return false;
+    if (slot === 'e') return meState.ability.cd <= 0;
+    if (slot === 'q') return !!meState.relic && meState.relic.cd <= 0;
+    // R also sends the Spirit Bear somewhere while it's out.
+    const bearOut = CHARACTERS[me.character].ultimate.id === 'bear' && hasBear(latest!.summons);
+    return me.ult >= 1 || bearOut;
+  };
+
   renderer.app.ticker.add((ticker) => {
     const realDt = Math.min(ticker.deltaMS / 1000, 0.1);
     buffer.update(realDt); // Snapshots arrive in real time.
@@ -221,7 +239,8 @@ async function main() {
     }
     if (cheat && me?.name.toLowerCase() === DEV_NAME && latest!.phase === 'playing') net.send({ t: 'dev', action: cheat });
     if (cast && canAct && latest!.phase === 'playing') {
-      net.send({ t: 'cast', slot: cast, aim, dist: Math.round(input.aimDistance()) });
+      if (ready(cast)) net.send({ t: 'cast', slot: cast, aim, dist: Math.round(input.aimDistance()) });
+      else sound.play('denied');
     }
     if (latest && !latest.pause) dodgeCooldown = Math.max(0, dodgeCooldown - dt);
 

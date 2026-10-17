@@ -57,6 +57,10 @@ export class SoundCues {
           break;
         case 'intro':
           sound.play('bossIntro');
+          sound.play('bossRoar');
+          break;
+        case 'roar':
+          sound.play('bossRoar');
           break;
         case 'ping':
           sound.play('ping');

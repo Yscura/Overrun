@@ -33,7 +33,10 @@ export type SoundName =
   | 'ping'
   | 'message'
   | 'gate'
+  | 'blades'
+  | 'denied'
   | 'warlord'
+  | 'bossRoar'
   | 'bossIntro'
   | `hurt${VoiceName}`
   | `down${VoiceName}`;
@@ -327,6 +330,17 @@ const RECIPES: Record<SoundName, Recipe> = {
   slash: { play: (v) => v.noise({ filter: 'bandpass', from: 1800, to: 500, duration: 0.14, volume: 0.17, q: 1.2 }), max: 3 },
   // A wide, heavy swing (the bear, a boss's sweep).
   heavySlash: { play: (v) => v.noise({ filter: 'bandpass', from: 900, to: 250, duration: 0.25, volume: 0.2, q: 1 }), max: 2, gap: 0.08 },
+  // Shadow Veil's eruption: a ring of blades.
+  blades: { play: (v) => v.noise({ filter: 'bandpass', from: 4000, to: 1500, duration: 0.3, volume: 0.15, q: 1.5 }), max: 2 },
+  // An ability that isn't ready yet: a short, muffled double knock.
+  denied: {
+    play: (v) => {
+      v.tone({ type: 'square', from: 150, to: 130, duration: 0.06, volume: 0.1, lowpass: 600 });
+      v.tone({ type: 'square', from: 115, to: 100, duration: 0.08, volume: 0.1, lowpass: 600, delay: 0.085 });
+    },
+    max: 1,
+    gap: 0.25,
+  },
   // The arena gate: an iron clang.
   gate: {
     play: (v) => {
@@ -482,6 +496,7 @@ const RECIPES: Record<SoundName, Recipe> = {
   },
   // A boss arrives; a warlord arrives.
   bossIntro: ROAR,
+  bossRoar: ROAR,
   warlord: ROAR,
   resume: {
     // Back into the fight: a rising rush that lands on a deep drum hit.

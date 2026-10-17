@@ -61,7 +61,9 @@ interface DamageNumber {
   vx: number;
 }
 /** Off-screen objective arrows stay this far inside the screen edge. */
-const POINTER_MARGIN = 28;
+const POINTER_MARGIN = 40;
+/** ...and are drawn this many times the aim arrow's size. */
+const POINTER_SCALE = 3.2;
 /** Downed players: their red cross and revive zone, and their body grayed out. */
 const DOWNED_RED = 0xff1744;
 const DOWNED_TINT = 0x8a8f99;
@@ -855,7 +857,7 @@ export class GameRenderer {
       const arrow = this.acquire(this.tex.aimArrow, this.pointers);
       arrow.position.set(cx + cos * reach, cy + sin * reach);
       arrow.rotation = angle;
-      arrow.scale.set(2);
+      arrow.scale.set(POINTER_SCALE);
       arrow.tint = target.color;
     }
   }

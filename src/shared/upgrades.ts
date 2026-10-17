@@ -520,6 +520,10 @@ export function prayerStats(level: number) {
   };
 }
 
+/** Poison (Venom Trail, Flask Toss's acid, Toxic Pool) slows enemies in it by `amount` (bosses by `boss`) for a moment. */
+export const POISON_SLOW = { amount: 0.35, boss: 0.15, linger: 0.6 };
+const slowPct = `${Math.round(POISON_SLOW.amount * 100)}%`;
+
 /** Overall cost of levels: higher means fewer, further-apart level-ups (above all early on). */
 const XP_SCALE = 1.5;
 
@@ -627,7 +631,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     role: 'melee',
     describe: (level) => {
       const s = venomStats(level);
-      return `Leaves poison puddles as you move, dealing ${s.damage} damage every 0.5s to enemies in them.`;
+      return `Leaves poison puddles as you move, dealing ${s.damage} damage every 0.5s to enemies in them and slowing them by ${slowPct}.`;
     },
     evolution: { name: 'Plague', text: 'Puddles are 50% larger and last twice as long.' },
   },
@@ -723,7 +727,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     role: 'ranged',
     describe: (level) => {
       const s = flaskStats(level);
-      return `Lobs ${plural(s.count, 'flask')} at nearby enemies every ${s.cooldown.toFixed(1)}s, splashing for ${s.damage} damage and leaving acid that burns for ${s.puddle.damage} every 0.5s.`;
+      return `Lobs ${plural(s.count, 'flask')} at nearby enemies every ${s.cooldown.toFixed(1)}s, splashing for ${s.damage} damage and leaving acid that burns for ${s.puddle.damage} every 0.5s and slows by ${slowPct}.`;
     },
     evolution: { name: 'Volatile Concoction', text: 'One more flask per throw, and the acid spreads 50% wider.' },
   },
@@ -756,7 +760,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     owner: 'alchemist',
     describe: (level) => {
       const s = toxicpoolStats(level);
-      return `[E] Spill a wide pool of poison at your cursor for ${s.life.toFixed(1)}s. Every enemy in it takes ${s.damage} damage every ${s.tick}s. ${s.cooldown.toFixed(0)}s cooldown.`;
+      return `[E] Spill a wide pool of poison at your cursor for ${s.life.toFixed(1)}s. Every enemy in it takes ${s.damage} damage every ${s.tick}s and is slowed by ${slowPct}. ${s.cooldown.toFixed(0)}s cooldown.`;
     },
     evolution: { name: 'Plague Bog', text: 'The pool is 30% wider and lasts 60% longer.' },
   },

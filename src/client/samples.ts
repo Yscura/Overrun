@@ -30,6 +30,7 @@ import maledown from '../../sfx/effects/maledown.wav?url';
 import bear from '../../sfx/effects/bear.wav?url';
 import bigdeath from '../../sfx/effects/bigdeath.wav?url';
 import bigslam from '../../sfx/effects/bigslam.wav?url';
+import blades from '../../sfx/effects/blades.wav?url';
 import boom from '../../sfx/effects/boom.wav?url';
 import bossintro from '../../sfx/effects/bossintro.wav?url';
 import brace from '../../sfx/effects/brace.wav?url';
@@ -52,7 +53,6 @@ import heavyslash from '../../sfx/effects/heavyslash.wav?url';
 import hit1 from '../../sfx/effects/hit1.wav?url';
 import hit2 from '../../sfx/effects/hit2.wav?url';
 import hit3 from '../../sfx/effects/hit3.wav?url';
-import hurt from '../../sfx/effects/hurt.wav?url';
 import roar from '../../sfx/effects/roar.wav?url';
 import slam1 from '../../sfx/effects/slam1.wav?url';
 import slam2 from '../../sfx/effects/slam2.wav?url';
@@ -114,11 +114,14 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   heavySlash: { files: [heavyslash], volume: 0.21, max: 2, gap: 0.08 },
   death: { files: [death, bigdeath], volume: 0.1, max: 4, gap: 0.03 },
   gate: { files: [gate], volume: 0.6, max: 1 },
+  // Shadow Veil: blades bursting out of the shadows.
+  blades: { files: [blades], volume: 0.4, max: 2 },
 
   // --- Feedback for you ---
   hit: { files: [hit1, hit2, hit3], volume: 0.09, max: 2, gap: 0.06 },
   crit: { files: [crit1, crit2], volume: 0.18, max: 2, gap: 0.07 },
-  hurt: { files: [hurt], volume: 0.3, max: 1, gap: 0.25 },
+  // A blow to the body: the heavy impacts, pitched down.
+  hurt: { files: [bigdeath, hit3], volume: 0.38, rate: 0.8, max: 1, gap: 0.25 },
   evade: { files: [evade1, evade2], volume: 0.3, max: 1, gap: 0.1 },
   dodge: { files: [dodge], volume: 0.31 },
   bossIntro: { files: [bossintro], volume: 0.51, max: 1 },
@@ -133,5 +136,8 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   downDeep: { files: [deepdown], volume: 0.4, max: 2 },
   downFemale: { files: [femaledown], volume: 0.4, max: 2 },
   downDwarf: { files: [dwarf2], volume: 0.4, rate: 0.85, max: 2 },
-  warlord: { files: [warlord1, warlord2], volume: 0.44, max: 1 },
+  // Loud on purpose: a warlord arriving should never go unnoticed.
+  warlord: { files: [warlord1, warlord2], volume: 0.8, max: 1 },
+  // A final boss: the warlords' roars, deeper (it's bigger). On its entrance, when it's enraged, and going berserk.
+  bossRoar: { files: [warlord1, warlord2], volume: 0.75, rate: 0.8, max: 1 },
 };
