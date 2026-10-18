@@ -3,6 +3,7 @@
 import type { ArtifactId } from './artifacts';
 import type { CharacterId } from './characters';
 import type { BossVoice, MissionKind } from './enemies';
+import type { TowerState } from './maps';
 import type { EventKind, QuestKind } from './objectives';
 import type { ModeId } from './modes';
 import type { PrestigeId, PrestigeRanks } from './prestige';
@@ -531,6 +532,8 @@ export interface Snapshot {
   dying: { x: number; y: number; progress: number } | null;
   /** The Ashen Caldera's true ending: it shakes apart, leaving stepping stones to a hidden dragon's den. */
   finale: { stage: FinaleStage; t: number } | null;
+  /** The Frost Queen's retreat to her tower (see Tower in maps.ts), once it has begun. */
+  tower: TowerState;
   bossFight: BossFight | null;
   /** A Warlord (the mini-boss) is out: its health, for the bar at the top of the screen. */
   warlord: { hp: number; maxHp: number } | null;

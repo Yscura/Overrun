@@ -10,7 +10,7 @@ import { CHARACTERS, heroDamageType, ownedPassives, ownedWeapons, type Character
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, REVIVE_RADIUS, TICK_DT } from '../shared/constants';
 import { ENEMY_TYPES } from '../shared/enemies';
-import { MAPS, clampToArena, mapWalls } from '../shared/maps';
+import { MAPS, activeArena, clampToArena, mapWalls } from '../shared/maps';
 import { ShrineKind } from '../shared/objectives';
 import {
   ENEMY_SHOT_STRIDE,
@@ -77,6 +77,8 @@ export class Bot {
   private mapIndex = -1;
   private gateOpen = false;
   private den = false;
+  /** The Frost Queen's retreat as last seen (its stage and gate), for rebuilding walls. */
+  private towerKey = '';
   /** How far along the finale's stepping stones it has got (an index into the route; -1: not on it yet). */
   private routeAt = -1;
   private nav: FlowField | null = null;
@@ -119,12 +121,14 @@ export class Bot {
     // New map, or the arena gate opened or shut: rebuild walls and pathfinding.
     const gateOpen = !!snap.arena?.open;
     const den = !!snap.finale && snap.finale.stage !== 'crumble';
-    if (snap.map !== this.mapIndex || gateOpen !== this.gateOpen || den !== this.den) {
+    const tower = `${snap.tower?.stage ?? ''}:${!!snap.tower?.shut}`;
+    if (snap.map !== this.mapIndex || gateOpen !== this.gateOpen || den !== this.den || tower !== this.towerKey) {
       this.mapIndex = snap.map;
       this.gateOpen = gateOpen;
       this.den = den;
+      this.towerKey = tower;
       const map = MAPS[snap.map];
-      this.walls = new WallIndex(mapWalls(map, !gateOpen, den), map.width, map.height);
+      this.walls = new WallIndex(mapWalls(map, !gateOpen, den, snap.tower), map.width, map.height);
       this.nav = new FlowField(this.walls);
       this.navGoal = null;
     }
@@ -186,7 +190,7 @@ export class Bot {
     const next = moveCircle(this.walls, this.local.x, this.local.y, vx * dt, vy * dt, PLAYER_RADIUS, pass);
     if (pass && overlapsWall(this.walls, next.x, next.y, PLAYER_RADIUS)) this.dodgeTime += dt; // Finish the dash.
     this.local = next;
-    const arena = MAPS[snap.map].arena;
+    const arena = activeArena(MAPS[snap.map], snap.tower);
     if (me.inArena && arena) this.local = clampToArena(arena, this.local.x, this.local.y, PLAYER_RADIUS);
     this.send({ t: 'move', x: this.local.x, y: this.local.y, aim: aim.angle, epoch: this.epoch });
   }
@@ -464,9 +468,10 @@ export class Bot {
         vy += (dx / d) * 0.8;
       }
     }
-    // Stay out of the burning zone while the arena fight is coming.
-    const arena = snap.arena;
-    if (arena && arena.state !== 'idle' && !me.inArena) {
+    // Stay out of the burning zone while the arena fight is coming. (The Frost Queen fled: after her, to her tower.)
+    const tower = MAPS[snap.map].tower;
+    const arena = snap.tower && snap.tower.stage !== 'flee' && tower ? tower.arena : snap.tower ? null : snap.arena && snap.arena.state !== 'idle' ? snap.arena : null;
+    if (arena && !me.inArena) {
       const dir = this.pathTo(arena, dt);
       vx += dir.x * 4;
       vy += dir.y * 4;

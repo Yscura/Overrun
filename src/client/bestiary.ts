@@ -17,7 +17,7 @@ const LORE: Record<string, string> = {
   Thief: 'Shows up on hunt quests carrying loot, and runs. Catch it before it gets away.',
   Wraith: 'Drifts over walls, and physical attacks pass half through it.',
   Grimm: 'The Reaper of the ruins. Swings his scythe through everything in front of him (get behind him), sends out shockwaves to dodge through, and calls lost souls to him to heal: destroy them before they get there.',
-  Rime: 'The Frost Queen of the fortress, warded against magic, who laughs at every hero who falls. Her Glacial Wrath blasts everyone she can see: hide behind a column. Carry a Frost Bomb away from your friends.',
+  Rime: 'The Frost Queen of the fortress, warded against magic, who laughs at every hero who falls. Her Glacial Wrath blasts everyone she can see: hide behind a column. Carry a Frost Bomb away from your friends. Wounded, she flees through a secret door behind her throne, to her tower beyond a labyrinth.',
   'Ashlord Vael': "Lord of the caldera, armored in cooled lava. Drops meteors: stack up to share the hit. Tethered to Embra by fire: don't stand in it.",
   Embra: "The Ashlord's fiery twin, warded against magic. Throws homing cinder orbs. While the twins stand close they shield each other: pull them apart.",
   Ward: 'A totem that shields the boss during a side mission. Break them all.',

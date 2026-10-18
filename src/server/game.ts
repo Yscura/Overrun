@@ -111,6 +111,8 @@ import {
   inZone,
   inSealed,
   insideArena,
+  onTowerGround,
+  type TowerStage,
   mapBossName,
   mapWalls,
   zoneStart,
@@ -267,6 +269,12 @@ const DRAGONMANCER_FEAT = 'Mordak is slain: Kaelor, the Dragonmancer, joins your
  * `rockEvery` seconds while the team crosses (`rockAimed` of them at someone, the rest on a stone up ahead). The dragon comes `stir` seconds after everyone standing is in the den,
  * or `wait` seconds after the first one gets there.
  */
+/**
+ * The Frost Queen's retreat (see Tower in maps.ts): she glides to her throne over `flee` seconds and can't be hurt,
+ * then vanishes; `guards` of her minions (plus `perPlayer` for each teammate past the first) wait in the labyrinth.
+ */
+const RETREAT = { flee: 2.2, guards: 5, perPlayer: 2 };
+
 const FINALE = { crumble: 3.5, rockEvery: 1.25, rockAimed: 0.45, rockRadius: 80, rockDelay: 1.1, rockDamage: 40, stir: 2.5, wait: 6 };
 /** How fast Mordak turns to face his target, in radians per second. */
 const DRAGON_TURN = 2.4;
@@ -869,7 +877,10 @@ export class Game {
 
   /** The boss arena, when the boss fight uses it (endless mode's boss waves are fought out in the open). */
   private fightArena() {
-    return this.endless ? null : this.map.arena;
+    if (this.endless) return null;
+    // Her retreat: still the hall while she flees, nowhere while she's gone, then her tower.
+    if (this.tower) return this.tower.stage === 'fight' ? this.map.tower!.arena : this.tower.stage === 'flee' ? this.map.arena : null;
+    return this.map.arena;
   }
   private mapIndex = 0;
   private map!: MapDef;
@@ -880,6 +891,8 @@ export class Game {
   private bossPhase: 'waiting' | 'gather' | 'fight' | 'finale' = 'waiting';
   /** A final boss's death animation (see BOSS_DEATH), and what follows it. */
   private dying: { t: number; x: number; y: number; corpse: Enemy; shattered: boolean; next: 'victory' | 'finale' } | null = null;
+  /** The Frost Queen's retreat to her tower, once it's begun (see RETREAT): its stage, how long it's been, where she fled from, and whether the tower's gate has shut. */
+  private tower: { stage: TowerStage; t: number; from: { x: number; y: number }; shut: boolean } | null = null;
   /** The Ashen Caldera's true ending, once it's begun (see FINALE). */
   private finale: { stage: FinaleStage; t: number; arrivedAt: number; rockIn: number; quakeIn: number } | null = null;
   /** The den's pillars are up (the finale has revealed them). */
@@ -1338,9 +1351,14 @@ export class Game {
    * mouth, to walk in and meet Mordak.
    */
   private skipToFinale(): void {
+    // On the Frozen Fortress: the Queen's retreat to her tower instead.
+    if (this.map.tower && !this.endless) {
+      this.skipToTower();
+      return;
+    }
     const f = this.map.finale;
     if (!f || this.endless) {
-      this.banner('Dev: only the Ashen Caldera has a finale (not in endless mode)', 'danger');
+      this.banner('Dev: only the Ashen Caldera (and the Frozen Fortress) have a finale (not in endless mode)', 'danger');
       return;
     }
     const fin = this.finale;
@@ -1477,10 +1495,15 @@ export class Game {
   /** Collision and pathfinding for the map, with the arena gate shut or open. */
   private setGate(shut: boolean): void {
     this.gateShut = shut;
-    this.walls = new WallIndex(mapWalls(this.map, shut, this.denShown), this.map.width, this.map.height);
+    this.walls = new WallIndex(mapWalls(this.map, shut, this.denShown, this.towerState()), this.map.width, this.map.height);
     this.flow = new FlowField(this.walls);
     const visible = this.alivePlayers().filter((p) => p.veil <= 0);
     if (visible.length > 0) this.flow.update(visible);
+  }
+
+  /** The retreat as the walls (and the clients) see it. */
+  private towerState(): { stage: TowerStage; shut: boolean } | null {
+    return this.tower && { stage: this.tower.stage, shut: this.tower.shut };
   }
 
   private startGame(): void {
@@ -1522,10 +1545,12 @@ export class Game {
     this.bossPhase = 'waiting';
     this.dying = null;
     this.finale = null;
+    const hadTower = this.tower !== null;
+    this.tower = null;
     this.victor = null;
     this.feats = [];
     this.safeRadius = Infinity;
-    if (!this.gateShut || this.denShown) {
+    if (!this.gateShut || this.denShown || hadTower) {
       this.denShown = false;
       this.setGate(true);
     }
@@ -1921,6 +1946,7 @@ export class Game {
     this.rebuildGrid();
     this.moveEnemies(dt, alive);
     if (this.map.sealed) for (const e of this.enemies) if (!e.dead) this.keepOutOfSealed(e, ENEMY_TYPES[e.type].radius, false);
+    if (this.map.tower) for (const e of this.enemies) if (!e.dead && !e.burrowed) this.keepOnTowerGround(e, ENEMY_TYPES[e.type].radius, false);
     this.updateFlights(dt);
     this.attachParts();
     this.rebuildGrid();
@@ -2250,6 +2276,11 @@ export class Game {
     if (lava) this.updateLava(dt, alive);
     if (this.finale && !this.dying) this.updateFinale(dt, alive);
     if (!arena || this.bossPhase === 'waiting') return;
+    // The Queen has left her hall: her tower takes over from it.
+    if (this.tower) {
+      if (!this.dying) this.updateTower(dt, alive);
+      return;
+    }
 
     // The burning zone sweeps in from the edges of the map until only the arena is safe.
     const shrink = (zoneStart(arena, this.map.width, this.map.height) - arena.zone) / ZONE_SWEEP_TIME;
@@ -2384,6 +2415,8 @@ export class Game {
 
   /** The berserk clock and side missions. */
   private updateBossFight(dt: number, alive: Player[]): void {
+    // While she flees and hides in her tower, the fight (and its berserk clock) waits.
+    if (this.tower && this.tower.stage !== 'fight') return;
     this.fightTime += dt;
     if (this.bosses.length === 2) this.updateTwins(dt, alive);
     // Bosses with a voice speak up every so often (the Reaper whispers, Sylvara hisses).
@@ -2406,6 +2439,12 @@ export class Game {
 
     if (this.mission) {
       this.updateMission(dt, alive);
+      return;
+    }
+    // Halfway down, the Frost Queen retreats to her tower.
+    const retreat = this.map.tower;
+    if (retreat && !this.tower && !this.endless && this.bossHealthShare() <= retreat.at && this.bosses.some((b) => !b.dead && b.type === this.map.boss)) {
+      this.startRetreat();
       return;
     }
     // Shield up and start a side mission at each health threshold.
@@ -2441,7 +2480,7 @@ export class Game {
     const kind = phase;
     this.lastMission = kind;
     // Around the arena, or the first living boss out in the open.
-    const center = (this.endless ? null : (this.map.arena ?? this.map.lava)) ?? this.bosses.find((b) => !b.dead)!;
+    const center = (this.endless ? null : (this.fightArena() ?? this.map.lava)) ?? this.bosses.find((b) => !b.dead)!;
     const ids: number[] = [];
     const scale = 1 + 0.5 * (this.players.size - 1);
     switch (kind) {
@@ -2949,6 +2988,185 @@ export class Game {
   }
 
   /**
+   * Past the castle's east wall: before the Queen has fled, nobody belongs there (put back before the throne); after,
+   * only on the labyrinth's floor, the way out of it, or in the tower (put on the nearest of it).
+   */
+  private keepOnTowerGround(who: { x: number; y: number; epoch?: number }, radius: number, player: boolean): void {
+    const t = this.map.tower;
+    if (!t || who.x <= t.x) return;
+    if (!this.tower || this.tower.stage === 'flee') {
+      ({ x: who.x, y: who.y } = pushOut(this.walls, t.throne.x - 120, t.throne.y, radius));
+    } else {
+      if (onTowerGround(t, who.x, who.y) && !overlapsWall(this.walls, who.x, who.y, radius)) return;
+      let spot: { x: number; y: number } | null = null;
+      for (let d = 30; d < 900 && !spot; d += 30) {
+        for (let k = 0; k < 16; k++) {
+          const a = (k / 16) * Math.PI * 2;
+          const x = who.x + Math.cos(a) * d;
+          const y = who.y + Math.sin(a) * d;
+          if (onTowerGround(t, x, y, radius) && !overlapsWall(this.walls, x, y, radius)) {
+            spot = { x, y };
+            break;
+          }
+        }
+      }
+      if (!spot) return;
+      who.x = spot.x;
+      who.y = spot.y;
+    }
+    if (player && who.epoch !== undefined) who.epoch++;
+  }
+
+  /**
+   * Halfway down, the Frost Queen retreats: her minions, frost and spells are swept away, and she glides back to her
+   * throne, untouchable (see updateTower).
+   */
+  private startRetreat(): void {
+    const boss = this.bosses.find((b) => !b.dead && b.type === this.map.boss);
+    if (!boss) return;
+    this.tower = { stage: 'flee', t: 0, from: { x: boss.x, y: boss.y }, shut: false };
+    for (const e of this.enemies) if (!e.dead && !this.bosses.includes(e)) e.dead = true;
+    this.enemyShots = [];
+    this.hazards = [];
+    boss.channelUntil = 0;
+    boss.mode = Mode.Normal;
+    this.fx.push({ k: 'ring', x: Math.round(boss.x), y: Math.round(boss.y), r: 420, c: 0xb3e5fc, snd: 'explode' });
+    this.fx.push({ k: 'voice', snd: 'laugh', x: Math.round(boss.x), y: Math.round(boss.y) });
+    this.banner(`${bossDisplayName(boss.type)} retreats to her throne!`, 'danger');
+  }
+
+  /**
+   * The retreat, stage by stage. She glides to her throne and vanishes; the secret door behind it opens onto the
+   * labyrinth. Whoever reaches her tower first finds her waiting there, and the fight goes on; the tower's gate shuts
+   * once the whole team is in (the fallen are carried in with them).
+   */
+  private updateTower(dt: number, alive: Player[]): void {
+    const tw = this.tower!;
+    const t = this.map.tower!;
+    tw.t += dt;
+    const boss = this.bosses.find((b) => !b.dead && b.type === this.map.boss);
+    if (!boss) return;
+    switch (tw.stage) {
+      case 'flee': {
+        const k = Math.min(1, tw.t / RETREAT.flee);
+        const ease = k * k * (3 - 2 * k);
+        boss.x = tw.from.x + (t.throne.x - tw.from.x) * ease;
+        boss.y = tw.from.y + (t.throne.y - tw.from.y) * ease;
+        if (k >= 1) this.openLabyrinth(boss);
+        break;
+      }
+      case 'maze':
+        if (alive.some((p) => insideArena(t.arena, p.x, p.y, PLAYER_RADIUS))) this.queenReturns(boss, alive);
+        break;
+      case 'fight': {
+        for (const p of alive) if (!p.inArena && insideArena(t.arena, p.x, p.y, PLAYER_RADIUS)) p.inArena = true;
+        const shut = alive.length > 0 && alive.every((p) => p.inArena);
+        if (shut === tw.shut) break;
+        tw.shut = shut;
+        this.setGate(this.gateShut);
+        this.log(shut ? 'The tower gate slams shut behind you' : 'The tower gate opens for a straggler');
+        if (!shut) break;
+        // The whole team is in: the fallen are carried in too, and whatever was left in the labyrinth gives up.
+        const inside = (x: number, y: number) => insideArena(t.arena, x, y, PLAYER_RADIUS);
+        [...this.players.values()]
+          .filter((p) => p.downed && !inside(p.x, p.y))
+          .forEach((p, i) => {
+            ({ x: p.x, y: p.y } = pushOut(this.walls, t.arena.x - t.arena.r + 90, t.arena.y + (i - 1) * 60, PLAYER_RADIUS));
+            p.epoch++;
+          });
+        for (const e of this.enemies) if (!e.dead && !this.bosses.includes(e) && !inside(e.x, e.y)) e.dead = true;
+        break;
+      }
+    }
+  }
+
+  /** She's at her throne: she vanishes (to her tower), the secret door opens, and her guards wait in the labyrinth. */
+  private openLabyrinth(boss: Enemy): void {
+    const tw = this.tower!;
+    const t = this.map.tower!;
+    tw.stage = 'maze';
+    tw.t = 0;
+    this.fx.push({ k: 'ring', x: Math.round(boss.x), y: Math.round(boss.y), r: 260, c: 0xe1f5fe, snd: 'pop' });
+    boss.burrowed = true;
+    ({ x: boss.x, y: boss.y } = pushOut(this.walls, t.arena.x, t.arena.y, ENEMY_TYPES[boss.type].radius));
+    // Out of the hall (its gate stays shut behind them): nobody is held in an arena until the tower.
+    for (const p of this.players.values()) p.inArena = false;
+    this.setGate(this.gateShut);
+    this.fx.push({ k: 'ring', x: Math.round(t.door[0].x + t.door[0].w / 2), y: Math.round(t.door[0].y + t.door[0].h / 2), r: 160, c: 0xb3e5fc, snd: 'slam' });
+    // Her guards, scattered through the far side of the labyrinth.
+    const minions = NAMED_BOSSES[boss.type]?.minions ?? [EnemyType.Wraith];
+    const count = RETREAT.guards + RETREAT.perPlayer * (this.players.size - 1);
+    const { maze } = t;
+    const cols = Math.round(maze.w / maze.cell);
+    const rows = Math.round(maze.h / maze.cell);
+    for (let i = 0; i < count; i++) {
+      const c = 2 + Math.floor(Math.random() * (cols - 2));
+      const r = Math.floor(Math.random() * rows);
+      const type = pick(minions);
+      const spot = pushOut(this.walls, maze.x + (c + 0.5) * maze.cell, maze.y + (r + 0.5) * maze.cell, ENEMY_TYPES[type].radius);
+      this.addEnemy(type, spot.x, spot.y, this.enemyHp(type));
+    }
+    this.banner(`${bossDisplayName(boss.type)} has fled! A secret door opened behind the throne: find your way through the labyrinth to her tower!`, 'danger');
+  }
+
+  /** Someone made it into her tower: she's back, and the fight goes on. */
+  private queenReturns(boss: Enemy, alive: Player[]): void {
+    const tw = this.tower!;
+    const t = this.map.tower!;
+    tw.stage = 'fight';
+    tw.t = 0;
+    boss.burrowed = false;
+    ({ x: boss.x, y: boss.y } = pushOut(this.walls, t.arena.x + 120, t.arena.y, ENEMY_TYPES[boss.type].radius));
+    boss.attackTimer = 2.5;
+    for (const p of alive) if (insideArena(t.arena, p.x, p.y, PLAYER_RADIUS)) p.inArena = true;
+    this.fx.push({ k: 'ring', x: Math.round(boss.x), y: Math.round(boss.y), r: 300, c: 0xb3e5fc, snd: 'explode' });
+    this.fx.push({ k: 'voice', snd: 'laugh', x: Math.round(boss.x), y: Math.round(boss.y) });
+    this.banner(`${bossDisplayName(boss.type)} awaits in her tower. Finish her!`, 'danger');
+  }
+
+  /**
+   * Dev: straight to the Frost Queen's retreat. Before her fight: the boss is skipped to, with the team in her hall.
+   * During it: she's brought down to half health. While she's away: the team is put at the labyrinth's way out.
+   */
+  private skipToTower(): void {
+    const t = this.map.tower!;
+    const alive = this.alivePlayers();
+    if (this.tower) {
+      if (this.tower.stage === 'fight') return;
+      if (this.tower.stage === 'flee') this.updateTower(RETREAT.flee, alive);
+      alive.forEach((p, i) => {
+        ({ x: p.x, y: p.y } = pushOut(this.walls, t.path.x + 40, t.path.y + 40 + i * 25, PLAYER_RADIUS));
+        p.epoch++;
+      });
+      for (const e of this.enemies) if (!e.dead && !this.bosses.includes(e)) e.dead = true;
+      this.banner('Dev: at the way out of the labyrinth', 'good');
+      return;
+    }
+    if (this.bossPhase === 'waiting') {
+      this.skipAhead(Math.max(0, this.bossTime - this.time), true);
+      this.updateBoss(0, alive); // (The gates open.)
+    }
+    if (this.bossPhase === 'gather') {
+      const arena = this.map.arena!;
+      alive.forEach((p, i) => {
+        ({ x: p.x, y: p.y } = pushOut(this.walls, arena.x - 200, arena.y + (i - 1.5) * 60, PLAYER_RADIUS));
+        p.inArena = true;
+        p.epoch++;
+      });
+      this.startBossFight(alive);
+      this.setGate(true);
+    }
+    const boss = this.bosses.find((b) => !b.dead && b.type === this.map.boss);
+    if (!boss) return;
+    this.mission = null;
+    this.shrines = this.shrines.filter((s) => s.kind !== ShrineKind.Sigil);
+    // (As if the side missions above half health were done.)
+    this.missionsStarted = Math.max(this.missionsStarted, BOSS_MISSIONS.at.filter((a) => a > t.at).length);
+    boss.hp = boss.maxHp * t.at;
+    this.startRetreat();
+  }
+
+  /**
    * Before the boss is due, nobody gets into its arena (a leap, a dodge, a teleport): whoever's inside is put back out
    * in front of the gate.
    */
@@ -2981,6 +3199,7 @@ export class Game {
 
   /** Mordak can't be hurt while he's up in the air or sitting back hurling meteors. */
   private untouchable(e: Enemy): boolean {
+    if (this.tower?.stage === 'flee' && this.bosses.includes(e)) return true;
     return e.type === EnemyType.Mordak && (this.time < e.roostUntil || !!e.flight);
   }
 
@@ -3511,6 +3730,7 @@ export class Game {
       if (this.isStunned(e)) continue;
       const def = ENEMY_TYPES[e.type];
       if (def.behavior === 'ward' || e.burrowed) continue; // Rooted to the spot, or underground.
+      if (this.tower?.stage === 'flee' && this.bosses.includes(e)) continue; // Gliding back to her throne (see updateTower).
       if (def.behavior === 'part' || e.corpse || e.dead) continue; // Carried along (see attachParts), dying, or dead.
       if (def.behavior === 'egg') {
         e.attackTimer -= dt;
@@ -3664,7 +3884,9 @@ export class Game {
   }
 
   private keepInArena(target: { x: number; y: number }, radius: number): void {
-    const { x, y } = clampToArena(this.map.arena!, target.x, target.y, radius);
+    const arena = this.fightArena();
+    if (!arena) return;
+    const { x, y } = clampToArena(arena, target.x, target.y, radius);
     target.x = x;
     target.y = y;
   }
@@ -3968,6 +4190,7 @@ export class Game {
 
   private updatePlayer(p: Player, dt: number): void {
     this.keepOutOfSealed(p, PLAYER_RADIUS, true);
+    this.keepOnTowerGround(p, PLAYER_RADIUS, true);
     this.keepOutOfArena(p);
     p.invuln = Math.max(0, p.invuln - dt);
     p.dodgeCooldown = Math.max(0, p.dodgeCooldown - dt);
@@ -4863,6 +5086,9 @@ export class Game {
       }
     }
     e.hp -= amount;
+    // The Frost Queen doesn't fall in her hall: at her retreat threshold she flees to her tower (see startRetreat).
+    const retreat = this.map.tower;
+    if (retreat && !this.tower && !this.endless && e.type === this.map.boss && this.bosses.includes(e)) e.hp = Math.max(e.hp, e.maxHp * retreat.at);
     e.flashUntil = this.time + 0.1;
     if (e.hp > 0) return;
     e.dead = true;
@@ -6023,6 +6249,7 @@ export class Game {
       lava: lava ? { x: lava.x, y: lava.y, r: Math.round(this.lavaR), closing: this.bossPhase === 'gather' } : null,
       dying: this.dying && { x: Math.round(this.dying.x), y: Math.round(this.dying.y), progress: round2(Math.min(1, this.dying.t / BOSS_DEATH.total)) },
       finale: this.finale && { stage: this.finale.stage, t: round1(this.finale.t) },
+      tower: this.towerState(),
       bossFight:
         this.bossPhase === 'fight' && this.bosses.length > 0
           ? {
@@ -6037,7 +6264,7 @@ export class Game {
                 tags: [
                   b.shell ? 'shelled' : '',
                   b.exposedUntil > this.time ? 'exposed' : '',
-                  b.burrowed && !b.flight ? 'burrowed' : '',
+                  b.burrowed && !b.flight ? (this.tower?.stage === 'maze' ? 'in her tower' : 'burrowed') : '',
                   b.linked ? 'kindred' : '',
                   b.flight ? 'flying' : '',
                   b.type === EnemyType.Mordak && b.wingsLost >= 2 ? 'grounded' : '',

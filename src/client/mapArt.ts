@@ -164,16 +164,19 @@ export function sealedTerrain(map: MapDef): Graphics | null {
   const { x: x0, hole } = map.sealed;
   const g = new Graphics();
   const dark = { color: map.theme.outside, alpha: 0.85 };
+  if (map.tower) towerVoid(map, g, dark);
+  // (Up to `until`: past it is a tower map's hidden part, drawn above.)
+  const W = map.sealed.until ?? map.width;
   if ('r' in hole) {
     if (hole.x - hole.r >= x0) {
-      g.rect(x0, 0, map.width - x0, map.height).fill(dark);
+      g.rect(x0, 0, W - x0, map.height).fill(dark);
       g.circle(hole.x, hole.y, hole.r).cut();
       return g;
     }
     // The arena pokes out past the void's edge: go round it. Down the edge to where the arena meets it, round the
     // arena's far side, and on up the edge.
     const a1 = Math.acos(Math.max(-1, Math.min(1, (x0 - hole.x) / hole.r)));
-    const points: number[] = [x0, 0, map.width, 0, map.width, map.height, x0, map.height, x0, hole.y + Math.sin(a1) * hole.r];
+    const points: number[] = [x0, 0, W, 0, W, map.height, x0, map.height, x0, hole.y + Math.sin(a1) * hole.r];
     const steps = 48;
     for (let i = 0; i <= steps; i++) {
       const a = a1 - (2 * a1 * i) / steps;
@@ -184,12 +187,52 @@ export function sealedTerrain(map: MapDef): Graphics | null {
   }
   // Around a rectangle (the keep), as the four pieces around it (a cut-out touching the map's edge doesn't take).
   const right = hole.x + hole.w;
-  g.rect(x0, 0, map.width - x0, hole.y)
-    .rect(x0, hole.y + hole.h, map.width - x0, map.height - hole.y - hole.h)
+  g.rect(x0, 0, W - x0, hole.y)
+    .rect(x0, hole.y + hole.h, W - x0, map.height - hole.y - hole.h)
     .rect(x0, hole.y, Math.max(0, hole.x - x0), hole.h)
-    .rect(right, hole.y, Math.max(0, map.width - right), hole.h)
+    .rect(right, hole.y, Math.max(0, W - right), hole.h)
     .fill(dark);
   return g;
+}
+
+/**
+ * The void around a tower map's hidden part: everything past its edge but the labyrinth, the way out of it and the
+ * tower. Drawn as pieces that go round them (a cut-out touching an edge doesn't take).
+ */
+function towerVoid(map: MapDef, g: Graphics, dark: { color: number; alpha: number }): void {
+  const t = map.tower!;
+  const { maze, path } = t;
+  const W = map.width;
+  const top = maze.y;
+  const bottom = maze.y + maze.h;
+  g.rect(t.x, 0, W - t.x, top).rect(t.x, bottom, W - t.x, map.height - bottom).fill(dark);
+  // Beside the labyrinth: down its east side to the path, along the path to the tower, round the tower's far side,
+  // back along the path and on up.
+  const x1 = maze.x + maze.w;
+  const { x: cx, y: cy } = t.arena;
+  const R = t.floor;
+  const meet = (y: number) => cx - Math.sqrt(Math.max(0, R * R - (y - cy) ** 2));
+  const y0 = path.y;
+  const y1 = path.y + path.h;
+  const a1 = Math.atan2(y1 - cy, meet(y1) - cx);
+  const a2 = Math.atan2(y0 - cy, meet(y0) - cx);
+  const points = [x1, top, W, top, W, bottom, x1, bottom, x1, y1, meet(y1), y1];
+  const steps = 64;
+  for (let i = 1; i < steps; i++) {
+    const a = a1 + ((a2 - a1) * i) / steps;
+    points.push(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+  }
+  points.push(meet(y0), y0, x1, y0);
+  g.poly(points).fill(dark);
+}
+
+/** The Frost Queen's secret door while it's shut: just more of the castle wall, but for a thin crack. */
+export function drawSecretDoor(g: Graphics, w: Wall, map: MapDef): void {
+  g.rect(w.x, w.y, w.w, w.h).fill(map.theme.wall).stroke({ width: 2, color: map.theme.wallEdge });
+  const across = Math.round(w.w * 0.4);
+  for (let d = 10; d + 18 <= w.h - 10; d += 34) g.rect(w.x + (w.w - across) / 2, w.y + d, across, 18);
+  g.fill(shade(map.theme.wall, 0.12)).stroke({ width: 1.5, color: shade(map.theme.wall, -0.45) });
+  g.moveTo(w.x + w.w * 0.3, w.y + 4).lineTo(w.x + w.w * 0.55, w.y + w.h * 0.45).lineTo(w.x + w.w * 0.35, w.y + w.h - 4).stroke({ width: 1, color: 0x0e131a, alpha: 0.7 });
 }
 
 /** Is (x, y) within `margin` of the river's water? */
@@ -360,6 +403,35 @@ function castleArt(map: MapDef, still: Graphics, top: Graphics, rand: () => numb
   top.poly([tx + 30, arena.y - 50, tx + 50, arena.y - 95, tx + 58, arena.y - 40, tx + 58, arena.y + 40, tx + 50, arena.y + 95, tx + 30, arena.y + 50]).fill({ color: 0xb3e5fc, alpha: 0.9 }).stroke({ width: 2, color: 0xe1f5fe });
   top.roundRect(tx - 15, arena.y - 38, 50, 76, 8).fill({ color: 0x81d4fa, alpha: 0.85 }).stroke({ width: 2, color: 0xe1f5fe });
   for (const dy of [-1, 1]) top.poly([tx + 40, arena.y + dy * 30, tx + 70, arena.y + dy * 70, tx + 52, arena.y + dy * 20]).fill({ color: 0xe1f5fe, alpha: 0.9 });
+
+  // Behind the secret door (hidden until the Queen flees): the labyrinth's icy floor, and her tower.
+  const tower = map.tower;
+  if (tower) {
+    const { maze, path } = tower;
+    still.rect(maze.x, maze.y, maze.w, maze.h).rect(path.x, path.y, path.w + 40, path.h).fill(0x172230);
+    for (const d of tower.door) still.rect(d.x, d.y, d.w, d.h).fill(0x172230);
+    for (let x = maze.x; x <= maze.x + maze.w; x += maze.cell / 2) still.rect(x, maze.y, 1.5, maze.h);
+    for (let y = maze.y; y <= maze.y + maze.h; y += maze.cell / 2) still.rect(maze.x, y, maze.w, 1.5);
+    still.fill({ color: 0x0b1118, alpha: 0.7 });
+    for (let i = 0; i < 40; i++) {
+      still.ellipse(maze.x + rand() * maze.w, maze.y + rand() * maze.h, 30 + rand() * 40, 14 + rand() * 18).fill({ color: 0xbbdefb, alpha: 0.08 });
+    }
+    const { x: cx, y: cy } = tower.arena;
+    still.circle(cx, cy, tower.floor).fill(0x1b2636);
+    for (const r of [110, 220, 330, 430]) still.circle(cx, cy, r).stroke({ width: 2, color: 0x0e131a, alpha: 0.7 });
+    // A great frost sigil on the floor.
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      still.moveTo(cx, cy).lineTo(cx + Math.cos(a) * 300, cy + Math.sin(a) * 300);
+      for (const along of [150, 230]) {
+        const bx = cx + Math.cos(a) * along;
+        const by = cy + Math.sin(a) * along;
+        for (const side of [-1, 1]) still.moveTo(bx, by).lineTo(bx + Math.cos(a + side * 0.7) * 50, by + Math.sin(a + side * 0.7) * 50);
+      }
+    }
+    still.stroke({ width: 4, color: 0x81d4fa, alpha: 0.35 });
+    still.circle(cx, cy, 60).fill({ color: 0xb3e5fc, alpha: 0.15 }).stroke({ width: 3, color: 0xe1f5fe, alpha: 0.4 });
+  }
 
   // Battlements on the castle walls and towers (not the thinner rooms, carts or statues).
   const stone = shade(map.theme.wall, 0.12);

@@ -817,8 +817,13 @@ export class UI {
     const lava = snap.lava;
     // The caldera's finale: only its stones and den are safe now.
     const sunk = snap.finale && snap.finale.stage !== 'crumble' ? MAPS[snap.map].finale : undefined;
-    const outsideArena = arena && arena.state !== 'idle' && me && !me.inArena && !me.downed;
-    if (outsideArena) {
+    const outsideArena = arena && arena.state !== 'idle' && me && !me.inArena && !me.downed && !snap.tower;
+    const tower = snap.tower;
+    if (tower && tower.stage !== 'flee' && me && !me.inArena && !me.downed) {
+      // The Frost Queen fled: after her, through the labyrinth.
+      urgent = true;
+      text = tower.stage === 'maze' ? 'Find your way through the labyrinth to her tower!' : 'She waits in her tower! Get inside.';
+    } else if (outsideArena) {
       // The fire is sweeping in: are you in it yet?
       urgent = true;
       const def = MAPS[snap.map].arena;

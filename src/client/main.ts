@@ -2,7 +2,7 @@ import { SUMMON_STRIDE, SummonKind, isDevName } from '../shared/protocol';
 import { CHARACTERS, DEFAULT_CHARACTER, isCharacterId } from '../shared/characters';
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, DRAGON_INTRO, PLAYER_RADIUS, TICK_RATE } from '../shared/constants';
-import { MAPS, clampToArena, mapWalls } from '../shared/maps';
+import { MAPS, activeArena, clampToArena, mapWalls } from '../shared/maps';
 import type { Snapshot } from '../shared/protocol';
 import { Sound } from './audio';
 import { Input } from './input';
@@ -174,10 +174,10 @@ async function main() {
     cues.onSnapshot(latest, snap, local, myId);
     latest = snap;
     const den = !!snap.finale && snap.finale.stage !== 'crumble';
-    const wallsKey = `${snap.map}:${snap.arena?.open ? 'open' : 'shut'}:${den}`;
+    const wallsKey = `${snap.map}:${snap.arena?.open ? 'open' : 'shut'}:${den}:${snap.tower?.stage ?? ''}:${!!snap.tower?.shut}`;
     if (wallsKey !== wallsFor) {
       const map = MAPS[snap.map];
-      walls = new WallIndex(mapWalls(map, !snap.arena?.open, den), map.width, map.height);
+      walls = new WallIndex(mapWalls(map, !snap.arena?.open, den, snap.tower), map.width, map.height);
       wallsFor = wallsKey;
     }
     if (snap.me && snap.me.epoch !== epoch) {
@@ -286,8 +286,8 @@ async function main() {
         dodgeTime += dt;
         dashExtension += dt;
       }
-      // Locked inside the boss arena.
-      const arena = MAPS[latest!.map].arena;
+      // Locked inside the boss arena (or the Frost Queen's tower).
+      const arena = activeArena(MAPS[latest!.map], latest!.tower);
       if (me!.inArena && arena) ({ x: local.x, y: local.y } = clampToArena(arena, local.x, local.y, PLAYER_RADIUS));
 
       sendTimer += dt;

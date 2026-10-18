@@ -64,6 +64,29 @@ export interface Finale {
   bossName: string;
 }
 
+/**
+ * A boss who retreats mid-fight (the Frost Queen): at `at` of her health she glides to her `throne` and vanishes, the
+ * secret `door` behind it opens, and the team finds its way through the `maze` and along the `path` to the `arena` (her
+ * tower), where the fight goes on. Everything east of `x` stays hidden until she flees.
+ */
+export interface Tower {
+  x: number;
+  at: number;
+  throne: { x: number; y: number };
+  door: Wall[];
+  maze: { x: number; y: number; w: number; h: number; cell: number };
+  path: { x: number; y: number; w: number; h: number };
+  /** Her tower: round, with a gate that shuts once everyone's inside (like the arena's). `floor`: its inside radius. */
+  arena: Arena;
+  floor: number;
+}
+
+/** 'flee': she's gliding back to her throne. 'maze': gone; the labyrinth is open. 'fight': back, in her tower. */
+export type TowerStage = 'flee' | 'maze' | 'fight';
+
+/** Where a retreat stands: its stage, and whether the tower's gate has shut behind the team. Null before it. */
+export type TowerState = { stage: TowerStage; shut: boolean } | null;
+
 export interface MapDef {
   name: string;
   subtitle: string;
@@ -85,12 +108,14 @@ export interface MapDef {
   /** A lava rim that closes in for the boss (who then spawns in the middle). */
   lava?: Lava;
   /**
-   * Walled off behind the boss arena: everything east of `x` but the arena itself (`hole`, a circle or a rectangle) is
-   * out of bounds, drawn dark like the outside of the map.
+   * Walled off behind the boss arena: everything east of `x` (up to `until`, if set) but the arena itself (`hole`, a
+   * circle or a rectangle) is out of bounds, drawn dark like the outside of the map.
    */
-  sealed?: { x: number; hole: { x: number; y: number; r: number } | { x: number; y: number; w: number; h: number } };
+  sealed?: { x: number; until?: number; hole: { x: number; y: number; r: number } | { x: number; y: number; w: number; h: number } };
   /** What happens after the boss dies, if it isn't the end (see Finale). */
   finale?: Finale;
+  /** The boss retreats to a tower halfway through the fight (see Tower). */
+  tower?: Tower;
   /**
    * Endless mode's own map (played only in endless mode, not part of the campaign): the bosses its waves bring, in
    * turn (see waveBoss).
@@ -166,7 +191,7 @@ export function arenaReach(a: Arena): number {
 /** Is (x, y) in the ground walled off beside the boss arena (where no one may ever be)? */
 export function inSealed(map: MapDef, x: number, y: number): boolean {
   const s = map.sealed;
-  if (!s || x <= s.x) return false;
+  if (!s || x <= s.x || (s.until !== undefined && x >= s.until)) return false;
   const h = s.hole;
   if ('r' in h) return (x - h.x) ** 2 + (y - h.y) ** 2 > h.r ** 2;
   return x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h;
@@ -178,10 +203,31 @@ export function onFinaleGround(finale: Finale, x: number, y: number, margin = 0)
   return finale.stones.some((st) => (x - st.x) ** 2 + (y - st.y) ** 2 < (st.r - margin) ** 2);
 }
 
-/** The map's walls, with the arena gate if it's shut, and the den's pillars once the finale has revealed them. */
-export function mapWalls(map: MapDef, gateShut: boolean, den = false): Wall[] {
-  const walls = gateShut && map.arena ? [...map.walls, ...map.arena.gate] : map.walls;
-  return den && map.finale ? [...walls, ...map.finale.pillars] : walls;
+/**
+ * The map's walls, with the arena gate if it's shut, the den's pillars once the finale has revealed them, and on a map
+ * with a tower: its secret door until the boss has fled, and the tower's gate once it has shut.
+ */
+export function mapWalls(map: MapDef, gateShut: boolean, den = false, tower: TowerState = null): Wall[] {
+  let walls = gateShut && map.arena ? [...map.walls, ...map.arena.gate] : map.walls;
+  if (den && map.finale) walls = [...walls, ...map.finale.pillars];
+  if (map.tower) {
+    if (!tower || tower.stage === 'flee') walls = [...walls, ...map.tower.door];
+    if (tower?.shut) walls = [...walls, ...map.tower.arena.gate];
+  }
+  return walls;
+}
+
+/** The arena the fight is in right now: the boss's tower once she's back in it, nowhere while she's away, else the map's. */
+export function activeArena(map: MapDef, tower: TowerState): Arena | null {
+  if (map.tower && tower) return tower.stage === 'fight' ? map.tower.arena : tower.stage === 'flee' ? map.arena : null;
+  return map.arena;
+}
+
+/** Ground you can stand on past a tower map's hidden edge: the labyrinth, the way out of it, and the tower. */
+export function onTowerGround(t: Tower, x: number, y: number, margin = 0): boolean {
+  const inRect = (r: { x: number; y: number; w: number; h: number }) => x >= r.x + margin && x <= r.x + r.w - margin && y >= r.y + margin && y <= r.y + r.h - margin;
+  if (inRect(t.maze) || inRect(t.path)) return true;
+  return (x - t.arena.x) ** 2 + (y - t.arena.y) ** 2 <= (t.floor - margin) ** 2;
 }
 
 // --- Wall building blocks ---
@@ -212,6 +258,112 @@ function room(x: number, y: number, w: number, h: number, doors: ('n' | 's' | 'e
     ...vertical(x, doors.includes('w')),
     ...vertical(x + w - T, doors.includes('e')),
   ];
+}
+
+/** A small seeded random generator (the same maze on the server and every client). */
+function seededRandom(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * A labyrinth of `cols` by `rows` cells of `cell` from (x0, y0): carved from the `entry` row on the west side, open to
+ * the east side at the `exit` row, with `loops` extra openings so there's more than one way through. The west side is
+ * left open (a wall already runs along it); walls are solid, so no dodge cuts through. Always the same for one seed.
+ */
+function labyrinth(x0: number, y0: number, cols: number, rows: number, cell: number, entry: number, exit: number, loops: number, seed: number): Wall[] {
+  const rand = seededRandom(seed);
+  // Passages: east[c][r] joins (c, r) to (c + 1, r); south[c][r] joins (c, r) to (c, r + 1).
+  const east = Array.from({ length: cols }, () => new Array<boolean>(rows).fill(false));
+  const south = Array.from({ length: cols }, () => new Array<boolean>(rows).fill(false));
+  const seen = Array.from({ length: cols }, () => new Array<boolean>(rows).fill(false));
+  const stack: [number, number][] = [[0, entry]];
+  seen[0][entry] = true;
+  while (stack.length > 0) {
+    const [c, r] = stack[stack.length - 1];
+    const next = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const)
+      .map(([dc, dr]) => [c + dc, r + dr, dc, dr] as const)
+      .filter(([nc, nr]) => nc >= 0 && nc < cols && nr >= 0 && nr < rows && !seen[nc][nr]);
+    if (next.length === 0) {
+      stack.pop();
+      continue;
+    }
+    const [nc, nr, dc, dr] = next[Math.floor(rand() * next.length)];
+    if (dc === 1) east[c][r] = true;
+    if (dc === -1) east[nc][nr] = true;
+    if (dr === 1) south[c][r] = true;
+    if (dr === -1) south[nc][nr] = true;
+    seen[nc][nr] = true;
+    stack.push([nc, nr]);
+  }
+  for (let i = 0; i < loops; i++) {
+    const c = Math.floor(rand() * (cols - 1));
+    const r = Math.floor(rand() * (rows - 1));
+    if (rand() < 0.5) east[c][r] = true;
+    else south[c][r] = true;
+  }
+  const W = cols * cell;
+  const H = rows * cell;
+  const solid = (x: number, y: number, w: number, h: number): Wall => ({ ...wall(x, y, w, h), solid: true });
+  const walls: Wall[] = [
+    solid(x0, y0 - T / 2, W, T),
+    solid(x0, y0 + H - T / 2, W, T),
+    solid(x0 + W - T / 2, y0 - T / 2, T, exit * cell + T / 2),
+    solid(x0 + W - T / 2, y0 + (exit + 1) * cell, T, (rows - exit - 1) * cell + T / 2),
+  ];
+  // The inside walls, joined into runs.
+  for (let c = 0; c < cols - 1; c++) {
+    for (let r = 0; r < rows; ) {
+      if (east[c][r]) {
+        r++;
+        continue;
+      }
+      let end = r;
+      while (end < rows && !east[c][end]) end++;
+      walls.push(solid(x0 + (c + 1) * cell - T / 2, y0 + r * cell - T / 2, T, (end - r) * cell + T));
+      r = end;
+    }
+  }
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols; ) {
+      if (south[c][r]) {
+        c++;
+        continue;
+      }
+      let end = c;
+      while (end < cols && !south[end][r]) end++;
+      walls.push(solid(x0 + c * cell - T / 2, y0 + (r + 1) * cell - T / 2, (end - c) * cell + T, T));
+      c = end;
+    }
+  }
+  return walls;
+}
+
+/**
+ * Solid ground filling everything from `x0` to `width` where you can't `stand` (checked over cells of 25): rows of
+ * terrain walls. Nothing spawns, walks or dodges in there.
+ */
+function fillAround(x0: number, width: number, height: number, stand: (x: number, y: number, w: number, h: number) => boolean): Wall[] {
+  const step = 25;
+  const walls: Wall[] = [];
+  for (let y = 0; y < height; y += step) {
+    let from = -1;
+    for (let x = x0; x <= width; x += step) {
+      const solidHere = x < width && !stand(x, y, step, step);
+      if (solidHere && from < 0) from = x;
+      if (!solidHere && from >= 0) {
+        walls.push(wall(from, y, x - from, step, 'terrain'));
+        from = -1;
+      }
+    }
+  }
+  return walls;
 }
 
 /** A horizontal fence from x1 to x2, with an optional gap in the middle. */
@@ -255,10 +407,11 @@ function colosseum(cx: number, cy: number, r: number, size: number, opening: num
 }
 
 /**
- * Solid ground filling everything east of `x0` but the arena (`hole`: inside its ring, or the keep): bands of terrain
- * walls, each stopping short of the arena's floor. Nothing spawns, walks or dodges in there.
+ * Solid ground filling everything east of `x0` but the arena (`hole`: inside its ring, or the keep) and the way in
+ * through its gate (`door`: the gate's walls, kept clear all the way from `x0`): bands of terrain walls, each stopping
+ * short of the arena's floor. Nothing spawns, walks or dodges in there.
  */
-function terrainWalls(x0: number, width: number, height: number, hole: { x: number; y: number; r: number } | { x: number; y: number; w: number; h: number }): Wall[] {
+function terrainWalls(x0: number, width: number, height: number, hole: { x: number; y: number; r: number } | { x: number; y: number; w: number; h: number }, door: Wall[]): Wall[] {
   const band = 50;
   const walls: Wall[] = [];
   const add = (from: number, to: number, y: number) => {
@@ -276,6 +429,8 @@ function terrainWalls(x0: number, width: number, height: number, hole: { x: numb
     } else if (y + band > hole.y && y < hole.y + hole.h) {
       gap = [hole.x, hole.x + hole.w];
     }
+    // Level with the gate: open from the front, so the way in stays clear.
+    if (door.some((d) => y + band > d.y && y < d.y + d.h)) gap = [x0, gap ? gap[1] : x0];
     if (!gap) add(x0, width, y);
     else {
       add(x0, Math.max(x0, gap[0]), y);
@@ -371,6 +526,14 @@ const C = 60; // Curtain wall width.
 const K = 70; // Keep wall width.
 const KEEP = { x: 3300, y: 880, w: 1100 - C, h: 1240 };
 const KEEP_GATE = 260;
+/**
+ * Behind the throne, hidden past the castle's east wall: the Frost Queen's labyrinth (8 by 7 cells, entered from the
+ * secret door, left on the same row) and her round tower beyond it.
+ */
+const FORTRESS_EAST = 4400;
+const LABYRINTH = { x: FORTRESS_EAST, y: 800, cols: 8, rows: 7, cell: 200, row: 3 };
+const QUEEN_TOWER = colosseum(6600, 1500, 520, 80, 220);
+const TOWER_DOOR = 160;
 
 // The Ashen Caldera: a round plateau in a sea of lava, with room to the north for the finale.
 const CALDERA = { x: 2200, y: 3600 };
@@ -438,7 +601,7 @@ export const MAPS: MapDef[] = [
       // The glade, a thicket closing off the woods beside and behind it, and groves dotted around the woods.
       ...GLADE.walls,
       ...sealSides(GLADE.front.x, 1700, GLADE.front.reach, WOODS.height, 100, 'tree'),
-      ...terrainWalls(GLADE.front.x, WOODS.width, WOODS.height, { x: 3550, y: 1700, r: GLADE.inner }),
+      ...terrainWalls(GLADE.front.x, WOODS.width, WOODS.height, { x: 3550, y: 1700, r: GLADE.inner }, GLADE.gate),
       ...grove(450, 450),
       ...grove(1250, 330, 0.9),
       ...grove(450, 2950),
@@ -493,14 +656,15 @@ export const MAPS: MapDef[] = [
       // The colosseum, walled in on either side of its gate.
       ...RUINS_ARENA.walls,
       ...sealSides(RUINS_ARENA.front.x, 1800, RUINS_ARENA.front.reach, 3600, 80),
-      ...terrainWalls(RUINS_ARENA.front.x, 4750, 3600, { x: 4150, y: 1800, r: RUINS_ARENA.inner }),
+      ...terrainWalls(RUINS_ARENA.front.x, 4750, 3600, { x: 4150, y: 1800, r: RUINS_ARENA.inner }, RUINS_ARENA.gate),
     ],
   },
   {
     name: 'Frozen Fortress',
     subtitle: 'Fight across the castle courtyard. The Queen waits in her throne hall.',
     art: 'frost',
-    width: 4400,
+    // (The playing field ends at the east curtain wall; past it, hidden, are the labyrinth and the Queen's tower.)
+    width: 7200,
     height: 3000,
     spawn: { x: 450, y: 1500 },
     boss: EnemyType.Rime,
@@ -513,7 +677,17 @@ export const MAPS: MapDef[] = [
       zone: (KEEP.w - K) / 2 + K + 10,
       gate: [{ ...wall(KEEP.x, KEEP.y + (KEEP.h - KEEP_GATE) / 2, K, KEEP_GATE), solid: true }],
     },
-    sealed: { x: KEEP.x + K / 2, hole: { x: KEEP.x, y: KEEP.y, w: KEEP.w, h: KEEP.h } },
+    sealed: { x: KEEP.x + K / 2, until: FORTRESS_EAST, hole: { x: KEEP.x, y: KEEP.y, w: FORTRESS_EAST - KEEP.x, h: KEEP.h } },
+    tower: {
+      x: FORTRESS_EAST,
+      at: 0.5,
+      throne: { x: KEEP.x + KEEP.w - 80, y: KEEP.y + KEEP.h / 2 },
+      door: [{ ...wall(FORTRESS_EAST - C, KEEP.y + (KEEP.h - TOWER_DOOR) / 2, C, TOWER_DOOR), solid: true }],
+      maze: { x: LABYRINTH.x, y: LABYRINTH.y, w: LABYRINTH.cols * LABYRINTH.cell, h: LABYRINTH.rows * LABYRINTH.cell, cell: LABYRINTH.cell },
+      path: { x: LABYRINTH.x + LABYRINTH.cols * LABYRINTH.cell, y: 1500 - TOWER_DOOR / 2, w: 140, h: TOWER_DOOR },
+      arena: { x: 6600, y: 1500, r: 450, zone: 600, gate: QUEEN_TOWER.gate, gateLook: 'door' },
+      floor: QUEEN_TOWER.inner,
+    },
     difficulty: 1.4,
     prestigeReward: 1.5,
     enemyWeights: { [EnemyType.Spitter]: 1.6, [EnemyType.Wraith]: 1, [EnemyType.Bombardier]: 0.5 },
@@ -534,7 +708,9 @@ export const MAPS: MapDef[] = [
       wall(0, 0, 4400, C),
       wall(0, 3000 - C, 4400, C),
       wall(0, 0, C, 3000),
-      wall(4400 - C, 0, C, 3000),
+      // The east wall, with the secret door behind the throne (see the tower).
+      wall(FORTRESS_EAST - C, 0, C, KEEP.y + (KEEP.h - TOWER_DOOR) / 2),
+      wall(FORTRESS_EAST - C, KEEP.y + (KEEP.h + TOWER_DOOR) / 2, C, 3000 - KEEP.y - (KEEP.h + TOWER_DOOR) / 2),
       wall(0, 0, 180, 180),
       wall(0, 2820, 180, 180),
       wall(4220, 0, 180, 180),
@@ -585,7 +761,25 @@ export const MAPS: MapDef[] = [
       // Walls from the keep's front corners to the curtain walls: nothing gets round the keep's sides or behind it.
       wall(KEEP.x, 0, K, KEEP.y),
       wall(KEEP.x, KEEP.y + KEEP.h, K, 3000 - KEEP.y - KEEP.h),
-      ...terrainWalls(KEEP.x + K / 2, 4400, 3000, { x: KEEP.x + K, y: KEEP.y + K, w: KEEP.w - K, h: KEEP.h - 2 * K }),
+      ...terrainWalls(KEEP.x + K / 2, FORTRESS_EAST, 3000, { x: KEEP.x + K, y: KEEP.y + K, w: FORTRESS_EAST - KEEP.x - K, h: KEEP.h - 2 * K }, [wall(KEEP.x, KEEP.y + (KEEP.h - KEEP_GATE) / 2, K, KEEP_GATE)]),
+      // Behind the secret door: the labyrinth, the way from it to the Queen's tower, and the tower with its columns.
+      ...labyrinth(LABYRINTH.x, LABYRINTH.y, LABYRINTH.cols, LABYRINTH.rows, LABYRINTH.cell, LABYRINTH.row, LABYRINTH.row, 7, 1777),
+      { ...wall(LABYRINTH.x + LABYRINTH.cols * LABYRINTH.cell, 1500 - TOWER_DOOR / 2 - T, 140, T), solid: true },
+      { ...wall(LABYRINTH.x + LABYRINTH.cols * LABYRINTH.cell, 1500 + TOWER_DOOR / 2, 140, T), solid: true },
+      ...QUEEN_TOWER.walls,
+      pillar(6600 - 230, 1500 - 230, 80),
+      pillar(6600 + 230, 1500 - 230, 80),
+      pillar(6600 - 230, 1500 + 230, 80),
+      pillar(6600 + 230, 1500 + 230, 80),
+      // Everything else back there is solid ground.
+      ...fillAround(FORTRESS_EAST, 7200, 3000, (x, y, w, h) => {
+        const overlaps = (r: { x: number; y: number; w: number; h: number }) => x < r.x + r.w && x + w > r.x && y < r.y + r.h && y + h > r.y;
+        const maze = { x: LABYRINTH.x, y: LABYRINTH.y, w: LABYRINTH.cols * LABYRINTH.cell, h: LABYRINTH.rows * LABYRINTH.cell };
+        const path = { x: maze.x + maze.w, y: 1500 - TOWER_DOOR / 2, w: 160, h: TOWER_DOOR };
+        const nx = Math.max(x, Math.min(6600, x + w));
+        const ny = Math.max(y, Math.min(1500, y + h));
+        return overlaps(maze) || overlaps(path) || (nx - 6600) ** 2 + (ny - 1500) ** 2 < QUEEN_TOWER.inner ** 2;
+      }),
     ],
   },
   {
@@ -618,7 +812,7 @@ export const MAPS: MapDef[] = [
       ...DEN.walls,
       // Rock walling the den in on either side of its mouth.
       ...sealSides(DEN.front.x, 1500, DEN.front.reach, CANYON.height, 110, 'rock'),
-      ...terrainWalls(DEN.front.x, CANYON.width, CANYON.height, { x: 4600, y: 1500, r: DEN.inner }),
+      ...terrainWalls(DEN.front.x, CANYON.width, CANYON.height, { x: 4600, y: 1500, r: DEN.inner }, DEN.gate),
       // Boulders in the den: bait Kharzak's charge into one to crack its shell.
       boulder(4600 + Math.cos(Math.PI / 3) * 260, 1500 + Math.sin(Math.PI / 3) * 260, 100),
       boulder(4600 - 260, 1500, 100),

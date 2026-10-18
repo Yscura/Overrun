@@ -140,6 +140,47 @@ export function drawDragonWing(g: Graphics, side: number, flash: boolean, color 
   dragonWing(pen, ENEMY_TYPES[EnemyType.Mordak].radius, side);
 }
 
+/** The Reaper's scythe: a long shaft along his right side, the blade curving out from its front end (his center at (0, 0)). */
+function reaperScythe(pen: Pen, r: number): void {
+  solid(pen, (g) => g.poly([-r * 0.95, r * 0.78, r * 1.02, r * 0.68, r * 1.04, r * 0.84, -r * 0.93, r * 0.94]), 0x8d6e63, INK);
+  const blade = [
+    r * 0.98, r * 0.7, r * 1.28, r * 0.95, r * 1.36, r * 1.3, r * 1.2, r * 1.66, r * 0.8, r * 1.92,
+    r * 0.98, r * 1.58, r * 1.06, r * 1.26, r * 1.0, r * 0.98, r * 0.9, r * 0.86,
+  ];
+  solid(pen, (g) => g.poly(blade), 0xb0bec5, 0x263238);
+  detail(pen, (g) => {
+    g.moveTo(r * 1.28, r * 0.95).lineTo(r * 1.36, r * 1.3).lineTo(r * 1.2, r * 1.66).lineTo(r * 0.8, r * 1.92).stroke({ width: 2.5, color: 0xe0f7fa, cap: 'round', join: 'round' });
+  });
+}
+
+/** Just the Reaper's scythe, where he holds it (his center at (0, 0)): for swinging it on its own. Returns its reach. */
+export function drawReaperScythe(g: Graphics, flash: boolean): number {
+  const r = ENEMY_TYPES[EnemyType.Reaper].radius;
+  const color = ENEMY_TYPES[EnemyType.Reaper].color;
+  reaperScythe({ g, flash, body: color, dark: shade(color, -0.55), light: shade(color, 0.6) }, r);
+  return r * 2.2;
+}
+
+/**
+ * Sylvara's head on its own, its neck at (0, 0), facing +x: a wedge-shaped head, a forked tongue and glowing eyes. For
+ * the slithering serpent the game draws (her body follows behind). Returns its reach.
+ */
+export function drawSerpentHead(g: Graphics, flash: boolean, color = ENEMY_TYPES[EnemyType.Sylvara].color): number {
+  const r = ENEMY_TYPES[EnemyType.Sylvara].radius;
+  const pen: Pen = { g, flash, body: color, dark: shade(color, -0.55), light: shade(color, 0.6) };
+  solid(pen, (g) => g.poly([-r * 0.08, -r * 0.3, r * 0.6, -r * 0.36, r * 0.94, 0, r * 0.6, r * 0.36, -r * 0.08, r * 0.3]), shade(color, 0.1));
+  detail(pen, (g) => {
+    g.moveTo(r * 0.94, 0).lineTo(r * 1.17, 0).lineTo(r * 1.3, -r * 0.09).moveTo(r * 1.17, 0).lineTo(r * 1.3, r * 0.09).stroke({ width: 3, color: 0xe53935, cap: 'round' });
+    g.poly([r * 0.2, -r * 0.12, r * 0.4, 0, r * 0.2, r * 0.12, r * 0.1, 0]).fill({ color: SERPENT_PATTERN, alpha: 0.7 });
+  });
+  gloss(pen, r * 0.47, -r * 0.18, r * 0.22, r * 0.08);
+  eyes(pen, r * 0.62, r * 0.2, r * 0.09, { angry: true, glow: 0xffeb3b });
+  return r * 1.35;
+}
+
+/** The diamonds down Sylvara's back. */
+export const SERPENT_PATTERN = 0x1b5e20;
+
 /** A ring of flames around (x, 0): an outer orange layer and a bright core. */
 function flames(pen: Pen, x: number, outer: number, points = 9): void {
   const at = (pts: number[]) => pts.map((v, i) => (i % 2 === 0 ? v + x : v));
@@ -280,16 +321,8 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
           g.moveTo(-r * 0.15, y * r * 0.55).lineTo(-r * 0.95, y * r * 1.25).stroke({ width: 3, color: pen.dark, alpha: 0.7, cap: 'round' });
         }
       });
-      // The scythe: a long shaft along his side, the blade curving out from its front end.
-      solid(pen, (g) => g.poly([-r * 0.95, r * 0.78, r * 1.02, r * 0.68, r * 1.04, r * 0.84, -r * 0.93, r * 0.94]), 0x8d6e63, INK);
-      const blade = [
-        r * 0.98, r * 0.7, r * 1.28, r * 0.95, r * 1.36, r * 1.3, r * 1.2, r * 1.66, r * 0.8, r * 1.92,
-        r * 0.98, r * 1.58, r * 1.06, r * 1.26, r * 1.0, r * 0.98, r * 0.9, r * 0.86,
-      ];
-      solid(pen, (g) => g.poly(blade), 0xb0bec5, 0x263238);
-      detail(pen, (g) => {
-        g.moveTo(r * 1.28, r * 0.95).lineTo(r * 1.36, r * 1.3).lineTo(r * 1.2, r * 1.66).lineTo(r * 0.8, r * 1.92).stroke({ width: 2.5, color: 0xe0f7fa, cap: 'round', join: 'round' });
-      });
+      // The scythe along his side (`variant` bit 4: left out, for the game to swing it; see drawReaperScythe).
+      if (!(variant & 4)) reaperScythe(pen, r);
       // The hood, and the skull peering out of its dark opening.
       solid(pen, (g) => g.circle(r * 0.08, 0, r * 0.62), shade(color, -0.35), INK);
       detail(pen, (g) => {

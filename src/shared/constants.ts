@@ -48,7 +48,7 @@ export const BOSS_DEATH = { shatter: 2.6, total: 4.2 };
  * and every `comboEvery`th attack follows right on the last one (`comboGap` seconds later). The rewards: `prestige`
  * times the prestige, and artifacts drop from hard mode's own steps of the loot ladder (LOOT in artifacts.ts).
  */
-export const HARD = { difficulty: 1.35, damage: 1.25, speed: 1.08, haste: 1.25, area: 1.1, comboEvery: 4, comboGap: 0.7, prestige: 1.6 };
+export const HARD = { difficulty: 1.6, damage: 1.25, speed: 1.08, haste: 1.25, area: 1.1, comboEvery: 4, comboGap: 0.7, prestige: 1.6 };
 
 /**
  * Endless mode: no final victory, the run goes on until the team falls. The map's boss comes back in waves: the first
@@ -88,7 +88,7 @@ export const COIN = { min: 5, max: 9, value: 3, radius: 7, speed: 520 };
  * A bomb on the ground goes off when anything hits it, hurting enemies within `blast` (not players).
  * Damage is `damage` times how tough the horde is at the moment, so it stays useful all run.
  */
-export const BOMB = { radius: 14, blast: 170, damage: 30 };
+export const BOMB = { radius: 20, blast: 170, damage: 30 };
 export const HEART_RADIUS = 12;
 /** Artifacts lying on the ground: touch one to pick it up. */
 export const ARTIFACT_RADIUS = 16;

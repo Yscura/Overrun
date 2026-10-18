@@ -134,6 +134,9 @@ export class SoundCues {
     }
     // The arena gate swings open for the boss, and slams shut behind the last one in.
     if (snap.arena && prev?.arena && snap.arena.open !== prev.arena.open) sound.play('gate');
+    // The Frost Queen's secret door grinds open, and her tower's gate slams shut.
+    if (prev && snap.tower?.stage === 'maze' && prev.tower?.stage !== 'maze') sound.play('gate');
+    if (prev && !!snap.tower?.shut !== !!prev.tower?.shut) sound.play('gate');
     if (snap.pause?.kind === 'choose' && !prev?.pause) sound.play('levelup');
     if (prev?.pause && !snap.pause && snap.phase === 'playing') sound.play('resume');
     if (snap.result && prev && !prev.result) sound.play(snap.result.victory ? 'victory' : 'defeat');

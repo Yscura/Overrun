@@ -211,7 +211,8 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
     phase: 'brood',
     voice: { sound: 'whisper', every: [9, 16] },
   },
-  // Hide behind a column from Glacial Wrath, and carry a Frost Bomb away from your friends.
+  // Hide behind a column from Glacial Wrath, and carry a Frost Bomb away from your friends. At half health she retreats to
+  // her tower, through a labyrinth (see Tower in maps.ts).
   [EnemyType.Rime]: {
     title: 'the Frost Queen',
     attacks: ['frostbomb', 'breath', 'nova', 'glacial', 'breath', 'summon'],

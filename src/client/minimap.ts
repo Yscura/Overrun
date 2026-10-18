@@ -34,6 +34,8 @@ export class Minimap {
   /** The part of the map shown (see shownArea), and whether the boss (or the finale) has revealed the rest. */
   private area = { x: 0, y: 0, w: 1, h: 1 };
   private revealed = false;
+  /** A tower map's hidden part is shown (the boss has fled there). */
+  private towerShown = false;
 
   constructor() {
     this.inner.addChild(this.base, this.dots);
@@ -48,7 +50,8 @@ export class Minimap {
    */
   private shownArea(revealed: boolean): { x: number; y: number; w: number; h: number } {
     const map = MAPS[this.mapIndex];
-    if (revealed) return { x: 0, y: 0, w: map.width, h: map.height };
+    // A tower map's hidden part shows only once the boss has fled there.
+    if (revealed) return { x: 0, y: 0, w: map.tower && !this.towerShown ? map.tower.x : map.width, h: map.height };
     if (map.sealed) return { x: 0, y: 0, w: map.sealed.x, h: map.height };
     if (!map.finale || map.height <= map.width) return { x: 0, y: 0, w: map.width, h: map.height };
     return { x: 0, y: map.height - map.width, w: map.width, h: map.width };
@@ -65,10 +68,12 @@ export class Minimap {
     const size = screenWidth < 700 ? SMALL_SIZE : SIZE;
     // The finale's ground gave way, or the boss is due (the arena's gate has opened).
     const revealed = (!!snap.finale && snap.finale.stage !== 'crumble') || (!!snap.arena && snap.arena.state !== 'idle');
-    if (snap.map !== this.mapIndex || size !== this.size || revealed !== this.revealed) {
+    const towerShown = !!snap.tower && snap.tower.stage !== 'flee';
+    if (snap.map !== this.mapIndex || size !== this.size || revealed !== this.revealed || towerShown !== this.towerShown) {
       this.mapIndex = snap.map;
       this.size = size;
       this.revealed = revealed;
+      this.towerShown = towerShown;
       this.drawBase();
     }
     this.container.position.set(screenWidth - this.area.w * this.scale - MARGIN, TOP);
@@ -95,9 +100,18 @@ export class Minimap {
     g.rect(a.x * s, a.y * s, a.w * s, a.h * s)
       .fill({ color: 0x000000, alpha: 0.6 })
       .stroke({ width: 1, color: 0x4a5263 });
+    if (map.tower) {
+      // Past the east wall: dark, but for the labyrinth's floor and the tower.
+      const t = map.tower;
+      g.rect(t.x * s, 0, (map.width - t.x) * s, map.height * s).fill({ color: 0x000000, alpha: 0.75 });
+      g.rect(t.maze.x * s, t.maze.y * s, t.maze.w * s, t.maze.h * s)
+        .rect(t.path.x * s, t.path.y * s, t.path.w * s, t.path.h * s)
+        .circle(t.arena.x * s, t.arena.y * s, t.floor * s)
+        .fill({ color: 0x1b2636, alpha: 0.9 });
+    }
     if (map.sealed) {
       const { x, hole } = map.sealed;
-      g.rect(x * s, 0, (map.width - x) * s, map.height * s).fill({ color: 0x000000, alpha: 0.75 });
+      g.rect(x * s, 0, ((map.sealed.until ?? map.width) - x) * s, map.height * s).fill({ color: 0x000000, alpha: 0.75 });
       if ('r' in hole) g.circle(hole.x * s, hole.y * s, hole.r * s).cut();
       else g.rect(hole.x * s, hole.y * s, hole.w * s, hole.h * s).cut();
     }
@@ -131,6 +145,7 @@ export class Minimap {
       g.rect(0, 0, map.width * s, map.height * s).fill({ color: 0xff6d00, alpha: 0.45 }).circle(snap.lava.x * s, snap.lava.y * s, snap.lava.r * s).cut();
     }
     if (map.arena && !snap.arena?.open) for (const w of map.arena.gate) g.rect(w.x * s, w.y * s, Math.max(2, w.w * s), Math.max(2, w.h * s)).fill(0xffab40);
+    if (map.tower && snap.tower?.shut) for (const w of map.tower.arena.gate) g.rect(w.x * s, w.y * s, Math.max(2, w.w * s), Math.max(2, w.h * s)).fill(0xffab40);
 
     // Ordinary enemies as a heat map, elites individually.
     const heat = new Map<number, number>();
@@ -191,7 +206,7 @@ export class Minimap {
     }
 
     // The burning zone closing in on the arena.
-    if (snap.arena && snap.arena.state !== 'idle') {
+    if (snap.arena && snap.arena.state !== 'idle' && !snap.tower) {
       const box = map.arena && zoneRect(map.arena, snap.arena.safeR);
       if (box) g.rect(box.x0 * s, box.y0 * s, (box.x1 - box.x0) * s, (box.y1 - box.y0) * s).stroke({ width: 2, color: 0xff3d00, alpha: 0.9 });
       else g.circle(snap.arena.x * s, snap.arena.y * s, snap.arena.safeR * s).stroke({ width: 2, color: 0xff3d00, alpha: 0.9 });

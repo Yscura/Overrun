@@ -4,8 +4,8 @@ import { CHARACTER_IDS, type CharacterId, REWIND_SECONDS } from '../shared/chara
 import { BOMB, BOSS_DEATH, BOSS_INTRO, COIN, DRAGON_INTRO, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
 import { DAMAGE_COLORS, DAMAGE_TYPES, type DamageType } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType, isBossType } from '../shared/enemies';
-import { DRAGON_SHOULDER, NO_ROTATE, drawDragonWing, drawEnemy, shade } from './enemyArt';
-import { decorations, drawGate, drawWalls, groundTile, lavaField, sealedTerrain, TILE } from './mapArt';
+import { DRAGON_SHOULDER, NO_ROTATE, SERPENT_PATTERN, drawDragonWing, drawEnemy, drawReaperScythe, drawSerpentHead, shade } from './enemyArt';
+import { decorations, drawGate, drawSecretDoor, drawWalls, groundTile, lavaField, sealedTerrain, TILE } from './mapArt';
 import { MAPS, mapWalls, enemyColor, zoneRect } from '../shared/maps';
 import { Minimap } from './minimap';
 import { portraitUrl } from './portraits';
@@ -134,7 +134,49 @@ interface EnemyView extends TypedView {
   flashAt?: number;
   /** Mordak: drawn as a dragon of parts, like Dragon Form (his sprite stays, unseen). */
   dragon?: DragonView;
+  /** Sylvara: a serpent whose body follows where her head has been (her sprite stays, unseen). */
+  serpent?: SerpentView;
+  /** The Reaper: his scythe, swung on its own when he attacks. */
+  scythe?: ScytheView;
 }
+
+/** Sylvara's body: redrawn every frame along her trail; her head rides on its front. */
+interface SerpentView {
+  root: Container;
+  body: Graphics;
+  head: Sprite;
+  /** Where her neck has been, newest first (a point every few pixels, as long as her body). */
+  trail: { x: number; y: number }[];
+  /** How far her neck has gone: the slither's waves stay put on the ground while she slides through them. */
+  travel: number;
+}
+
+/**
+ * The Reaper's scythe: turned `angle` from where he holds it at rest (positive: wound back along his right side).
+ * `swing`: a swing under way (from, to, over ms). `cone`: the cleave he's winding up for. `spun`: the last shockwave
+ * he spun the scythe for (by hazard id).
+ */
+interface ScytheView {
+  sprite: Sprite;
+  angle: number;
+  swing: { start: number; from: number; to: number; ms: number } | null;
+  cone: { half: number } | null;
+  spun: number;
+}
+
+/**
+ * Sylvara's slither: her body is `length` radii long; it sways in waves `wave` radii long and up to `sway` radii to
+ * the side (fixed to the ground, so she slides through them as she goes), and creeps through them at `idle` pixels
+ * a second while she holds still.
+ */
+const SERPENT = { length: 5.5, wave: 3.2, sway: 0.3, idle: 25, step: 0.22 };
+
+/**
+ * The Reaper's swings: winding up a cleave turns the scythe back this far past the cleave's own edge, then it whips
+ * across to `follow` past the other edge in `ms`. A shockwave: he raises it `raise` back, then spins it a full turn in
+ * `spinMs`.
+ */
+const SCYTHE = { windup: 0.8, follow: 0.6, ms: 170, raise: 1.5, spinMs: 450, settle: 0.12 };
 
 /** A Dragon Form dragon: legs (redrawn every frame), two wings that flap at the shoulder, and the body on top. */
 interface DragonView {
@@ -276,6 +318,10 @@ export class GameRenderer {
   private gate = new Graphics();
   private gateAmount = 0;
   private gateDrawn = -1;
+  /** On a map with a tower (see Tower in maps.ts): its gate (as gateAmount), what was last drawn, and the cover hiding it all until the boss flees. */
+  private towerGateAmount = 1;
+  private gateKey = '';
+  private towerCover: Graphics | null = null;
   /** Lava maps: the mask that shows the lava field past the current edge, and the radius it was drawn for. */
   private lavaMask: Graphics | null = null;
   private lavaDrawnR = -1;
@@ -332,7 +378,7 @@ export class GameRenderer {
     // Most textures are white so one texture can be tinted to any color (enemies have their own art).
     this.tex = {
       enemies: ENEMY_TYPES.map((_, type) => this.enemyTexture(type, false)),
-      enemyFlash: ENEMY_TYPES.map((_, type) => this.enemyTexture(type, true)),
+      enemyFlash: ENEMY_TYPES.map((_, type) => this.enemyTexture(type, true, undefined, type === EnemyType.Reaper ? 7 : 3)),
       tokens: await this.tokenTextures(),
       aimArrow: this.texture(new Graphics().poly([0, -6, 10, 0, 0, 6]).fill({ color: 0xffffff, alpha: 0.85 })),
       bolt: this.texture(new Graphics().circle(0, 0, 9).fill({ color: 0xffffff, alpha: 0.3 }).circle(0, 0, 5).fill(0xffffff)),
@@ -486,7 +532,8 @@ export class GameRenderer {
 
     // The horde in this map's colors.
     this.enemyColors = ENEMY_TYPES.map((_, type) => enemyColor(map, type));
-    this.tex.enemies = ENEMY_TYPES.map((_, type) => this.enemyTexture(type, false, this.enemyColors[type]));
+    // (The Reaper's scythe is drawn on its own in the game, to swing it: see renderScythe.)
+    this.tex.enemies = ENEMY_TYPES.map((_, type) => this.enemyTexture(type, false, this.enemyColors[type], type === EnemyType.Reaper ? 7 : 3));
     // (The finale's ground is kept: it's reused on the next lava map.)
     for (const child of this.mapLayer.removeChildren()) if (child !== this.finaleGround) child.destroy();
     // Darken everything outside the map and outline its edge.
@@ -520,23 +567,46 @@ export class GameRenderer {
     const sealed = sealedTerrain(map);
     if (sealed) this.mapLayer.addChild(sealed);
     this.mapLayer.addChild(outside, drawWalls(map), decor.top);
+    // A tower map's hidden part (past its east wall): covered by the void until the boss flees there.
+    this.towerCover = null;
+    if (map.tower) {
+      const pad = 4000;
+      this.towerCover = new Graphics().rect(map.tower.x, -pad, map.width - map.tower.x + pad, map.height + pad * 2).fill(theme.outside);
+      this.mapLayer.addChild(this.towerCover);
+    }
     this.gateDrawn = -1;
   }
 
   /** The arena gate's doors slide open when the boss is due, and shut once everyone's inside. */
   private renderGate(snap: Snapshot, realDt: number): void {
-    const arena = MAPS[snap.map].arena;
+    const map = MAPS[snap.map];
+    const arena = map.arena;
     if (!arena) {
       this.gate.clear();
       return;
     }
     const target = snap.arena?.open ? 1 : 0;
     // About a second to open or close; a new map starts where it is.
-    this.gateAmount = this.gateDrawn < 0 ? target : this.gateAmount + Math.max(-realDt, Math.min(realDt, target - this.gateAmount));
-    if (this.gateAmount === this.gateDrawn) return;
+    const fresh = this.gateDrawn < 0;
+    const approach = (from: number, to: number) => (fresh ? to : from + Math.max(-realDt, Math.min(realDt, to - from)));
+    this.gateAmount = approach(this.gateAmount, target);
+    // The Frost Queen's tower: the secret door stays shut (looking like the wall) until she flees, the cover fades away
+    // as it opens, and the tower's own gate shuts once everyone's inside.
+    const tower = map.tower;
+    const doorShut = !!tower && (!snap.tower || snap.tower.stage === 'flee');
+    if (tower) {
+      this.towerGateAmount = approach(this.towerGateAmount, snap.tower?.shut ? 0 : 1);
+      if (this.towerCover) this.towerCover.alpha = approach(this.towerCover.alpha, doorShut ? 1 : 0);
+    }
     this.gateDrawn = this.gateAmount;
+    const key = `${this.gateAmount}|${this.towerGateAmount}|${doorShut}`;
+    if (key === this.gateKey && !fresh) return;
+    this.gateKey = key;
     this.gate.clear();
     for (const w of arena.gate) drawGate(this.gate, w, this.gateAmount, arena.gateLook);
+    if (!tower) return;
+    if (doorShut) for (const w of tower.door) drawSecretDoor(this.gate, w, map);
+    if (snap.tower) for (const w of tower.arena.gate) drawGate(this.gate, w, this.towerGateAmount, tower.arena.gateLook);
   }
 
   /** The lava's edge: the lava field is masked to everything past it, with a glowing front line. */
@@ -695,6 +765,14 @@ export class GameRenderer {
     const def = MAPS[snap.map].arena;
     if (!arena || !def) return;
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
+    // The Frost Queen fled to her tower: it glows while she waits there, with a barrier while its gate is still open.
+    const tower = MAPS[snap.map].tower;
+    if (snap.tower && tower) {
+      const t = tower.arena;
+      if (snap.tower.stage === 'maze') ring.circle(t.x, t.y, t.r).fill({ color: DANGER, alpha: 0.05 + 0.04 * pulse }).stroke({ width: 4, color: DANGER, alpha: 0.3 + 0.4 * pulse });
+      else if (snap.tower.stage === 'fight' && !snap.tower.shut) ring.circle(t.x, t.y, t.r).stroke({ width: 6, color: 0xff8a80, alpha: 0.7 });
+      return;
+    }
     const shape = () => (def.hall ? ring.rect(def.x - def.hall.hw, def.y - def.hall.hh, def.hall.hw * 2, def.hall.hh * 2) : ring.circle(def.x, def.y, def.r));
     if (arena.state === 'gather') shape().fill({ color: DANGER, alpha: 0.05 + 0.04 * pulse }).stroke({ width: 4, color: DANGER, alpha: 0.3 + 0.4 * pulse });
     else if (arena.state === 'fight' && arena.open) shape().stroke({ width: 6, color: 0xff8a80, alpha: 0.7 });
@@ -1149,7 +1227,11 @@ export class GameRenderer {
     }
     if (snap.quest) targets.push({ x: snap.quest.x, y: snap.quest.y, color: QUEST_COLOR });
     const inArena = snap.players.find((p) => p.id === myId)?.inArena;
-    if (snap.arena && snap.arena.state !== 'idle' && !inArena) targets.push({ x: snap.arena.x, y: snap.arena.y, color: DANGER });
+    const tower = MAPS[snap.map].tower;
+    if (snap.tower && tower) {
+      // After the Frost Queen, to her tower.
+      if (snap.tower.stage !== 'flee' && !inArena) targets.push({ x: tower.arena.x, y: tower.arena.y, color: DANGER });
+    } else if (snap.arena && snap.arena.state !== 'idle' && !inArena) targets.push({ x: snap.arena.x, y: snap.arena.y, color: DANGER });
     if (snap.lava?.closing) targets.push({ x: snap.lava.x, y: snap.lava.y, color: FIRE });
     const den = MAPS[snap.map].finale?.den;
     if (den && snap.finale?.stage === 'path') targets.push({ x: den.x, y: den.y, color: FIRE });
@@ -1276,10 +1358,15 @@ export class GameRenderer {
         d.root.tint = view.sprite.tint;
         view.sprite.alpha = 0;
       }
+      // Sylvara slithers; the Reaper swings his scythe.
+      if (type === EnemyType.Sylvara) this.renderSerpent(view, size, now);
+      if (type === EnemyType.Reaper) this.renderScythe(view, b.snap, now, marks);
       // Burrowed: only a mound of churning dirt shows where it is.
       const part = ENEMY_TYPES[type].behavior === 'part';
       view.sprite.visible = (flags & EnemyFlag.Hidden) === 0 && !part;
       if (view.dragon) view.dragon.root.visible = view.sprite.visible;
+      if (view.serpent) view.serpent.root.visible = view.sprite.visible;
+      if (view.scythe) view.scythe.sprite.visible = view.sprite.visible;
       if (flags & EnemyFlag.Hidden && !part) {
         marks.ellipse(x, y, r * 0.9, r * 0.6).fill({ color: 0x5d4037, alpha: 0.8 });
         for (let k = 0; k < 6; k++) {
@@ -1329,6 +1416,8 @@ export class GameRenderer {
       }
       this.release(view.sprite);
       view.dragon?.root.destroy({ children: true });
+      view.serpent?.root.destroy({ children: true });
+      view.scythe?.sprite.destroy();
       this.enemyViews.delete(id);
     }
   }
@@ -1539,7 +1628,7 @@ export class GameRenderer {
         g.circle(0, 0, 1500).fill({ color: 0x80deea, alpha: 0.06 + 0.14 * progress });
         const map = MAPS[snap.map];
         const reach = 1600;
-        for (const wall of mapWalls(map, !snap.arena?.open, !!snap.finale && snap.finale.stage !== 'crumble')) {
+        for (const wall of mapWalls(map, !snap.arena?.open, !!snap.finale && snap.finale.stage !== 'crumble', snap.tower)) {
           if (wall.thin) continue;
           const cx = wall.x + wall.w / 2 - g.x;
           const cy = wall.y + wall.h / 2 - g.y;
@@ -1569,7 +1658,7 @@ export class GameRenderer {
   /** Dark shadows behind every wall near (0, 0) of `g` (where a blast from there can't reach), out to `reach`. */
   private wallShadows(g: Graphics, snap: Snapshot, reach: number, color: number, alpha: number): void {
     const map = MAPS[snap.map];
-    for (const wall of mapWalls(map, !snap.arena?.open, !!snap.finale && snap.finale.stage !== 'crumble')) {
+    for (const wall of mapWalls(map, !snap.arena?.open, !!snap.finale && snap.finale.stage !== 'crumble', snap.tower)) {
       if (wall.thin) continue;
       const cx = wall.x + wall.w / 2 - g.x;
       const cy = wall.y + wall.h / 2 - g.y;
@@ -2034,6 +2123,202 @@ export class GameRenderer {
     const head = Math.atan2(Math.sin(look - d.facing), Math.cos(look - d.facing));
     // The same breed as Mordak, but his own: fiery orange with deep orange wings (smaller than Mordak's), golden horns.
     this.poseDragon(d, { R, color: DRAGON_FORM_COLOR, flash: p.hurt, moving: view.moving, seed: p.id, heavy: true, bulk: 1.5, horns: DRAGON_FORM_HORNS, wingSize: 0.75, membrane: 0.12, head });
+  }
+
+  /**
+   * Sylvara as a serpent: her head at the front of her hitbox, and her body trailing back along the way her neck has
+   * come, swaying in waves that stay put on the ground as she slides through them, so she slithers. Tapers to the tail,
+   * thickest a little behind the head, with diamonds down her back.
+   */
+  private renderSerpent(view: EnemyView, size: number, now: number): void {
+    const type = EnemyType.Sylvara;
+    const r = ENEMY_TYPES[type].radius;
+    const color = this.enemyColors[type];
+    let s = view.serpent;
+    if (!s) {
+      const body = new Graphics();
+      const head = new Sprite();
+      head.anchor.set(0.5);
+      const root = new Container();
+      root.addChild(body, head);
+      this.layers.enemies.addChild(root);
+      s = view.serpent = { root, body, head, trail: [], travel: 0 };
+    }
+    view.sprite.alpha = 0; // (Her sprite only marks where she is.)
+    const flash = view.sprite.texture === this.tex.enemyFlash[type];
+    const { x, y } = view.sprite.position;
+    const f = view.facing;
+    // The neck, a little ahead of her middle. Where it's been is her body's path.
+    const nx = x + Math.cos(f) * r * 0.45;
+    const ny = y + Math.sin(f) * r * 0.45;
+    const trail = s.trail;
+    const length = r * SERPENT.length;
+    if (trail.length === 0) {
+      // Just arrived: lying straight out behind her.
+      trail.push({ x: nx, y: ny }, { x: nx - Math.cos(f) * length, y: ny - Math.sin(f) * length });
+    } else {
+      const moved = Math.hypot(nx - trail[0].x, ny - trail[0].y);
+      if (moved > 3) {
+        trail.unshift({ x: nx, y: ny });
+        s.travel += moved;
+      }
+    }
+    // The body's spine: points every `step` along the path from the neck, as long as she is.
+    const step = r * SERPENT.step;
+    const spine: { x: number; y: number }[] = [{ x: nx, y: ny }];
+    let px = nx;
+    let py = ny;
+    let need = step;
+    let kept = trail.length;
+    for (let i = 0; i < trail.length && spine.length * step <= length; i++) {
+      const q = trail[i];
+      let seg = Math.hypot(q.x - px, q.y - py);
+      while (seg >= need && spine.length * step <= length) {
+        const k = need / seg;
+        px += (q.x - px) * k;
+        py += (q.y - py) * k;
+        spine.push({ x: px, y: py });
+        seg -= need;
+        need = step;
+      }
+      need -= seg;
+      px = q.x;
+      py = q.y;
+      kept = i + 1;
+    }
+    // The path ran out: on straight back the way the last bit went.
+    while (spine.length * step <= length) {
+      const a = spine[spine.length - 1];
+      const bPt = spine[spine.length - 2] ?? { x: a.x + Math.cos(f) * step, y: a.y + Math.sin(f) * step };
+      const d = Math.hypot(a.x - bPt.x, a.y - bPt.y) || 1;
+      spine.push({ x: a.x + ((a.x - bPt.x) / d) * step, y: a.y + ((a.y - bPt.y) / d) * step });
+    }
+    trail.length = Math.min(trail.length, kept + 2);
+    // Sway: waves along the ground (she slides through them), creeping a little even while she holds still.
+    const ground = s.travel + (now / 1000) * SERPENT.idle;
+    const wave = r * SERPENT.wave;
+    const points = spine.map((p, i) => {
+      const prev = spine[Math.max(0, i - 1)];
+      const next = spine[Math.min(spine.length - 1, i + 1)];
+      const tx = prev.x - next.x;
+      const ty = prev.y - next.y;
+      const tl = Math.hypot(tx, ty) || 1;
+      const d = i * step;
+      const u = d / length;
+      // No sway at the neck (her head leads), the most along her middle.
+      const amp = r * SERPENT.sway * Math.min(1, d / (length * 0.25)) * (1 - 0.35 * u);
+      const off = amp * Math.sin(((ground - d) / wave) * Math.PI * 2);
+      const width = r * (0.12 + 0.62 * Math.pow(1 - u, 0.7) + 0.18 * Math.sin(Math.PI * Math.min(1, u * 2))) * size;
+      return { x: p.x + (-ty / tl) * off, y: p.y + (tx / tl) * off, w: width, a: Math.atan2(-ty, -tx) };
+    });
+    // The outline first, then the body over it (no seams between segments), a paler stripe and diamonds down her back.
+    const g = s.body.clear();
+    const stroke = (extra: number, c: number, widthScale = 1, alpha = 1) => {
+      for (let i = points.length - 1; i > 0; i--) {
+        g.moveTo(points[i].x, points[i].y)
+          .lineTo(points[i - 1].x, points[i - 1].y)
+          .stroke({ width: points[i - 1].w * widthScale + extra, color: c, alpha, cap: 'round' });
+      }
+    };
+    if (flash) stroke(0, 0xffffff);
+    else {
+      stroke(5, shade(color, -0.55));
+      stroke(0, color);
+      stroke(0, shade(color, 0.18), 0.35, 0.55);
+      for (let i = 3; i < points.length - 2; i += 3) {
+        const p = points[i];
+        const w = p.w * 0.22;
+        const c = Math.cos(p.a);
+        const sn = Math.sin(p.a);
+        g.poly([p.x + c * w * 1.4, p.y + sn * w * 1.4, p.x - sn * w, p.y + c * w, p.x - c * w * 1.4, p.y - sn * w * 1.4, p.x + sn * w, p.y - c * w]).fill({ color: SERPENT_PATTERN, alpha: 0.75 });
+      }
+    }
+    // Her head on the front, swaying a touch as she goes.
+    s.head.texture = this.partTexture(`serpentHead|${flash ? 'flash' : color}`, (hg) => drawSerpentHead(hg, flash, color));
+    s.head.position.set(nx, ny);
+    s.head.rotation = f + Math.sin(now / 320) * 0.06;
+    s.head.scale.set(size);
+    s.root.tint = view.sprite.tint;
+  }
+
+  /**
+   * The Reaper's scythe, swung with his attacks: while he winds up a cleave he turns to it and draws the scythe back,
+   * then whips it across the cleave as it lands. For a shockwave he raises it, then spins it a full turn as the wave
+   * goes out. Otherwise it settles back to his side.
+   */
+  private renderScythe(view: EnemyView, snap: Snapshot, now: number, marks: Graphics): void {
+    const type = EnemyType.Reaper;
+    const r = ENEMY_TYPES[type].radius;
+    let s = view.scythe;
+    if (!s) {
+      const sprite = new Sprite();
+      sprite.anchor.set(0.5);
+      this.layers.enemies.addChild(sprite);
+      s = view.scythe = { sprite, angle: 0, swing: null, cone: null, spun: -1 };
+    }
+    const { x, y } = view.sprite.position;
+    // What he's casting: a telegraph that starts where he stands.
+    let cone: { a: number; half: number; progress: number } | null = null;
+    let ring: { id: number; progress: number } | null = null;
+    const list = snap.hazards;
+    for (let i = 0; i < list.length; i += HAZARD_STRIDE) {
+      const [hid, kind, hx, hy, ha, , hc, progress] = list.slice(i, i + HAZARD_STRIDE);
+      if ((hx - x) ** 2 + (hy - y) ** 2 > (r * 1.6) ** 2) continue;
+      if (kind === HazardKind.Cone) cone = { a: ha, half: hc / 100, progress };
+      else if (kind === HazardKind.Ring) ring = { id: hid, progress };
+    }
+    const sw = s.swing;
+    if (sw) {
+      const k = Math.min(1, (now - sw.start) / sw.ms);
+      s.angle = sw.from + (sw.to - sw.from) * (1 - (1 - k) ** 3);
+      // A pale smear where the blade just went.
+      const base = view.facing + 0.9;
+      const lo = Math.min(sw.from, s.angle);
+      const hi = Math.max(sw.from, s.angle);
+      if (hi - lo > 0.05) marks.arc(x, y, r * 1.65, base + lo, base + hi).stroke({ width: r * 0.55, color: 0xe0f7fa, alpha: 0.28 * (1 - k) });
+      if (k >= 1) {
+        s.swing = null;
+        s.angle = Math.atan2(Math.sin(s.angle), Math.cos(s.angle));
+      }
+    } else if (cone && cone.progress < 1) {
+      // Winding up: turn to the cleave and draw the scythe back past its edge.
+      const diff = Math.atan2(Math.sin(cone.a - view.facing), Math.cos(cone.a - view.facing));
+      view.facing += diff * 0.3;
+      const target = (cone.half + SCYTHE.windup) * Math.min(1, cone.progress * 1.5);
+      s.angle += (target - s.angle) * 0.25;
+      s.cone = { half: cone.half };
+    } else if (s.cone) {
+      // It lands: whip across to the far edge.
+      s.swing = { start: now, from: s.angle, to: -(s.cone.half + SCYTHE.follow), ms: SCYTHE.ms };
+      s.cone = null;
+    } else if (ring && ring.progress < 1) {
+      s.angle += (SCYTHE.raise * ring.progress - s.angle) * 0.25;
+    } else if (ring && s.spun !== ring.id) {
+      // The shockwave goes out: a full turn of the scythe.
+      s.spun = ring.id;
+      s.swing = { start: now, from: s.angle, to: -Math.PI * 2, ms: SCYTHE.spinMs };
+    } else {
+      s.angle -= s.angle * SCYTHE.settle;
+    }
+    const flash = view.sprite.texture === this.tex.enemyFlash[type];
+    s.sprite.texture = this.partTexture(`scythe|${flash}`, (g) => drawReaperScythe(g, flash));
+    s.sprite.position.copyFrom(view.sprite.position);
+    view.sprite.rotation = view.facing;
+    s.sprite.rotation = view.facing + s.angle;
+    s.sprite.scale.copyFrom(view.sprite.scale);
+    s.sprite.tint = view.sprite.tint;
+  }
+
+  /** A part of an enemy drawn on its own (the Reaper's scythe, Sylvara's head), made once and kept. */
+  private partTexture(key: string, draw: (g: Graphics) => number): Texture {
+    let texture = this.enemyTextures.get(key);
+    if (texture) return texture;
+    const g = new Graphics();
+    const reach = Math.ceil(draw(g)) + 4;
+    texture = this.app.renderer.generateTexture({ target: g, frame: new Rectangle(-reach, -reach, reach * 2, reach * 2), resolution: 2 });
+    g.destroy();
+    this.enemyTextures.set(key, texture);
+    return texture;
   }
 
   /** The parts of a dragon (Dragon Form, or Mordak himself): wings first, legs over their roots, the body on top. */
