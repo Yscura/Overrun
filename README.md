@@ -107,10 +107,18 @@ pointing in for "stack up", magenta with arrows pointing out for "spread out".
 | Rime, the Frost Queen | She laughs through the fight, and at every hero who falls. **Glacial Wrath**: she channels, then blasts everyone she can see for 65% of their max HP. Hide behind one of the hall's columns; the safe shadows are shown. Plus **Frost Bomb** (follows one player and goes off on everyone near them), **frost breath** (a long cone) and her ice nova. |
 | Kharzak | **Burrow** (it vanishes, a mark hunts one player, and it bursts out there), a **pincer sweep** (a very wide short cone), its tail **sting** line, and a charge. **Hardened shell** at 66% and 33%: it shrugs off 85% of damage and keeps charging. Bait a charge into one of the den's boulders to crack it: it's stunned, then takes 50% extra damage for a while. |
 | Twin Flames | Two winged demons who growl in turn through the fight (and the survivor roars when its twin dies). A **burning tether** between the twins hurts anyone standing in it. While they're close they're **kindred** and shrug off 40% of damage: pull them apart. Vael drops **meteors** whose damage is split between everyone inside (stack up); Embra throws **homing cinder orbs**. |
-| Mordak *(spoiler)* | The Ashen Caldera's true ending. When the twins fall, the caldera **shakes apart**: lava everywhere but a few **stepping stones**, crossed by dodging over the gaps (a dodge's invulnerability carries you over the lava) under **falling rock**. They lead to a hidden **dragon's den**, where Mordak, the Earth Scourger lands: the largest boss in the game. **Fireball** volleys, a **fire beam** sweeping a half circle (hide behind one of the den's pillars, or dodge through it) and a **fire flight** (untargetable, carpet-bombing the den and the lava, landing somewhere else). His **wings** have health bars of their own: tear one off and he reels; with both gone he can't fly. Slaying him gives everyone the **Dragonsheart** (a legendary artifact found nowhere else) and earns the **Dragonmancer**, the hero still to come. |
+| Mordak *(spoiler)* | The Ashen Caldera's true ending. When the twins fall, the caldera **shakes apart**: lava everywhere but a few **stepping stones**, crossed by dodging over the gaps (a dodge's invulnerability carries you over the lava) under **falling rock**. They lead to a hidden **dragon's den**, where Mordak, the Earth Scourger lands: the largest boss in the game. **Fireball** volleys, a **fire beam** sweeping a half circle (hide behind one of the den's pillars, or dodge through it) and a **fire flight** (untargetable, carpet-bombing the den and the lava, landing somewhere else). His **wings** have health bars of their own: tear one off and he reels; with both gone he can't fly. Slaying him gives everyone the **Dragonsheart** (a legendary artifact found nowhere else) earns the **Dragonmancer** and opens **hard mode**. |
 
 All of this is tuned in `src/shared/enemies.ts` (`NAMED_BOSSES` for each boss's rotation and phase, `BOSS_MECHANICS`, `BOSS_BERSERK`, `BOSS_VENGEFUL`, `BOSS_MISSIONS`). Beating the boss shows **Victory** and unlocks the next map.
 Unlocks are saved in `data/progress.json` on the server, so the whole group shares them.
+
+**Hard mode.** Slaying Mordak for the first time opens hard mode (switch with **Normal / Hard** above the map cards in
+the lobby): every map again, starting with the Emerald Woods and unlocking the next one with each hard victory. Enemies
+are tougher and hit about half again as hard, the horde is faster, and bosses attack more often with bigger attacks, a
+longer rotation of their own (each borrows an attack or two from the others: Sylvara fires a nova, Mordak calls down
+meteors and sends out shockwaves) and every fourth attack comes right on the heels of the last. In return: 1.6× the
+prestige and better artifact drops. Tuned in `HARD` (`src/shared/constants.ts`) and each boss's `hard` rotation in
+`NAMED_BOSSES`.
 
 **Prestige.** Every run pays each player one prestige point per team level reached (times the map's multiplier above),
 win or lose. Spend them in the lobby on permanent upgrades: Power (+4% damage), Fury (+3% attack speed), Swiftness (+3%
@@ -145,10 +153,10 @@ over them and dodge through them. Kael's dodge goes through thick walls too. Wra
 
 **God mode:** join as `dev` and you take damage but never go down (toggle it with **G**), and every hero is unlocked and you always have at least one of every artifact. A DEV panel (top left) has cheats for testing:
 **T** jumps the clock a minute ahead (with the level-ups you'd have earned; during the boss fight it pushes toward
-berserk), **J** skips to just before the boss (picking the level-ups you'd have earned at random), **U** gives a free level-up pick, **F** a free Forge pick, and **B** fills your slots and maxes everything.
+berserk), **J** skips to just before the boss (picking the level-ups you'd have earned at random), **K** skips to the Ashen Caldera's finale (press it again while crossing to land at the den), **U** gives a free level-up pick, **F** a free Forge pick, and **B** fills your slots and maxes everything.
 
 **Testing switches** for the server: `OVERRUN_BOSS_TIME=60` brings the final boss after a minute and
-`OVERRUN_UNLOCK_ALL=1` unlocks every map. In PowerShell: `$env:OVERRUN_BOSS_TIME=60; npm run dev`.
+`OVERRUN_UNLOCK_ALL=1` unlocks every map (hard mode too). In PowerShell: `$env:OVERRUN_BOSS_TIME=60; npm run dev`.
 
 **Music.** Every map has a theme and a boss theme (`sfx/<map>/`, rendered from the MIDI that
 `scripts/compose_midi.py` writes to `sfx/midi/`). A map can list several themes; a run picks one at random. The boss

@@ -285,6 +285,64 @@ button.primary:hover {
 
 /* --- Map select --- */
 
+/* Normal / Hard, next to the section title (once hard mode is unlocked). */
+.map-mode {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.map-mode-button {
+  padding: 4px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted, #9aa3b2);
+  background: #0f1115;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.map-mode-button.selected {
+  color: var(--text);
+  border-color: var(--accent);
+  background: #13202a;
+}
+
+.map-mode-button.hard.selected {
+  color: #ffccbc;
+  border-color: #ff3d00;
+  background: #2a1210;
+  box-shadow: 0 0 10px rgba(255, 61, 0, 0.35);
+}
+
+.map-mode-button:disabled {
+  cursor: default;
+}
+
+#maps.hard .map-card.selected {
+  border-color: #ff3d00;
+  background: #2a1210;
+}
+
+#maps.hard .map-card-difficulty {
+  color: #ff8a65;
+}
+
+/* In the run: a small red tag by the clock. */
+.hard-tag {
+  margin-right: 10px;
+  padding: 1px 7px;
+  font-size: 0.7em;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #fff;
+  background: #d84315;
+  border-radius: 5px;
+  vertical-align: middle;
+}
+
 #maps {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -1743,6 +1801,28 @@ body.paused #hud > :not(#loadout) {
   font-size: 13px;
   line-height: 1.4;
   color: var(--muted);
+}
+
+/* What boosts this weapon (passive icons), or what this passive boosts (your weapons). */
+.card-boosts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 22px;
+  margin-top: 8px;
+}
+.card-boosts .icon-box {
+  display: inline-flex;
+}
+.card-boosts-label {
+  margin-right: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tip-boosts {
+  color: #c5e1a5;
 }
 
 .card.passive .pip.on {

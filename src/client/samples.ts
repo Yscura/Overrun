@@ -28,6 +28,11 @@ import male5 from '../../sfx/effects/male5.wav?url';
 import male6 from '../../sfx/effects/male6.wav?url';
 import maledown from '../../sfx/effects/maledown.wav?url';
 import bear from '../../sfx/effects/bear.wav?url';
+import firebreath from '../../sfx/effects/firebreath.wav?url';
+import mordak1 from '../../sfx/effects/mordak1.wav?url';
+import mordak2 from '../../sfx/effects/mordak2.wav?url';
+import mordak3 from '../../sfx/effects/mordak3.wav?url';
+import transform from '../../sfx/effects/transform.wav?url';
 import bigdeath from '../../sfx/effects/bigdeath.wav?url';
 import bigslam from '../../sfx/effects/bigslam.wav?url';
 import blades from '../../sfx/effects/blades.wav?url';
@@ -94,6 +99,9 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   hammer: { files: [hammer], volume: 0.21, max: 2, gap: 0.06 },
   meteor: { files: [flame], volume: 0.37, rate: 0.85 },
   nova: { files: [flame], volume: 0.31, rate: 1.1 },
+  // The Dragonmancer: a dragon's roar as he takes Dragon Form, and the roar of his fire breath.
+  transform: { files: [transform], volume: 0.6, max: 1 },
+  firebreath: { files: [firebreath], volume: 0.4, max: 1 },
   acid: { files: [acid], volume: 0.31, max: 1 },
   leap: { files: [heavyslash], volume: 0.24, rate: 0.9 },
   ult: { files: [ult], volume: 0.36, max: 1 },
@@ -155,8 +163,9 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   // Bosses' voices through the fight: Grimm whispers and Rime laughs (heard the same everywhere), Sylvara hisses.
   whisper: { files: [whisper], volume: 0.5, max: 1 },
   laugh: { files: [laugh1, laugh2], volume: 0.5, max: 1, gap: 2 },
-  // Mordak: the warlords' roars, far deeper (he's the biggest of them all).
-  dragon: { files: [warlord1, warlord2], volume: 0.85, rate: 0.62, max: 1, gap: 2 },
+  // Mordak: his own roars and growls through the fight, and the biggest roar of all on his entrance.
+  dragon: { files: [mordak2, mordak3], volume: 0.75, max: 1, gap: 2 },
+  mordakRoar: { files: [mordak1], volume: 0.95, max: 1 },
   // A final boss breaking apart: a crushing slam and a blast. The ground quaking: a slam slowed to a rumble.
   shatter: { files: [bigslam], volume: 0.9, rate: 0.8, max: 1 },
   rumble: { files: [bigslam], volume: 0.35, rate: 0.55, max: 1, gap: 0.6 },

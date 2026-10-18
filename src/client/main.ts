@@ -1,7 +1,7 @@
 import { DEV_NAME, SUMMON_STRIDE, SummonKind } from '../shared/protocol';
 import { CHARACTERS, DEFAULT_CHARACTER, isCharacterId } from '../shared/characters';
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
-import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, TICK_RATE } from '../shared/constants';
+import { DODGE_DURATION, DODGE_SPEED, DRAGON_INTRO, PLAYER_RADIUS, TICK_RATE } from '../shared/constants';
 import { MAPS, clampToArena, mapWalls } from '../shared/maps';
 import type { Snapshot } from '../shared/protocol';
 import { Sound } from './audio';
@@ -50,6 +50,8 @@ async function main() {
 
   let myId: number | null = null;
   let latest: Snapshot | null = null;
+  /** The music stays quiet until then (Mordak's entrance). */
+  let silentUntil = 0;
   // Your own position is simulated locally so movement feels instant; the server just follows along.
   const local = { ...MAPS[0].spawn };
   let walls = new WallIndex(mapWalls(MAPS[0], true), MAPS[0].width, MAPS[0].height);
@@ -109,7 +111,7 @@ async function main() {
 
   // --- In a room ---
   ui.onPick = (character) => net.send({ t: 'pick', character });
-  ui.onPickMap = (index) => net.send({ t: 'map', index });
+  ui.onPickMap = (index, hard) => net.send({ t: 'map', index, hard });
   ui.onStart = () => net.send({ t: 'start' });
   ui.onLobby = () => net.send({ t: 'lobby' });
   ui.onChoose = (index) => net.send({ t: 'choose', index });
@@ -194,6 +196,8 @@ async function main() {
       } else if (fx.k === 'chat') {
         chat.add(stamp(), fx.text, 'chat', fx);
       } else {
+        // Mordak's entrance is played in silence (but for his roar): his music comes in as the fight starts.
+        if (fx.k === 'intro' && fx.dragon) silentUntil = performance.now() + (DRAGON_INTRO.hold + DRAGON_INTRO.ease * 0.5) * 1000;
         renderer.addFx(fx);
       }
     }
@@ -204,7 +208,7 @@ async function main() {
     // over when the fight starts: someone walks into the arena (or the boss shows up, on maps without one).
     // It fades out while a final boss dies, and stays quiet while the caldera falls apart (until the dragon comes).
     const bossTime = !!snap.bossFight;
-    const hush = !!snap.dying || (!!snap.finale && snap.finale.stage !== 'den');
+    const hush = !!snap.dying || (!!snap.finale && snap.finale.stage !== 'den') || performance.now() < silentUntil;
     music.update(snap.phase === 'playing' && !hush ? MAPS[snap.map] : null, bossTime);
     music.setPaused(snap.pause?.kind === 'menu');
     chat.dock(snap.phase === 'lobby' ? ui.lobbyChatDock : null);

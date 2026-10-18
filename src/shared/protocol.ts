@@ -26,8 +26,8 @@ export type ClientMessage =
   | { t: 'profile' }
   // --- In a room ---
   | { t: 'pick'; character: CharacterId }
-  /** Choose the map (in the lobby). Must be unlocked. */
-  | { t: 'map'; index: number }
+  /** Choose the map (in the lobby), on normal or hard mode. Must be unlocked (on that mode). */
+  | { t: 'map'; index: number; hard?: boolean }
   | { t: 'start' }
   /** Back to the lobby from the game-over screen, to change characters. */
   | { t: 'lobby' }
@@ -73,7 +73,7 @@ export type ClientMessage =
  * Cheats for testing: 'skip' jumps the clock a minute ahead (with the level-ups you'd have earned), 'level' and
  * 'forge' hand out a free pick, 'max' fills your slots and maxes everything, 'god' toggles god mode.
  */
-export type DevAction = 'skip' | 'boss' | 'level' | 'forge' | 'max' | 'god';
+export type DevAction = 'skip' | 'boss' | 'finale' | 'level' | 'forge' | 'max' | 'god';
 export const DEV_NAME = 'dev';
 
 export type ServerMessage =
@@ -298,7 +298,9 @@ export type SoundId =
   | 'bear'
   | 'growl'
   | 'stab'
-  | 'howl';
+  | 'howl'
+  | 'transform'
+  | 'firebreath';
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
@@ -307,8 +309,11 @@ export type Fx =
   | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number; heavy?: true }
   | { k: 'zap'; x: number; y: number }
   | { k: 'boom'; x: number; y: number; r: number }
-  /** A final boss arrives at (x, y): clients pan the camera there and play its roar. */
-  | { k: 'intro'; x: number; y: number }
+  /**
+   * A final boss arrives at (x, y): clients pan the camera there and play its roar. `dragon`: Mordak's longer,
+   * frozen-still entrance (DRAGON_INTRO), with his own roar.
+   */
+  | { k: 'intro'; x: number; y: number; dragon?: true }
   /** A boss roars (enraged, berserk): everyone hears it. */
   | { k: 'roar'; x: number; y: number }
   /** The Dragonmancer breathes fire: a cone from (x, y) toward `a`, `r` long, `arc` wide. */
@@ -473,6 +478,9 @@ export interface Snapshot {
   map: number;
   /** How many maps are unlocked (the first `unlocked` entries of MAPS). */
   unlocked: number;
+  /** Hard mode: this run is on it, and how many maps are unlocked on it (0: hard mode is still locked). */
+  hard: boolean;
+  hardUnlocked: number;
   /** Seconds into the run when the named boss arrives. */
   bossTime: number;
   arena: ArenaState | null;

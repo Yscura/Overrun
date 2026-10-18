@@ -1,9 +1,9 @@
 import { Application, BitmapFont, BitmapText, Container, Graphics, Rectangle, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
 import { TIERS, TIER_IDS } from '../shared/artifacts';
 import { CHARACTER_IDS, type CharacterId, REWIND_SECONDS } from '../shared/characters';
-import { BOMB, BOSS_DEATH, BOSS_INTRO, COIN, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
+import { BOMB, BOSS_DEATH, BOSS_INTRO, COIN, DRAGON_INTRO, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
 import { DAMAGE_COLORS, DAMAGE_TYPES, type DamageType } from '../shared/upgrades';
-import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType } from '../shared/enemies';
+import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType, isBossType } from '../shared/enemies';
 import { DRAGON_SHOULDER, NO_ROTATE, drawDragonWing, drawEnemy, shade } from './enemyArt';
 import { TILE, decorations, drawGate, lavaField, drawWalls, groundTile } from './mapArt';
 import { MAPS, mapWalls, enemyColor, zoneRect } from '../shared/maps';
@@ -81,6 +81,11 @@ const DRAGON_PARTS = {
 /** How it moves: a stride of this many radians of its walk cycle a second (at full speed), and wings swept back this far. */
 const DRAGON_STRIDE = 7;
 const DRAGON_WING_TILT = 0.28;
+/** Mordak is drawn the same way, but heavier set (wider plates and stance) and scaled up to fill his bulk. */
+const MORDAK_BULK = 1.7;
+const MORDAK_SCALE = 1.35;
+/** A boss's hit flash lasts `length` ms, and comes at most every `every` ms. */
+const BOSS_FLASH = { length: 70, every: 600 };
 /** Off-screen objective arrows stay this far inside the screen edge. */
 const POINTER_MARGIN = 40;
 /** ...and are drawn this many times the aim arrow's size. */
@@ -123,6 +128,10 @@ interface TypedView extends PointView {
 interface EnemyView extends TypedView {
   /** Which way it faces (smoothed), in radians. */
   facing: number;
+  /** Bosses: when their last hit flash started (they flash briefly, at most every BOSS_FLASH.every ms). */
+  flashAt?: number;
+  /** Mordak: drawn as a dragon of parts, like Dragon Form (his sprite stays, unseen). */
+  dragon?: DragonView;
 }
 
 /** A Dragon Form dragon: legs (redrawn every frame), two wings that flap at the shoulder, and the body on top. */
@@ -132,7 +141,8 @@ interface DragonView {
   wings: [Sprite, Sprite];
   /** Head, neck, chest, belly, hips and tail along a spine that bends as it walks (redrawn every frame). */
   body: Graphics;
-  /** Its own stride (slower than a hero's walk), and when it was last drawn. */
+  /** How much it's walking (0 to 1, eased; Mordak's), its own stride (slower than a hero's walk), and when it was last drawn. */
+  moving: number;
   stride: number;
   last: number;
 }
@@ -442,7 +452,8 @@ export class GameRenderer {
     // The horde in this map's colors.
     this.enemyColors = ENEMY_TYPES.map((_, type) => enemyColor(map, type));
     this.tex.enemies = ENEMY_TYPES.map((_, type) => this.enemyTexture(type, false, this.enemyColors[type]));
-    for (const child of this.mapLayer.removeChildren()) child.destroy();
+    // (The finale's ground is kept: it's reused on the next lava map.)
+    for (const child of this.mapLayer.removeChildren()) if (child !== this.finaleGround) child.destroy();
     // Darken everything outside the map and outline its edge.
     const pad = 4000;
     const outside = new Graphics()
@@ -569,10 +580,10 @@ export class GameRenderer {
     }
     const rock = (x: number, y: number, r: number, seed: number, floor: number, top: number) => {
       const pts: number[] = [];
-      const n = 11;
+      const n = Math.max(11, Math.round(r / 28));
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2;
-        const w = r * (0.9 + 0.12 * Math.sin(seed * 3.7 + i * 2.3));
+        const w = r * (0.9 + 0.12 * Math.sin(seed * 3.7 + ((i * 2.3) * 11) / n));
         pts.push(x + Math.cos(a) * w, y + Math.sin(a) * w);
       }
       g.poly(pts).fill(floor).stroke({ width: 6, color: 0xff6d00, alpha: 0.55 }).poly(pts).stroke({ width: 2, color: 0xffd180, alpha: 0.9 });
@@ -597,17 +608,38 @@ export class GameRenderer {
       const x = den.x - 60 + k * 12;
       g.moveTo(x, den.y - 120).lineTo(x + 30, den.y - 40).stroke({ width: 4, color: 0x120a07, alpha: 0.6, cap: 'round' });
     }
-    // Its pillars: columns of basalt.
-    for (const p of finale.pillars) {
+    // Its pillars: tall hexagonal columns of basalt, cool gray against the brown floor. A long shadow, the side of the
+    // column below its top, lava glowing in the cracks, and a bright rim so they stand out.
+    for (const [k, p] of finale.pillars.entries()) {
       const cx = p.x + p.w / 2;
       const cy = p.y + p.h / 2;
-      const pts: number[] = [];
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-        pts.push(cx + Math.cos(a) * p.w * 0.62, cy + Math.sin(a) * p.h * 0.62);
+      const r = p.w * 0.62;
+      const lift = p.w * 0.45;
+      const hex = (x: number, y: number, rr: number) => {
+        const pts: number[] = [];
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2 + k * 0.4;
+          pts.push(x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.9);
+        }
+        return pts;
+      };
+      g.ellipse(cx + r * 0.5, cy + r * 0.55, r * 1.25, r * 0.7).fill({ color: 0x000000, alpha: 0.45 });
+      // The column's side (the base), then its top raised above it.
+      const base = hex(cx, cy + lift * 0.5, r);
+      const top = hex(cx, cy - lift * 0.5, r);
+      g.poly(base).fill(0x1c1a1a).stroke({ width: 3, color: 0x0a0808 });
+      g.rect(cx - r, cy - lift * 0.5, r * 2, lift).fill(0x1c1a1a);
+      for (let i = 0; i < 3; i++) {
+        const x = cx - r * 0.6 + i * r * 0.6;
+        g.moveTo(x, cy - lift * 0.3).lineTo(x, cy + lift * 0.5 + r * 0.6).stroke({ width: 2, color: 0x3a3534, alpha: 0.8 });
       }
-      g.poly(pts).fill(0x3e2c26).stroke({ width: 3, color: 0x1a110e });
-      g.circle(cx - p.w * 0.15, cy - p.h * 0.15, p.w * 0.22).fill({ color: 0x6d5248, alpha: 0.6 });
+      g.poly(top).fill(0x5f5a58).stroke({ width: 3, color: 0xb0a8a2, alpha: 0.9 });
+      g.poly(hex(cx, cy - lift * 0.5, r * 0.6)).stroke({ width: 2, color: 0x7d7672, alpha: 0.8 });
+      // Lava in the cracks.
+      g.moveTo(cx - r * 0.5, cy - lift * 0.5 - r * 0.2).lineTo(cx - r * 0.05, cy - lift * 0.5 + r * 0.05).lineTo(cx + r * 0.35, cy - lift * 0.5 - r * 0.3)
+        .stroke({ width: 5, color: 0xff6d00, alpha: 0.5, cap: 'round', join: 'round' })
+        .moveTo(cx - r * 0.5, cy - lift * 0.5 - r * 0.2).lineTo(cx - r * 0.05, cy - lift * 0.5 + r * 0.05).lineTo(cx + r * 0.35, cy - lift * 0.5 - r * 0.3)
+        .stroke({ width: 1.5, color: 0xffd180, alpha: 0.9, cap: 'round', join: 'round' });
     }
     // And the stepping stones.
     finale.stones.forEach((st, i) => rock(st.x, st.y, st.r, i + 2, 0x4e3b33, 0x7a5c50));
@@ -684,7 +716,7 @@ export class GameRenderer {
    * A boss's entrance: pan from the player to the boss, hold there (with a shake when it roars), and pan back.
    * Timed in real seconds, like the server's slow motion.
    */
-  private intro: { x: number; y: number; start: number } | null = null;
+  private intro: { x: number; y: number; start: number; dragon: boolean } | null = null;
   /** How far the camera has moved over to a dying boss (0 to 1), and the last spot it held on. */
   private focus = 0;
   private focusAt: Point = { x: 0, y: 0 };
@@ -710,7 +742,7 @@ export class GameRenderer {
 
   private introCamera(follow: Point): Point {
     if (!this.intro) return follow;
-    const { panIn, hold, ease, panOut } = BOSS_INTRO;
+    const { panIn, hold, ease, panOut } = this.intro.dragon ? DRAGON_INTRO : BOSS_INTRO;
     const t = (performance.now() - this.intro.start) / 1000;
     const end = hold + ease;
     if (t >= end) {
@@ -720,8 +752,11 @@ export class GameRenderer {
     const smooth = (x: number) => x * x * (3 - 2 * x);
     // In, hold, then back out, finishing as the game reaches full speed.
     const k = t < panIn ? smooth(t / panIn) : t < end - panOut ? 1 : smooth((end - t) / panOut);
-    // The roar shakes the screen for a moment.
-    const shake = t > panIn && t < panIn + 0.6 ? 8 * (1 - (t - panIn) / 0.6) : 0;
+    // The roar shakes the screen for a moment (Mordak's longer and harder).
+    const roar = this.intro.dragon ? DRAGON_INTRO.roarAt : panIn;
+    const length = this.intro.dragon ? 1.6 : 0.6;
+    const strength = this.intro.dragon ? 14 : 8;
+    const shake = t > roar && t < roar + length ? strength * (1 - (t - roar) / length) : 0;
     return {
       x: follow.x + (this.intro.x - follow.x) * k + (Math.random() - 0.5) * shake,
       y: follow.y + (this.intro.y - follow.y) * k + (Math.random() - 0.5) * shake,
@@ -788,9 +823,10 @@ export class GameRenderer {
         break;
       }
       case 'intro': {
-        this.intro = { x: fx.x, y: fx.y, start: performance.now() };
-        // A shockwave from the boss as the camera arrives.
-        for (const [delay, color] of [[0, 0xff5252], [0.15, 0xffd180]] as const) {
+        this.intro = { x: fx.x, y: fx.y, start: performance.now(), dragon: !!fx.dragon };
+        // A shockwave from the boss as the camera arrives (as Mordak roars).
+        const late = fx.dragon ? DRAGON_INTRO.roarAt - 0.35 : 0;
+        for (const [delay, color] of [[late, 0xff5252], [late + 0.15, 0xffd180]] as const) {
           this.addEffect(fx.x, fx.y, 1.2 + delay, (g, p) => {
             const q = Math.max(0, (p * (1.2 + delay) - delay - 0.35) / 0.85);
             if (q <= 0) return;
@@ -1130,11 +1166,17 @@ export class GameRenderer {
       const bob = moving ? Math.sin(now / 75 + id) * 0.06 : 0;
       view.sprite.scale.set(size * (1 + bob), size * (1 - bob));
       // Hit: the white silhouette. Stunned: tinted icy blue.
-      const white = (flags & EnemyFlag.Hit) !== 0 || (windingUp && blink);
+      // Bosses are hit all the time: they blink white briefly now and then, instead of staying white.
+      let hit = (flags & EnemyFlag.Hit) !== 0;
+      if (isBossType(type) || ENEMY_TYPES[type].behavior === 'part') {
+        if (hit && now - (view.flashAt ?? -Infinity) > BOSS_FLASH.every) view.flashAt = now;
+        hit = now - (view.flashAt ?? -Infinity) < BOSS_FLASH.length;
+      }
+      const white = hit || (windingUp && blink);
       view.sprite.texture = white ? this.tex.enemyFlash[type] : this.tex.enemies[type];
-      if (type === EnemyType.Mordak) {
-        const wings = (flags & BossFlag.LeftWingGone ? 0 : 1) | (flags & BossFlag.RightWingGone ? 0 : 2);
-        view.sprite.texture = this.enemyTexture(type, white, this.enemyColors[type], wings);
+      if (type === EnemyType.Mordak && !view.dragon) {
+        view.dragon = this.newDragon();
+        this.layers.enemies.addChild(view.dragon.root);
       }
       // High in the air: his shadow passes over the ground below.
       if (flying) marks.ellipse(x + 40, y + 90, ENEMY_TYPES[type].radius * 1.3, ENEMY_TYPES[type].radius * 0.6).fill({ color: 0x000000, alpha: 0.35 });
@@ -1148,9 +1190,23 @@ export class GameRenderer {
       }
       view.sprite.tint = (flags & EnemyFlag.Stunned) !== 0 ? STUNNED : 0xffffff;
       const r = ENEMY_TYPES[type].radius;
+      if (view.dragon) {
+        // Mordak: his sprite is only a stand-in (for where he is); he's drawn as a dragon of parts.
+        const d = view.dragon;
+        d.moving += ((moving ? 1 : 0) - d.moving) * 0.12;
+        const flash = view.sprite.texture === this.tex.enemyFlash[type];
+        const torn: [boolean, boolean] = [(flags & BossFlag.LeftWingGone) !== 0, (flags & BossFlag.RightWingGone) !== 0];
+        this.poseDragon(d, { R: r, color: this.enemyColors[type], flash, moving: d.moving, seed: id, torn, flying, bulk: MORDAK_BULK, heavy: true });
+        d.root.position.copyFrom(view.sprite.position);
+        d.root.rotation = view.facing;
+        d.root.scale.set(size * MORDAK_SCALE);
+        d.root.tint = view.sprite.tint;
+        view.sprite.alpha = 0;
+      }
       // Burrowed: only a mound of churning dirt shows where it is.
       const part = ENEMY_TYPES[type].behavior === 'part';
       view.sprite.visible = (flags & EnemyFlag.Hidden) === 0 && !part;
+      if (view.dragon) view.dragon.root.visible = view.sprite.visible;
       if (flags & EnemyFlag.Hidden && !part) {
         marks.ellipse(x, y, r * 0.9, r * 0.6).fill({ color: 0x5d4037, alpha: 0.8 });
         for (let k = 0; k < 6; k++) {
@@ -1198,6 +1254,7 @@ export class GameRenderer {
         this.onEnemyDeath(view.sprite.x, view.sprite.y, big);
       }
       this.release(view.sprite);
+      view.dragon?.root.destroy({ children: true });
       this.enemyViews.delete(id);
     }
   }
@@ -1876,20 +1933,13 @@ export class GameRenderer {
 
   /**
    * Dragon Form: a fiery dragon in place of the hero's token, facing where they aim. It's drawn in Mordak's units (his
-   * radius) and scaled down. Its legs step in a trot while it walks, its wings beat (slowly at rest, harder on the
-   * move) and its body sways along.
+   * radius) and scaled down (see poseDragon).
    */
   private updateDragon(view: PlayerView, p: PlayerState, aim: number | null): void {
     const dragon = p.dragon && !p.downed;
     if (dragon && !view.dragon) {
-      const root = new Container();
-      const legs = new Graphics();
-      const wings: [Sprite, Sprite] = [new Sprite(), new Sprite()];
-      const body = new Graphics();
-      // Wings first (the legs step over their roots), then the legs, then the body on top.
-      root.addChild(...wings, legs, body);
-      view.root.addChildAt(root, view.root.getChildIndex(view.avatar));
-      view.dragon = { root, legs, wings, body, stride: 0, last: performance.now() };
+      view.dragon = this.newDragon();
+      view.root.addChildAt(view.dragon.root, view.root.getChildIndex(view.avatar));
     }
     view.avatar.visible = !dragon;
     view.feet.visible = !dragon;
@@ -1897,45 +1947,92 @@ export class GameRenderer {
     const d = view.dragon;
     d.root.visible = dragon;
     if (!dragon) return;
-
     const R = ENEMY_TYPES[EnemyType.Mordak].radius;
+    d.root.scale.set((TOKEN_R * 2.3) / R);
+    d.root.rotation = aim ?? p.aim;
+    this.poseDragon(d, { R, color: DRAGON_FORM_COLOR, flash: p.hurt, moving: view.moving, seed: p.id });
+  }
+
+  /** The parts of a dragon (Dragon Form, or Mordak himself): wings first, legs over their roots, the body on top. */
+  private newDragon(): DragonView {
+    const root = new Container();
+    const legs = new Graphics();
+    const wings: [Sprite, Sprite] = [new Sprite(), new Sprite()];
+    const body = new Graphics();
+    root.addChild(...wings, legs, body);
+    return { root, legs, wings, body, stride: 0, last: performance.now(), moving: 0 };
+  }
+
+  /**
+   * Poses a dragon for this frame, in units of `R` (a body radius). Its legs step in a slow trot while it walks
+   * (`moving`, 0 to 1), its wings beat (slowly at rest, harder on the move, hard in flight) and its body sways along.
+   * A `torn` wing stays on, but hangs folded back, limp and dark. In flight the legs are tucked in.
+   */
+  private poseDragon(
+    d: DragonView,
+    o: {
+      R: number;
+      color: number;
+      flash: boolean;
+      moving: number;
+      seed: number;
+      torn?: [boolean, boolean];
+      flying?: boolean;
+      bulk?: number;
+      /** Mordak's build (see drawHeavyDragonBody): broader wings, dark claws. */
+      heavy?: boolean;
+    },
+  ): void {
+    const { R, color, flash, seed } = o;
+    // How heavy its build is: wider plates, neck, tail and stance (Mordak is a brute of a dragon).
+    const bulk = o.bulk ?? 1;
+    const moving = o.flying ? 0 : o.moving;
     const now = performance.now() / 1000;
-    const moving = view.moving;
-    // A big, slow stride: its own clock, not the hero's quick steps.
+    // A big, slow stride: its own clock, not a hero's quick steps.
     const dt = Math.min(0.1, now - d.last / 1000);
     d.last = performance.now();
     d.stride += dt * DRAGON_STRIDE * moving;
     const step = d.stride;
-    d.root.scale.set((TOKEN_R * 2.3) / R);
-    d.root.rotation = aim ?? p.aim;
 
     // The spine: a slow wave runs down the body as it walks, and the tail sways on its own (more toward the tip).
     const sway = (x: number) => {
       const walk = Math.sin(step - (x / R) * 2.4) * 0.07 * R * moving;
-      const tail = x < -0.4 * R ? Math.sin(now * 1.7 + p.id + (x / R) * 2.2) * 0.06 * R * (-x / R - 0.4) : 0;
+      const tail = x < -0.4 * R ? Math.sin(now * 1.7 + seed + (x / R) * 2.2) * 0.06 * R * (-x / R - 0.4) : 0;
       return walk + tail;
     };
-    const breath = 1 + Math.sin(now * 2.4 + p.id) * 0.03;
-    this.drawDragonBody(d.body, R, sway, breath, p.hurt);
+    const breath = 1 + Math.sin(now * 2.4 + seed) * 0.03;
+    if (o.heavy) this.drawHeavyDragonBody(d.body, R, sway, breath, flash, color, bulk);
+    else this.drawDragonBody(d.body, R, sway, breath, flash, color, bulk);
+    const wingSize = o.heavy ? 1.2 : 0.85;
 
     // The wings: hinged at the shoulders (on the chest). A beat folds them in and sweeps them further back.
-    const beat = Math.sin(now * (moving > 0.3 ? 11 : 4.5) + p.id);
-    const depth = 0.12 + 0.33 * moving;
+    const beat = Math.sin(now * (o.flying ? 9 : moving > 0.3 ? 11 : 4.5) + seed);
+    const depth = o.flying ? 0.5 : 0.12 + 0.33 * moving;
     const shoulderX = DRAGON_PARTS.chest.x * R;
     for (const [i, side] of [-1, 1].entries()) {
       const wing = d.wings[i];
-      const art = this.dragonWingTexture(side, p.hurt);
+      const art = this.dragonWingTexture(side, flash, color);
       wing.texture = art.texture;
       wing.anchor.set(art.anchor.x, art.anchor.y);
-      wing.position.set(shoulderX, sway(shoulderX) + side * DRAGON_PARTS.chest.ry * 0.8 * R);
-      wing.scale.set(0.85 * (1 - 0.08 * depth * (beat + 1)), 0.85 * (1 - depth * (beat + 1) * 0.5));
+      wing.position.set(shoulderX, sway(shoulderX) + side * DRAGON_PARTS.chest.ry * bulk * 0.8 * R);
+      if (o.torn?.[i]) {
+        // Torn: folded back along the body, limp, scorched dark, twitching now and then.
+        const twitch = Math.max(0, Math.sin(now * 1.3 + seed + i * 2)) ** 8 * 0.08;
+        wing.scale.set(wingSize * 0.73, wingSize * 0.59);
+        wing.rotation = side * (DRAGON_WING_TILT + 0.55 + twitch);
+        wing.tint = flash ? 0xffffff : 0x6a5050;
+        continue;
+      }
+      wing.tint = 0xffffff;
+      wing.scale.set(wingSize * (1 - 0.08 * depth * (beat + 1)), wingSize * (1 - depth * (beat + 1) * 0.5));
       wing.rotation = side * (DRAGON_WING_TILT + 0.12 * depth * (beat + 1));
     }
 
     // The legs: front ones on the chest, back ones on the hips, trotting (front left with back right, then the other
-    // pair). Mid-stride a foot lifts and tucks in a little; planted, it's out wide. Claws out.
+    // pair). Mid-stride a foot lifts and tucks in a little; planted, it's out wide. Claws out. Tucked in, in flight.
     const g = d.legs.clear();
-    const legColor = shade(DRAGON_FORM_COLOR, -0.45);
+    const legColor = flash ? 0xffffff : shade(color, -0.45);
+    const tuck = o.flying ? 0.55 : 1;
     for (const [part, side, phase] of [
       ['chest', -1, 0],
       ['chest', 1, Math.PI],
@@ -1946,15 +2043,15 @@ export class GameRenderer {
       const cycle = Math.sin(step + phase);
       const lift = Math.max(0, Math.cos(step + phase)) * moving;
       const hipX = at.x * R;
-      const hipY = sway(hipX) + side * at.ry * 0.7 * R;
-      const footX = hipX + cycle * 0.26 * R * moving;
-      const footY = sway(hipX) + side * (0.56 - 0.08 * lift) * R;
+      const hipY = sway(hipX) + side * at.ry * bulk * 0.7 * R;
+      const footX = hipX + cycle * 0.26 * R * moving - (o.flying ? 0.12 * R : 0);
+      const footY = sway(hipX) + side * (0.56 * bulk - 0.08 * lift) * R * tuck;
       const kneeX = (hipX + footX) / 2 + (part === 'chest' ? 0.06 : -0.06) * R;
-      const kneeY = sway(hipX) + side * 0.44 * R;
-      g.moveTo(hipX, hipY).lineTo(kneeX, kneeY).lineTo(footX, footY).stroke({ width: R * 0.15, color: 0x140404, cap: 'round', join: 'round' });
-      g.moveTo(hipX, hipY).lineTo(kneeX, kneeY).lineTo(footX, footY).stroke({ width: R * 0.09, color: legColor, cap: 'round', join: 'round' });
+      const kneeY = sway(hipX) + side * 0.44 * bulk * R * tuck;
+      g.moveTo(hipX, hipY).lineTo(kneeX, kneeY).lineTo(footX, footY).stroke({ width: R * 0.15 * bulk, color: 0x140404, cap: 'round', join: 'round' });
+      g.moveTo(hipX, hipY).lineTo(kneeX, kneeY).lineTo(footX, footY).stroke({ width: R * 0.09 * bulk, color: legColor, cap: 'round', join: 'round' });
       for (const c of [-1, 0, 1]) {
-        g.moveTo(footX, footY).lineTo(footX + R * 0.1, footY + side * R * 0.03 + c * R * 0.05).stroke({ width: R * 0.04, color: 0xfff3e0, cap: 'round' });
+        g.moveTo(footX, footY).lineTo(footX + R * 0.1, footY + side * R * 0.03 + c * R * 0.05).stroke({ width: R * 0.04, color: o.heavy ? 0x0d0202 : 0xfff3e0, cap: 'round' });
       }
     }
   }
@@ -1965,9 +2062,8 @@ export class GameRenderer {
    * wedge of a head with horns swept back. Spines down the back, scales on the plates, and lava between them. All
    * white when hit.
    */
-  private drawDragonBody(g: Graphics, R: number, sway: (x: number) => number, breath: number, flash: boolean): void {
+  private drawDragonBody(g: Graphics, R: number, sway: (x: number) => number, breath: number, flash: boolean, color: number, bulk = 1): void {
     g.clear();
-    const color = DRAGON_FORM_COLOR;
     const fill = (c: number) => (flash ? 0xffffff : c);
     const ink = 0x2b0d02;
     const dark = shade(color, -0.35);
@@ -1979,7 +2075,7 @@ export class GameRenderer {
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       const x = (P.tail.from + (P.tail.to - P.tail.from) * t) * R;
-      const w = (P.tail.width * (1 - t) + 0.025) * R;
+      const w = (P.tail.width * bulk * (1 - t) + 0.025) * R;
       top.push(x, sway(x) - w);
       bottom.unshift(x, sway(x) + w);
     }
@@ -1990,12 +2086,12 @@ export class GameRenderer {
     // Hips, belly and chest: overlapping plates, the chest broadest.
     for (const part of [P.hips, P.belly, P.chest]) {
       const x = part.x * R;
-      g.ellipse(x, sway(x), part.rx * R, part.ry * R * breath).fill(fill(color)).stroke({ width: 3, color: ink });
+      g.ellipse(x, sway(x), part.rx * R * (1 + (bulk - 1) * 0.4), part.ry * bulk * R * breath).fill(fill(color)).stroke({ width: 3, color: ink });
     }
     // The neck, in two parts, and the head.
     for (const n of P.neck) {
       const x = n.x * R;
-      g.circle(x, sway(x), n.r * R).fill(fill(color)).stroke({ width: 3, color: ink });
+      g.circle(x, sway(x), n.r * bulk * R).fill(fill(color)).stroke({ width: 3, color: ink });
     }
     const hx = P.head.x * R;
     const hy = sway(hx);
@@ -2037,13 +2133,119 @@ export class GameRenderer {
     }
   }
 
+  /**
+   * Mordak's body: not plates but one powerful shape along the spine, broad at the shoulders and narrowing into a long,
+   * thick neck, with a heavy tail behind it fringed with spikes. Rows of black scales across the back with lava between
+   * them, a ridge of great spines, and a big wedge of a head: long snout, jaw, brow ridges and two huge horns swept
+   * back. All white when hit.
+   */
+  private drawHeavyDragonBody(g: Graphics, R: number, sway: (x: number) => number, breath: number, flash: boolean, color: number, bulk: number): void {
+    g.clear();
+    const fill = (c: number) => (flash ? 0xffffff : c);
+    const ink = 0x1a0505;
+    const dark = shade(color, -0.4);
+    // Half the body's width along the spine (x in R): the tail tapering from the hips, the torso swelling to the
+    // shoulders, then the neck narrowing to the head.
+    const TAIL_END = -1.9;
+    const HIPS = -0.45;
+    const SHOULDERS = 0.62;
+    const HEAD = 1.05;
+    const width = (x: number) => {
+      if (x < HIPS) {
+        const t = (x - HIPS) / (TAIL_END - HIPS);
+        return (0.13 * (1 - t) ** 1.3 + 0.012) * bulk;
+      }
+      if (x < SHOULDERS) {
+        const t = (x - HIPS) / (SHOULDERS - HIPS);
+        return (0.13 + 0.12 * Math.sin(Math.PI * t ** 1.9)) * bulk * breath;
+      }
+      const t = (x - SHOULDERS) / (HEAD - SHOULDERS);
+      return (0.13 - 0.05 * t) * bulk;
+    };
+    const outline = (from: number, to: number, steps: number) => {
+      const top: number[] = [];
+      const bottom: number[] = [];
+      for (let i = 0; i <= steps; i++) {
+        const x = (from + ((to - from) * i) / steps) * R;
+        const w = width(x / R) * R;
+        top.push(x, sway(x) - w);
+        bottom.unshift(x, sway(x) + w);
+      }
+      return [...top, ...bottom];
+    };
+    // Spikes along both edges of the tail, then the tail, and its barbed tip.
+    for (let i = 1; i < 9; i++) {
+      const x = (HIPS + ((TAIL_END - HIPS) * i) / 9) * R;
+      const w = width(x / R) * R;
+      const size = R * 0.07 * (1 - i / 11);
+      for (const side of [-1, 1]) {
+        const y = sway(x) + side * w;
+        g.poly([x + size, y, x - size * 0.6, y + side * size * 1.3, x - size * 1.1, y]).fill(fill(0x0d0202));
+      }
+    }
+    g.poly(outline(HIPS + 0.05, TAIL_END, 18)).fill(fill(dark)).stroke({ width: 3, color: ink, join: 'round' });
+    const tipX = TAIL_END * R;
+    const tipY = sway(tipX);
+    g.poly([tipX + 0.05 * R, tipY, tipX - 0.1 * R, tipY - 0.16 * R, tipX - 0.3 * R, tipY, tipX - 0.1 * R, tipY + 0.16 * R]).fill(fill(0x0d0202)).stroke({ width: 2, color: ink });
+    // The torso and neck, as one.
+    g.poly(outline(HIPS - 0.02, HEAD - 0.05, 24)).fill(fill(color)).stroke({ width: 4, color: ink, join: 'round' });
+    // The head: a long wedge with a jaw, brow ridges and horns sweeping back past the neck.
+    const hx = HEAD * R;
+    const hy = sway(hx);
+    const k = R * bulk * 0.62;
+    const at = (dx: number, dy: number) => [hx + dx * k, hy + dy * k];
+    for (const side of [-1, 1]) {
+      // Horns: long, curving back and out.
+      g.poly([...at(-0.05, side * 0.18), ...at(-0.32, side * 0.42), ...at(-0.62, side * 0.66), ...at(-0.5, side * 0.44), ...at(-0.26, side * 0.24), ...at(-0.02, side * 0.08)])
+        .fill(fill(0x5d4e44))
+        .stroke({ width: 3, color: 0x120404, join: 'round' });
+      if (!flash) g.poly([...at(-0.42, side * 0.52), ...at(-0.62, side * 0.66), ...at(-0.5, side * 0.48)]).fill(0xd7ccc8);
+      // A frill of smaller spikes along the jaw.
+      g.poly([...at(0.1, side * 0.15), ...at(-0.08, side * 0.3), ...at(-0.1, side * 0.14)]).fill(fill(0x0d0202));
+    }
+    g.poly([...at(-0.15, -0.2), ...at(0.1, -0.22), ...at(0.45, -0.1), ...at(0.62, -0.05), ...at(0.66, 0), ...at(0.62, 0.05), ...at(0.45, 0.1), ...at(0.1, 0.22), ...at(-0.15, 0.2)])
+      .fill(fill(shade(color, 0.06)))
+      .stroke({ width: 4, color: ink, join: 'round' });
+    if (flash) return;
+    // The snout's ridge and the mouth line, brow ridges over eyes like coals, smoldering nostrils.
+    g.moveTo(...(at(0.05, 0) as [number, number])).lineTo(...(at(0.55, 0) as [number, number])).stroke({ width: 3, color: shade(color, -0.3), cap: 'round' });
+    for (const side of [-1, 1]) {
+      g.moveTo(...(at(0.62, side * 0.04) as [number, number])).lineTo(...(at(0.2, side * 0.14) as [number, number])).stroke({ width: 2, color: 0x2b0000, alpha: 0.9 });
+      g.poly([...at(0.02, side * 0.06), ...at(0.2, side * 0.08), ...at(0.08, side * 0.13)]).fill(0x0d0202);
+      const [ex, ey] = at(0.1, side * 0.085);
+      g.circle(ex, ey, 0.032 * k * 1.6).fill({ color: 0xff6d00, alpha: 0.5 }).circle(ex, ey, 0.03 * k).fill(0xffd740);
+      const [nx, ny] = at(0.6, side * 0.03);
+      g.circle(nx, ny, 0.018 * k).fill(0xff3d00);
+    }
+    // Rows of black scales across the back, with lava glowing between some of them.
+    for (let x = HIPS + 0.08; x < SHOULDERS + 0.15; x += 0.13) {
+      const px = x * R;
+      const py = sway(px);
+      const w = width(x) * R * 0.85;
+      g.moveTo(px - 0.05 * R, py - w).quadraticCurveTo(px + 0.06 * R, py, px - 0.05 * R, py + w).stroke({ width: 3, color: 0x2a0606, alpha: 0.85 });
+    }
+    for (const x of [-0.12, 0.2, 0.45]) {
+      const px = x * R;
+      const py = sway(px);
+      const w = width(x) * R * 0.6;
+      g.moveTo(px, py - w).quadraticCurveTo(px + 0.05 * R, py, px, py + w).stroke({ width: 5, color: 0xff6d00, alpha: 0.4 }).moveTo(px, py - w).quadraticCurveTo(px + 0.05 * R, py, px, py + w).stroke({ width: 1.5, color: 0xffd180, alpha: 0.85 });
+    }
+    // A ridge of great spines from the head down the tail.
+    for (let i = 0; i < 16; i++) {
+      const x = (0.95 - i * 0.16) * R;
+      const y = sway(x);
+      const size = R * 0.1 * bulk * 0.6 * (1 - i * 0.045);
+      g.poly([x + size * 0.6, y, x - size, y - size * 0.55, x - size * 0.75, y, x - size, y + size * 0.55]).fill(0x0d0202);
+    }
+  }
+
   /** One dragon wing (see drawDragonWing), and where its shoulder falls in it (its anchor, to flap around). */
-  private dragonWingTexture(side: number, flash: boolean): { texture: Texture; anchor: { x: number; y: number } } {
-    const key = `dragonWing|${side}|${flash}`;
+  private dragonWingTexture(side: number, flash: boolean, color: number): { texture: Texture; anchor: { x: number; y: number } } {
+    const key = `dragonWing|${side}|${flash}|${color}`;
     const cached = this.dragonWings.get(key);
     if (cached) return cached;
     const g = new Graphics();
-    drawDragonWing(g, side, flash, DRAGON_FORM_COLOR);
+    drawDragonWing(g, side, flash, color);
     const b = g.getLocalBounds();
     const frame = new Rectangle(b.x - 4, b.y - 4, b.width + 8, b.height + 8);
     const texture = this.app.renderer.generateTexture({ target: g, frame, resolution: 2 });

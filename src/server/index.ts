@@ -60,6 +60,13 @@ const rooms = new Rooms(
         for (const other of rooms.all()) other.game.setUnlocked(progress.unlocked);
         console.log(`Unlocked ${MAPS[unlocked - 1].name}`);
       },
+      hardUnlocked: unlockAll ? MAPS.length : progress.hardUnlocked,
+      onHardUnlock: (unlocked) => {
+        progress.hardUnlocked = Math.max(progress.hardUnlocked, unlocked);
+        save();
+        for (const other of rooms.all()) other.game.setHardUnlocked(progress.hardUnlocked);
+        console.log(`Unlocked ${MAPS[unlocked - 1].name} on hard mode`);
+      },
       bossTime,
       profiles: progress.profiles,
       onProfiles: save,

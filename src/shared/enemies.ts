@@ -176,6 +176,8 @@ export interface NamedBossDef {
   title: string;
   /** Used in order, one every `cooldown` seconds (faster when enraged below half HP). */
   attacks: BossAttack[];
+  /** On hard mode: a longer, meaner rotation, with an attack or two borrowed from other bosses. */
+  hard: BossAttack[];
   cooldown: number;
   /** Enemy types it summons. */
   minions: number[];
@@ -192,6 +194,7 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
   [EnemyType.Sylvara]: {
     title: 'the Glade Serpent',
     attacks: ['spit', 'pools', 'charge', 'mark', 'spit', 'eggs'],
+    hard: ['spit', 'pools', 'charge', 'mark', 'nova', 'spit', 'eggs', 'pools', 'charge'],
     cooldown: 3.4,
     minions: [EnemyType.Grunt, EnemyType.Runner],
     phase: 'wards',
@@ -201,6 +204,7 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
   [EnemyType.Reaper]: {
     title: 'the Reaper',
     attacks: ['cleave', 'shockwave', 'charge', 'feeders', 'cleave', 'barrage'],
+    hard: ['cleave', 'shockwave', 'charge', 'feeders', 'cleave', 'shockwave', 'barrage', 'charge'],
     cooldown: 3.3,
     minions: [EnemyType.Spirit, EnemyType.Wraith],
     phase: 'brood',
@@ -210,6 +214,7 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
   [EnemyType.Rime]: {
     title: 'the Frost Queen',
     attacks: ['frostbomb', 'breath', 'nova', 'glacial', 'breath', 'summon'],
+    hard: ['frostbomb', 'breath', 'nova', 'glacial', 'barrage', 'breath', 'frostbomb', 'nova', 'summon'],
     cooldown: 3.2,
     minions: [EnemyType.Wraith, EnemyType.Spitter],
     phase: 'sigils',
@@ -219,6 +224,7 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
   [EnemyType.AshlordVael]: {
     title: 'Lord of the Caldera',
     attacks: ['meteor', 'charge', 'barrage', 'summon'],
+    hard: ['meteor', 'charge', 'shockwave', 'barrage', 'meteor', 'charge', 'summon'],
     cooldown: 3.4,
     minions: [EnemyType.Charger, EnemyType.Runner],
     phase: 'wards',
@@ -228,6 +234,7 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
   [EnemyType.Embra]: {
     title: 'the Cinder Witch',
     attacks: ['orbs', 'nova', 'orbs', 'summon'],
+    hard: ['orbs', 'nova', 'barrage', 'orbs', 'nova', 'summon'],
     cooldown: 3.6,
     minions: [EnemyType.Wraith, EnemyType.Spitter],
     keepAway: 320,
@@ -239,6 +246,7 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
   [EnemyType.Mordak]: {
     title: 'the Earth Scourger',
     attacks: ['fireballs', 'firebeam', 'charge', 'flight', 'fireballs', 'summon', 'firebeam', 'flight'],
+    hard: ['fireballs', 'firebeam', 'charge', 'meteor', 'flight', 'fireballs', 'shockwave', 'firebeam', 'summon', 'flight'],
     cooldown: 3.1,
     minions: [EnemyType.Charger, EnemyType.Runner],
     phase: 'none',
@@ -248,6 +256,7 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
   [EnemyType.Kharzak]: {
     title: 'Tyrant of the Canyon',
     attacks: ['charge', 'sting', 'burrow', 'sweep', 'sting', 'summon'],
+    hard: ['charge', 'sting', 'burrow', 'sweep', 'shockwave', 'sting', 'burrow', 'summon'],
     cooldown: 3.2,
     minions: [EnemyType.Charger, EnemyType.Runner],
     phase: 'shell',

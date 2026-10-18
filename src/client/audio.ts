@@ -42,6 +42,7 @@ export type SoundName =
   | 'rumble'
   | BossVoice
   | 'bossIntro'
+  | 'mordakRoar'
   | `hurt${VoiceName}`
   | `down${VoiceName}`;
 
@@ -515,7 +516,14 @@ const RECIPES: Record<SoundName, Recipe> = {
   laugh: SILENT,
   demon: ROAR,
   dragon: ROAR,
+  mordakRoar: ROAR,
   warlord: ROAR,
+  transform: ROAR,
+  // A roaring gout of flame.
+  firebreath: {
+    play: (v) => v.noise({ filter: 'lowpass', from: 2400, to: 500, duration: 1.2, volume: 0.22 }),
+    max: 1,
+  },
   resume: {
     // Back into the fight: a rising rush that lands on a deep drum hit.
     play: (v) => {

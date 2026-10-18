@@ -302,10 +302,22 @@ const K = 70; // Keep wall width.
 const KEEP = { x: 3300, y: 880, w: 1100 - C, h: 1240 };
 const KEEP_GATE = 260;
 
-// The Ashen Caldera: a round plateau in a sea of lava.
-const CALDERA = { x: 2200, y: 2200 };
-/** Mordak's den, out over the lava north of the caldera's heart. */
-const DRAGON_DEN = { x: 2200, y: 640, r: 600 };
+// The Ashen Caldera: a round plateau in a sea of lava, with room to the north for the finale.
+const CALDERA = { x: 2200, y: 3600 };
+/**
+ * The finale's path north from the caldera's heart: stepping stones zigzagging toward the den, each gap a dodge's jump
+ * (about 90 between edges).
+ */
+const DEN_PATH = [
+  { dx: 50, dy: -336 },
+  { dx: -70, dy: -572 },
+  { dx: 50, dy: -808 },
+  { dx: -70, dy: -1044 },
+  { dx: 50, dy: -1280 },
+  { dx: -70, dy: -1516 },
+].map(({ dx, dy }) => ({ x: CALDERA.x + dx, y: CALDERA.y + dy, r: 85 }));
+/** Mordak's den, out over the lava north of the caldera's heart (a jump past the last stone). */
+const DRAGON_DEN = { x: CALDERA.x, y: CALDERA.y - 2584, r: 900 };
 
 export const MAPS: MapDef[] = [
   {
@@ -552,7 +564,7 @@ export const MAPS: MapDef[] = [
     subtitle: 'A ring of rock in a sea of lava. When the Twin Flames come, the lava closes in.',
     art: 'caldera',
     width: 4400,
-    height: 4400,
+    height: CALDERA.y + 2200,
     spawn: { x: CALDERA.x, y: CALDERA.y + 750 },
     boss: EnemyType.AshlordVael,
     twin: EnemyType.Embra,
@@ -568,16 +580,13 @@ export const MAPS: MapDef[] = [
           y: CALDERA.y + Math.sin((deg * Math.PI) / 180) * (380 + (i % 2) * 70),
           r: 70,
         })),
-        // The path north to the den: each gap is a dodge's jump.
-        { x: 2250, y: 1900, r: 64 },
-        { x: 2130, y: 1715, r: 60 },
-        { x: 2260, y: 1535, r: 62 },
-        { x: 2150, y: 1375, r: 58 },
+        // The path north to the den.
+        ...DEN_PATH,
       ],
-      route: [0, 6, 7, 8, 9],
+      route: [0, ...DEN_PATH.map((_, i) => 6 + i)],
       den: DRAGON_DEN,
       // Pillars to hide behind from his fire beam.
-      pillars: [30, 90, 150, 210, 270, 330].map((deg) => pillar(DRAGON_DEN.x + Math.cos((deg * Math.PI) / 180) * 330, DRAGON_DEN.y + Math.sin((deg * Math.PI) / 180) * 330, 76)),
+      pillars: [0, 60, 120, 180, 240, 300].map((deg) => pillar(DRAGON_DEN.x + Math.cos((deg * Math.PI) / 180) * 500, DRAGON_DEN.y + Math.sin((deg * Math.PI) / 180) * 500, 100)),
       boss: EnemyType.Mordak,
       bossName: 'Mordak, the Earth Scourger',
     },
@@ -612,7 +621,7 @@ export const MAPS: MapDef[] = [
         return [pillar(x, y, 100), pillar(x + 55, y + 35, 70), pillar(x - 40, y + 50, 60)];
       }),
       // Charred stakes by the camp where the team starts.
-      ...fenceH(1950, 2450, 3250, 160),
+      ...fenceH(1950, 2450, CALDERA.y + 1050, 160),
     ],
   },
 ];

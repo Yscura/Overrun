@@ -41,7 +41,21 @@ export const SLOWMO = { start: 0.15, duration: 1.2 };
  * victory (or what comes next) follows at `total`.
  */
 export const BOSS_DEATH = { shatter: 2.6, total: 4.2 };
+/**
+ * Hard mode (every map again, unlocked by slaying Mordak): enemies are `difficulty` times tougher (like the map's own
+ * difficulty: more health, and harder hits) and hit `damage` times harder on top. The horde is `speed` times faster.
+ * Bosses attack `haste` times as often, with `area` times bigger attacks, use their hard rotations (NamedBossDef.hard)
+ * and every `comboEvery`th attack follows right on the last one (`comboGap` seconds later). The rewards: `prestige`
+ * times the prestige, and artifacts drop as if the map were `luck` maps further along.
+ */
+export const HARD = { difficulty: 1.35, damage: 1.25, speed: 1.08, haste: 1.25, area: 1.1, comboEvery: 4, comboGap: 0.7, prestige: 1.6, luck: 3 };
+
 export const BOSS_INTRO = { speed: 0.12, hold: 2.3, ease: 1, panIn: 0.5, panOut: 0.6 };
+/**
+ * Mordak's entrance is longer: everything stops dead (`speed` 0) while the camera creeps over to him, a moment of
+ * silence, then he roars (`roarAt` seconds in) and the fight starts as the roar dies down.
+ */
+export const DRAGON_INTRO = { speed: 0, hold: 5, ease: 0.8, panIn: 1.2, panOut: 0.7, roarAt: 1.6 };
 
 // Health crates: shoot one to break it, then walk over the heart it drops.
 export const CRATE_RADIUS = 16;

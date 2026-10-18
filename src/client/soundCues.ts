@@ -1,5 +1,6 @@
 // Decides which sounds a snapshot calls for: your own actions, what happens around you, and big moments.
 
+import { DRAGON_INTRO } from '../shared/constants';
 import { HAZARD_STRIDE, HazardKind, type Snapshot } from '../shared/protocol';
 import { CHARACTERS } from '../shared/characters';
 import { voiceSound, type Sound } from './audio';
@@ -56,6 +57,12 @@ export class SoundCues {
           sound.play('boom', ...near(fx.x, fx.y));
           break;
         case 'intro':
+          if (fx.dragon) {
+            // Mordak: a low rumble in the stillness, then his roar.
+            sound.play('rumble');
+            setTimeout(() => sound.play('mordakRoar'), DRAGON_INTRO.roarAt * 1000);
+            break;
+          }
           sound.play('bossIntro');
           sound.play('bossRoar');
           break;

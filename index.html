@@ -17,6 +17,7 @@
       <span class="dev-title">DEV</span>
       <button data-dev="skip" title="Jump the clock a minute ahead, with the level-ups you'd have earned">+1 min <kbd>T</kbd></button>
       <button data-dev="boss" title="Jump to just before the boss arrives, with the level-ups you'd have earned">Skip to boss <kbd>J</kbd></button>
+      <button data-dev="finale" title="The Ashen Caldera only: the caldera shakes apart right away (with the level-ups you'd have earned). Press again while crossing to jump into Mordak's den">Skip to Mordak <kbd>K</kbd></button>
       <button data-dev="level" title="A free level-up pick">Level up <kbd>U</kbd></button>
       <button data-dev="forge" title="A free Forge pick (evolves max-level weapons)">Forge <kbd>F</kbd></button>
       <button data-dev="max" title="Fill every slot and max everything">Max build <kbd>B</kbd></button>
@@ -25,7 +26,7 @@
 
     <div id="hud" class="hidden">
       <div id="xp-bar"><div id="xp-fill"></div><span id="level">Lv 1</span></div>
-      <div id="top-info"><span id="timer">00:00</span><span id="kills">0 kills</span><span id="gold" title="Gold: kept between runs, buys heroes">0 gold</span></div>
+      <div id="top-info"><span id="hard-tag" class="hard-tag hidden" title="Hard mode">HARD</span><span id="timer">00:00</span><span id="kills">0 kills</span><span id="gold" title="Gold: kept between runs, buys heroes">0 gold</span></div>
       <div id="objectives">
         <div id="boss-bar" class="hidden">
           <div id="boss-bars"></div>
@@ -289,6 +290,7 @@
           <div id="artifact-picker" class="artifact-picker"></div>
           <div class="lobby-section-head">
             <h2>Map</h2>
+            <div id="map-mode" class="map-mode hidden"></div>
           </div>
           <div id="maps"></div>
           <p class="hint">WASD / arrows to move · aim with the mouse · Space to dodge the way you're moving · E ability · R ultimate · Q artifact · hold Tab for the scoreboard · Esc / P to pause · 1 / 2 / 3 to pick upgrades · Enter to chat · Shift+click to ping</p>

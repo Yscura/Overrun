@@ -43,6 +43,8 @@ import {
   PROJECTILE_RADIUS,
   SLOWMO,
   BOSS_INTRO,
+  DRAGON_INTRO,
+  HARD,
   REVIVE_RADIUS,
   REVIVE_TIME,
   SPAWN_DISTANCE,
@@ -242,14 +244,17 @@ const MAX_VENOM = 80;
 const MAX_DAMAGE_NUMBERS = 25;
 const DAMAGE_NUMBER_INTERVAL = 0.3;
 const VENOM_TICK = 0.5;
+/** Seconds between level-ups at the least (see levelUp). */
+const LEVEL_GAP = 4;
 /** Shown on the results the first time someone slays Mordak. */
+const HARD_FEAT = 'Hard mode is unlocked: every map again, from the Emerald Woods, and far less forgiving.';
 const DRAGONMANCER_FEAT = 'Mordak is slain: Kaelor, the Dragonmancer, joins your heroes!';
 /**
  * The Ashen Caldera's true ending. The ground shakes for `crumble` seconds before it gives way; then a rock falls every
  * `rockEvery` seconds while the team crosses (`rockAimed` of them at someone, the rest on a stone up ahead). The dragon comes `stir` seconds after everyone standing is in the den,
  * or `wait` seconds after the first one gets there.
  */
-const FINALE = { crumble: 3.5, rockEvery: 1, rockAimed: 0.45, rockRadius: 80, rockDelay: 1.1, rockDamage: 40, stir: 2.5, wait: 6 };
+const FINALE = { crumble: 3.5, rockEvery: 1.25, rockAimed: 0.45, rockRadius: 80, rockDelay: 1.1, rockDamage: 40, stir: 2.5, wait: 6 };
 /** How fast Mordak turns to face his target, in radians per second. */
 const DRAGON_TURN = 2.4;
 /** Enemies' damage grows with the map's difficulty to this power (their health grows with it in full). */
@@ -344,6 +349,9 @@ export interface GameOptions {
   unlocked: number;
   /** Called when a victory unlocks a new map, to save progress. */
   onUnlock: (unlocked: number) => void;
+  /** How many maps are unlocked on hard mode (0: not yet), and the call when that grows. */
+  hardUnlocked?: number;
+  onHardUnlock?: (unlocked: number) => void;
   /** Override when the named boss arrives, in seconds (for testing). */
   bossTime?: number;
   /** Everyone's prestige, by lowercased name. Shared with the caller, who saves it on `onProfiles`. */
@@ -808,6 +816,9 @@ export class Game {
 
   // The map and its final boss.
   private unlocked: number;
+  private hardUnlocked: number;
+  /** This run is on hard mode (see HARD). */
+  private hard = false;
   private mapIndex = 0;
   private map!: MapDef;
   private walls!: WallIndex;
@@ -835,6 +846,8 @@ export class Game {
   private bosses: Enemy[] = [];
   /** Seconds since the boss fight started (for going berserk). */
   private fightTime = 0;
+  /** No level-up before this time (see levelUp). */
+  private nextLevelAt = 0;
   private berserk = 0;
   private mission: Mission | null = null;
   /** How many of BOSS_MISSIONS.at have been triggered. */
@@ -857,6 +870,7 @@ export class Game {
 
   constructor(private readonly options: GameOptions) {
     this.unlocked = clamp(options.unlocked, 1, MAPS.length);
+    this.hardUnlocked = clamp(options.hardUnlocked ?? 0, 0, MAPS.length);
     this.bossTime = options.bossTime ?? BOSS_TIME;
     this.profiles = options.profiles ?? {};
     this.loadMap(this.unlocked - 1); // Start on the newest unlocked map.
@@ -923,6 +937,16 @@ export class Game {
   /** Another room won a map: this one can play it too (unlocks are shared by everyone on the server). */
   setUnlocked(unlocked: number): void {
     this.unlocked = Math.max(this.unlocked, clamp(unlocked, 1, MAPS.length));
+  }
+
+  /** Another room won a map on hard mode (or unlocked it): this one can play it too. */
+  setHardUnlocked(unlocked: number): void {
+    this.hardUnlocked = Math.max(this.hardUnlocked, clamp(unlocked, 0, MAPS.length));
+  }
+
+  /** How tough enemies are on this map (and mode): their health, and (less steeply) how hard they hit. */
+  private difficulty(): number {
+    return this.map.difficulty * (this.hard ? HARD.difficulty : 1);
   }
 
   addPlayer(name: string, character: unknown, send: (text: string) => void, isBot = false): number | null {
@@ -1048,7 +1072,9 @@ export class Game {
         }
         break;
       case 'map':
-        if (this.phase === 'lobby' && this.canRunLobby(p) && Number.isInteger(msg.index) && msg.index >= 0 && msg.index < this.unlocked) {
+        const hard = msg.hard === true;
+        if (this.phase === 'lobby' && this.canRunLobby(p) && Number.isInteger(msg.index) && msg.index >= 0 && msg.index < (hard ? this.hardUnlocked : this.unlocked)) {
+          this.hard = hard;
           this.loadMap(msg.index);
           this.lobbyReady.clear(); // A new map: everyone confirms again.
           let slot = 0;
@@ -1172,6 +1198,9 @@ export class Game {
         // To 3 seconds before it arrives.
         if (!this.pause && this.bossPhase === 'waiting') this.skipAhead(Math.max(0, this.bossTime - 3 - this.time), true);
         break;
+      case 'finale':
+        if (!this.pause) this.skipToFinale();
+        break;
       case 'level':
         this.choices.push('level');
         break;
@@ -1217,6 +1246,50 @@ export class Game {
     const m = Math.floor(this.time / 60);
     const s = Math.floor(this.time % 60);
     this.banner(`Dev: skipped to ${m}:${String(s).padStart(2, '0')}`, 'good');
+  }
+
+  /**
+   * Dev: straight to the caldera's finale. Before it: the boss is skipped (level-ups picked at random) and the ground
+   * gives way under the team, gathered on the heart of the caldera. While crossing: the team is put down at the den's
+   * mouth, to walk in and meet Mordak.
+   */
+  private skipToFinale(): void {
+    const f = this.map.finale;
+    if (!f) {
+      this.banner('Dev: only the Ashen Caldera has a finale', 'danger');
+      return;
+    }
+    const fin = this.finale;
+    if (fin?.stage === 'den') return;
+    const alive = this.alivePlayers();
+    const gather = (x: number, y: number, spread: number) => {
+      alive.forEach((p, i) => {
+        const a = (i / Math.max(1, alive.length)) * Math.PI * 2;
+        p.x = x + Math.cos(a) * spread;
+        p.y = y + Math.sin(a) * spread;
+        p.epoch++;
+      });
+    };
+    if (fin) {
+      // Crossing (or still crumbling): skip the path.
+      if (fin.stage === 'crumble') fin.t = FINALE.crumble;
+      this.updateFinale(0, alive);
+      const last = f.stones[f.route[f.route.length - 1]];
+      gather(last.x, last.y, 25);
+      this.hazards = [];
+      this.banner('Dev: at the mouth of the den', 'good');
+      return;
+    }
+    if (this.bossPhase === 'waiting') this.skipAhead(Math.max(0, this.bossTime - this.time), true);
+    for (const e of this.enemies) e.dead = true;
+    this.enemyShots = [];
+    this.hazards = [];
+    this.mission = null;
+    this.dying = null;
+    this.tether = null;
+    const heart = f.stones[f.route[0]];
+    gather(heart.x, heart.y, 40);
+    this.startFinale();
   }
 
   /** Fills every free weapon and passive slot, then maxes everything (evolving what can evolve). */
@@ -1335,6 +1408,7 @@ export class Game {
     // Count the run for each person's hero (their profile card shows the one they play most).
     for (const p of this.humans()) notePlayed(p.profile, p.character);
     this.options.onProfiles?.();
+    if (this.hard) this.banner('Hard mode: they hit harder, and the bosses are relentless', 'danger');
   }
 
   private clearWorld(): void {
@@ -1370,6 +1444,7 @@ export class Game {
     this.lavaR = this.map.lava?.r ?? Infinity;
     this.bosses = [];
     this.fightTime = 0;
+    this.nextLevelAt = 0;
     this.berserk = 0;
     this.mission = null;
     this.missionsStarted = 0;
@@ -1435,7 +1510,7 @@ export class Game {
     this.log(victory ? `Victory over ${beaten}!` : 'The team was overrun', victory ? 'good' : 'danger');
     this.phase = 'gameover';
     this.pause = null;
-    const prestige = prestigeReward(this.level, this.map.prestigeReward);
+    const prestige = prestigeReward(this.level, this.map.prestigeReward * (this.hard ? HARD.prestige : 1));
     for (const p of this.players.values()) p.profile.points += prestige;
     // Each person's hero record: wins, kills, best damage, longest run.
     for (const p of this.humans()) noteRun(p.profile, p.character, { victory, damage: p.damageDealt, kills: p.kills, time: this.time });
@@ -1477,14 +1552,33 @@ export class Game {
       c.dead = true;
       this.grantArtifacts(TIER_IDS[c.value]);
     }
-    this.grantArtifacts(rollTier('boss', this.mapIndex));
+    this.grantArtifacts(rollTier('boss', this.lootIndex()));
     let unlockedMap: string | null = null;
-    if (this.mapIndex + 1 < MAPS.length && this.unlocked < this.mapIndex + 2) {
-      this.unlocked = this.mapIndex + 2;
-      this.options.onUnlock(this.unlocked);
-      unlockedMap = MAPS[this.mapIndex + 1].name;
+    if (this.hard) {
+      if (this.mapIndex + 1 < MAPS.length && this.hardUnlocked < this.mapIndex + 2) {
+        this.hardUnlocked = this.mapIndex + 2;
+        this.options.onHardUnlock?.(this.hardUnlocked);
+        unlockedMap = `${MAPS[this.mapIndex + 1].name} (Hard)`;
+      }
+    } else {
+      if (this.mapIndex + 1 < MAPS.length && this.unlocked < this.mapIndex + 2) {
+        this.unlocked = this.mapIndex + 2;
+        this.options.onUnlock(this.unlocked);
+        unlockedMap = MAPS[this.mapIndex + 1].name;
+      }
+      // Slaying Mordak opens hard mode, from the first map.
+      if (slain !== undefined && slain === this.map.finale?.boss && this.hardUnlocked < 1) {
+        this.hardUnlocked = 1;
+        this.options.onHardUnlock?.(1);
+        this.feats.push(HARD_FEAT);
+      }
     }
     this.endGame(true, unlockedMap);
+  }
+
+  /** Artifact drops roll as if on this map (on hard mode, as if a few maps further along). */
+  private lootIndex(): number {
+    return this.mapIndex + (this.hard ? HARD.luck : 0);
   }
 
   private alivePlayers(): Player[] {
@@ -1667,6 +1761,7 @@ export class Game {
       this.updateHazards(dt);
     }
     this.updateGems(dt);
+    this.levelUp();
     this.updateHearts();
     this.updateCoins(dt);
     this.updateArtifacts();
@@ -1785,20 +1880,36 @@ export class Game {
    * A random free spot `minDist`–`maxDist` from a random living player: inside the map, not in a wall,
    * and reachable on foot.
    */
+  /**
+   * A spot `minDist` to `maxDist` from one of the players (picked at random), never close to any of them: it has to
+   * end up far from everyone even after it's moved out of the lava and out of walls. Of the spots tried, the first
+   * one that's good enough wins; otherwise the one farthest from the nearest player.
+   */
   private pointNear(alive: Player[], minDist: number, maxDist: number, radius = 20): { x: number; y: number } {
     const near = alive[Math.floor(Math.random() * alive.length)];
-    let x = near.x;
-    let y = near.y;
-    for (let attempt = 0; attempt < 12; attempt++) {
+    const nearest = (x: number, y: number) => Math.min(...alive.map((p) => Math.hypot(p.x - x, p.y - y)));
+    let best = { x: near.x, y: near.y };
+    let bestScore = -Infinity;
+    for (let attempt = 0; attempt < 48; attempt++) {
+      // Cramped (a corner, the lava): after a while, try farther out, around anyone.
+      const from = attempt < 24 ? near : alive[attempt % alive.length];
+      const reach = attempt < 24 ? maxDist : maxDist * 1.6;
       const angle = Math.random() * Math.PI * 2;
-      const distance = minDist + Math.random() * (maxDist - minDist);
-      x = clamp(near.x + Math.cos(angle) * distance, radius, this.map.width - radius);
-      y = clamp(near.y + Math.sin(angle) * distance, radius, this.map.height - radius);
-      const farEnough = dist2(x, y, near.x, near.y) > (minDist * 0.8) ** 2;
-      if (farEnough && this.dry(x, y, radius) && !overlapsWall(this.walls, x, y, radius) && this.flow.distanceAt(x, y) < Infinity) break;
+      const distance = minDist + Math.random() * (reach - minDist);
+      const tx = clamp(from.x + Math.cos(angle) * distance, radius, this.map.width - radius);
+      const ty = clamp(from.y + Math.sin(angle) * distance, radius, this.map.height - radius);
+      const usable = this.dry(tx, ty, radius) && !overlapsWall(this.walls, tx, ty, radius) && this.flow.distanceAt(tx, ty) < Infinity;
+      const ashore = this.ashore(tx, ty, radius);
+      const spot = pushOut(this.walls, ashore.x, ashore.y, radius);
+      const gap = nearest(spot.x, spot.y);
+      if (usable && gap >= minDist * 0.8) return spot;
+      const score = Math.min(gap, minDist) - (usable ? 0 : 200);
+      if (score > bestScore) {
+        bestScore = score;
+        best = spot;
+      }
     }
-    ({ x, y } = this.ashore(x, y, radius));
-    return pushOut(this.walls, x, y, radius);
+    return best;
   }
 
   private spawnEnemy(type: number, alive: Player[], minDist = SPAWN_DISTANCE, maxDist = SPAWN_DISTANCE + 200): Enemy {
@@ -1808,7 +1919,7 @@ export class Game {
     let hp = this.enemyHp(type);
     if (type === EnemyType.Warlord || type === EnemyType.Thief) {
       // One-off enemies grow steadily rather than steeply, or the last warlord would rival the final boss.
-      hp = ENEMY_TYPES[type].hp * (1 + 7 * Math.min(1, this.time / this.bossTime)) * this.map.difficulty;
+      hp = ENEMY_TYPES[type].hp * (1 + 7 * Math.min(1, this.time / this.bossTime)) * this.difficulty();
       hp *= 1 + 0.35 * (this.players.size - 1);
       return this.addEnemy(type, x, y, hp);
     }
@@ -1832,12 +1943,12 @@ export class Game {
     // Fewer-but-tougher only applies to the horde, not to one-off enemies like warlords.
     const horde = behavior === 'boss' || behavior === 'flee' ? this.horde().damage * HORDE_DENSITY ** 0.7 : this.horde().damage;
     const scale = behavior === 'named' ? BOSS_POWER.damage * this.bossMods(e).damage : horde;
-    return scale * this.map.difficulty ** DIFFICULTY_DAMAGE * (e.affix ? CHAMPION.damage : 1);
+    return scale * this.difficulty() ** DIFFICULTY_DAMAGE * (e.affix ? CHAMPION.damage : 1) * (this.hard ? HARD.damage : 1);
   }
 
   /** A regular enemy's health at this point in the run, on this map. */
   private enemyHp(type: number): number {
-    return ENEMY_TYPES[type].hp * this.horde().hp * this.map.difficulty;
+    return ENEMY_TYPES[type].hp * this.horde().hp * this.difficulty();
   }
 
   private addEnemy(type: number, x: number, y: number, hp: number): Enemy {
@@ -2031,7 +2142,7 @@ export class Game {
     this.bosses = types.map((t, i) => {
       const offset = types.length > 1 ? (i === 0 ? -160 : 160) : 0;
       const spot = pushOut(this.walls, x + offset, y, ENEMY_TYPES[t].radius);
-      const hp = ENEMY_TYPES[t].hp * BOSS_POWER.hp * (1 + 0.85 * (this.players.size - 1)) * this.map.difficulty;
+      const hp = ENEMY_TYPES[t].hp * BOSS_POWER.hp * (1 + 0.85 * (this.players.size - 1)) * this.difficulty();
       const boss = this.addEnemy(t, spot.x, spot.y, hp);
       boss.attackTimer = 2 + i;
       return boss;
@@ -2112,7 +2223,7 @@ export class Game {
           const a = (i / BOSS_MISSIONS.wards) * Math.PI * 2 + Math.PI / 4;
           const spot = this.missionSpot(center, a, BOSS_MISSIONS.wardDistance, ENEMY_TYPES[EnemyType.Ward].radius);
           // Pinned to boss-time strength, so a long fight doesn't make the wards ever tougher.
-          const hp = ENEMY_TYPES[EnemyType.Ward].hp * hordeScaling(1).hp * this.map.difficulty * scale;
+          const hp = ENEMY_TYPES[EnemyType.Ward].hp * hordeScaling(1).hp * this.difficulty() * scale;
           const ward = this.addEnemy(EnemyType.Ward, spot.x, spot.y, hp);
           ward.missionTarget = true;
           ids.push(ward.id);
@@ -2317,7 +2428,7 @@ export class Game {
         x = st.x;
         y = st.y;
       }
-      const damage = FINALE.rockDamage * this.map.difficulty ** DIFFICULTY_DAMAGE;
+      const damage = FINALE.rockDamage * this.difficulty() ** DIFFICULTY_DAMAGE;
       this.addHazard(HazardKind.Circle, x, y, FINALE.rockRadius, 0, 0, FINALE.rockDelay, damage);
     }
     // In the den: the dragon comes once everyone's there, or a while after the first one is.
@@ -2345,13 +2456,13 @@ export class Game {
     this.missionsStarted = 0;
     this.hinted.clear();
     const type = f.boss;
-    const hp = ENEMY_TYPES[type].hp * BOSS_POWER.hp * (1 + 0.85 * (this.players.size - 1)) * this.map.difficulty;
+    const hp = ENEMY_TYPES[type].hp * BOSS_POWER.hp * (1 + 0.85 * (this.players.size - 1)) * this.difficulty();
     // He lands at the far end of the den, facing the way the team came in (from the heart of the caldera).
     const heart = f.stones[f.route[0]];
     const away = Math.atan2(f.den.y - heart.y, f.den.x - heart.x);
     const boss = this.addEnemy(type, f.den.x + Math.cos(away) * f.den.r * 0.4, f.den.y + Math.sin(away) * f.den.r * 0.4, hp);
     boss.facing = away + Math.PI;
-    boss.attackTimer = 3;
+    boss.attackTimer = 1.5;
     for (const side of [-1, 1]) {
       const wing = this.addEnemy(EnemyType.DragonWing, boss.x, boss.y, hp * BOSS_MECHANICS.wings.hp);
       wing.partOf = boss;
@@ -2361,8 +2472,9 @@ export class Game {
     this.bosses = [boss];
     this.attachParts();
     this.banner(`${f.bossName}!`, 'danger');
-    this.fx.push({ k: 'intro', x: Math.round(boss.x), y: Math.round(boss.y) });
-    this.slowMotion(BOSS_INTRO.speed, BOSS_INTRO.hold, BOSS_INTRO.ease);
+    // A moment of suspense: everything freezes while the camera finds him, and he roars before the fight begins.
+    this.fx.push({ k: 'intro', x: Math.round(boss.x), y: Math.round(boss.y), dragon: true });
+    this.slowMotion(DRAGON_INTRO.speed, DRAGON_INTRO.hold, DRAGON_INTRO.ease);
   }
 
   /** Parts ride along with what they're attached to (Mordak's wings, out to his sides). */
@@ -2445,8 +2557,8 @@ export class Game {
     const v = e.vengeful;
     return {
       damage: (1 + BOSS_BERSERK.damage * s) * (v ? BOSS_VENGEFUL.damage : 1),
-      haste: (1 + BOSS_BERSERK.haste * s) * (v ? BOSS_VENGEFUL.haste : 1),
-      area: (1 + BOSS_BERSERK.area * s) * (v ? BOSS_VENGEFUL.area : 1),
+      haste: (1 + BOSS_BERSERK.haste * s) * (v ? BOSS_VENGEFUL.haste : 1) * (this.hard ? HARD.haste : 1),
+      area: (1 + BOSS_BERSERK.area * s) * (v ? BOSS_VENGEFUL.area : 1) * (this.hard ? HARD.area : 1),
     };
   }
 
@@ -2503,7 +2615,8 @@ export class Game {
     if (e.attackTimer > 0) return move;
 
     const mods = this.bossMods(e);
-    let attack = def.attacks[e.attackIndex++ % def.attacks.length];
+    const rotation = this.hard ? def.hard : def.attacks;
+    let attack = rotation[e.attackIndex++ % rotation.length];
     // Without his wings, Mordak can't fly: he rains fire from the ground instead.
     if (attack === 'flight' && e.wingsLost >= 2) attack = 'barrage';
     // Shelled, Kharzak keeps charging (so it can be baited into a rock), with a sting in between.
@@ -2511,6 +2624,8 @@ export class Game {
     const M = BOSS_MECHANICS;
     const scale = this.damageScale(e);
     e.attackTimer = (def.cooldown * (e.enraged ? BOSS_ENRAGE_SPEEDUP : 1)) / mods.haste;
+    // Hard mode: every so often the next attack comes right on the heels of this one.
+    if (this.hard && e.attackIndex % HARD.comboEvery === 0) e.attackTimer = Math.min(e.attackTimer, HARD.comboGap);
     switch (attack) {
       case 'fireballs':
         e.volleys = BOSS_MECHANICS.fireballs.volleys;
@@ -2601,7 +2716,7 @@ export class Game {
         this.hint('eggs', 'Sylvara lays her eggs: break them before they hatch!');
         const center = this.map.arena ?? e;
         const scaleUp = 1 + 0.5 * (this.players.size - 1);
-        const hp = ENEMY_TYPES[EnemyType.Egg].hp * hordeScaling(1).hp * this.map.difficulty * scaleUp;
+        const hp = ENEMY_TYPES[EnemyType.Egg].hp * hordeScaling(1).hp * this.difficulty() * scaleUp;
         const offset = Math.random() * Math.PI * 2;
         for (let i = 0; i < M.eggs.count; i++) {
           const spot = this.missionSpot(center, offset + (i / M.eggs.count) * Math.PI * 2, M.eggs.distance, ENEMY_TYPES[EnemyType.Egg].radius);
@@ -2938,7 +3053,7 @@ export class Game {
         continue;
       }
       // The horde gets faster toward the end (bosses and the thief keep their pace).
-      let speed = def.behavior === 'named' || def.behavior === 'flee' ? def.speed : def.speed * hordeSpeed * (e.affix === Affix.Hasted ? AFFIX_TUNING.hasteSpeed : 1);
+      let speed = def.behavior === 'named' || def.behavior === 'flee' ? def.speed : def.speed * hordeSpeed * (e.affix === Affix.Hasted ? AFFIX_TUNING.hasteSpeed : 1) * (this.hard ? HARD.speed : 1);
       if (e.slowUntil > this.time) speed *= 1 - (this.isBoss(e) ? POISON_SLOW.boss : POISON_SLOW.amount);
       // Lost souls ignore everyone and drift straight to the Reaper.
       if (e.feeder) {
@@ -3110,9 +3225,13 @@ export class Game {
       let nearest = Infinity;
       for (const p of alive) nearest = Math.min(nearest, Math.hypot(p.x - tx, p.y - ty));
       let score = nearest;
-      // Getting near the map edge is bad, and worse the closer it gets.
-      const edge = Math.min(tx, ty, this.map.width - tx, this.map.height - ty);
+      // Getting near the map edge is bad, and worse the closer it gets. The lava's edge counts too.
+      let edge = Math.min(tx, ty, this.map.width - tx, this.map.height - ty);
+      const lava = this.map.lava;
+      if (lava) edge = Math.min(edge, this.lavaR - Math.hypot(tx - lava.x, ty - lava.y));
       if (edge < EDGE) score -= (EDGE - edge) * 1.5;
+      // Never into the lava itself.
+      if (!this.dry(e.x + dx * LOOK * 0.5, e.y + dy * LOOK * 0.5, radius) || !this.dry(tx, ty, radius)) score -= 2000;
       // Walls in the way (halfway or at the end) rule a direction out.
       const blocked =
         overlapsWall(this.walls, e.x + dx * LOOK * 0.5, e.y + dy * LOOK * 0.5, radius) || overlapsWall(this.walls, tx, ty, radius);
@@ -4340,7 +4459,7 @@ export class Game {
       // A dragon's E: breathe fire.
       p.breath = FIREBREATH.duration;
       p.breathTimer = 0;
-      p.sounds.push('nova');
+      p.sounds.push('firebreath');
       p.abilityCd = DRAGON_FORM.breathCooldown * stats.cooldownMult;
     } else if (slot === 'e' && p.abilityCd <= 0) {
       const level = p.upgrades[hero.ability] ?? 0;
@@ -4719,7 +4838,7 @@ export class Game {
         const before = stats.maxHp;
         p.dragonForm = DRAGON_FORM.duration * stats.duration;
         p.hp += this.stats(p).maxHp - before;
-        p.sounds.push('roar');
+        p.sounds.push('transform');
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 160, c: 0xff6d00, snd: 'explode' });
         break;
       }
@@ -5032,7 +5151,7 @@ export class Game {
   /** Boom: heavy damage to enemies around it, and it sets off any crates and bombs nearby. */
   private explodeBomb(b: Pickup, by?: Player): void {
     b.dead = true;
-    const damage = BOMB.damage * this.horde().hp * this.map.difficulty;
+    const damage = BOMB.damage * this.horde().hp * this.difficulty();
     // The grid may be stale if this happens between ticks (a cast).
     this.rebuildGrid();
     for (const e of this.grid.query(b.x, b.y, BOMB.blast + MAX_ENEMY_RADIUS, this.splashNear)) {
@@ -5078,7 +5197,7 @@ export class Game {
   /** An elite or warlord died: maybe an artifact drops where it fell. */
   private dropArtifact(source: DropSource, x: number, y: number): void {
     if (Math.random() >= DROPS[source].chance) return;
-    const tier = rollTier(source, this.mapIndex);
+    const tier = rollTier(source, this.lootIndex());
     this.addPickup(PickupKind.Artifact, x, y, 0, TIER_IDS.indexOf(tier));
     this.log(`${tier === 'epic' || tier === 'legendary' ? 'An' : 'A'} ${TIERS[tier].name.toLowerCase()} artifact dropped!`, 'good');
   }
@@ -5136,8 +5255,18 @@ export class Game {
 
   private dropGem(x: number, y: number, value: number): void {
     if (this.gems.length >= MAX_GEMS) {
-      // Too many gems lying around: fold the XP into the oldest one instead.
-      this.gems[0].value += value;
+      // Too many gems lying around: fold the XP into the nearest one instead (not always the same one, or it would
+      // grow into a jackpot worth several levels).
+      let nearest = this.gems[0];
+      let best = Infinity;
+      for (const g of this.gems) {
+        const d = dist2(g.x, g.y, x, y);
+        if (!g.target && d < best) {
+          best = d;
+          nearest = g;
+        }
+      }
+      nearest.value += value;
       return;
     }
     this.gems.push({ id: this.nextId++, x, y, value, target: null, speed: 0, collected: false });
@@ -5176,11 +5305,19 @@ export class Game {
   /** XP goes into the shared team pool. */
   private giveXp(amount: number): void {
     this.xp += amount;
-    while (this.xp >= this.xpNext()) {
-      this.xp -= this.xpNext();
-      this.level++;
-      this.choices.push('level');
-    }
+    this.levelUp();
+  }
+
+  /**
+   * At most one level-up every LEVEL_GAP seconds: a big haul of XP is banked and pays out one level at a time
+   * (instead of several upgrade picks in a row).
+   */
+  private levelUp(): void {
+    if (this.time < this.nextLevelAt || this.xp < this.xpNext()) return;
+    this.xp -= this.xpNext();
+    this.level++;
+    this.choices.push('level');
+    this.nextLevelAt = this.time + LEVEL_GAP;
   }
 
   /**
@@ -5301,6 +5438,8 @@ export class Game {
       phase: this.phase,
       map: this.mapIndex,
       unlocked: this.unlocked,
+      hard: this.hard,
+      hardUnlocked: this.hardUnlocked,
       bossTime: this.bossTime,
       arena: arena && {
         x: arena.x,

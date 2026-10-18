@@ -18,6 +18,8 @@ const FROM_V1 = [1, 2, 3, 5];
 export interface Progress {
   /** Number of maps unlocked (at least 1). */
   unlocked: number;
+  /** Number of maps unlocked on hard mode (0 until Mordak is slain). */
+  hardUnlocked: number;
   mapsVersion: number;
   /** Prestige by lowercased player name. */
   profiles: Record<string, Profile>;
@@ -30,11 +32,12 @@ export function loadProgress(): Progress {
     if ((Number(data.mapsVersion) || 1) < 2) unlocked = FROM_V1[Math.min(unlocked, 3)];
     return {
       unlocked,
+      hardUnlocked: Math.max(0, Number(data.hardUnlocked) || 0),
       mapsVersion: MAPS_VERSION,
       profiles: data.profiles && typeof data.profiles === 'object' ? data.profiles : {},
     };
   } catch {
-    return { unlocked: 1, mapsVersion: MAPS_VERSION, profiles: {} };
+    return { unlocked: 1, hardUnlocked: 0, mapsVersion: MAPS_VERSION, profiles: {} };
   }
 }
 

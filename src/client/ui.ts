@@ -12,7 +12,7 @@ import {
   type UltimateId,
 } from '../shared/characters';
 import { ARTIFACTS, TIERS, artifact, artifactSummary, describeActive, describeArtifact, type ArtifactId } from '../shared/artifacts';
-import { MAX_PLAYERS } from '../shared/constants';
+import { HARD, MAX_PLAYERS } from '../shared/constants';
 import { MODES } from '../shared/modes';
 import { ENEMY_TYPES, EnemyType, MISSIONS } from '../shared/enemies';
 import { MAPS, inZone, mapBossName, onFinaleGround } from '../shared/maps';
@@ -35,6 +35,9 @@ import {
   BONUSES,
   isBonus,
   type ChoiceId,
+  ALL_UPGRADES,
+  boostedBy,
+  type PassiveId,
 } from '../shared/upgrades';
 import { artifactIcon, sortArtifacts, tierColor } from './artifactView';
 import type { Sound } from './audio';
@@ -118,6 +121,8 @@ function weaponTip(id: UpgradeId, level: number): Tip {
   tags.push(evolved ? { text: 'Evolved', cls: 'tip-evolved' } : { text: `Level ${Math.max(1, level)} / ${upgradeMax(id)}`, cls: 'tip-level' });
   if (def.owner) tags.push({ text: 'E ability', cls: 'tip-level' });
   const lines: Tip['lines'] = [{ text: strip(def.describe(Math.max(1, Math.min(level, MAX_LEVEL)))) }];
+  const boosts = boostedBy(id);
+  if (boosts.length > 0) lines.push({ text: `Boosted by: ${boosts.map((b) => UPGRADES[b].name).join(', ')}`, cls: 'tip-boosts' });
   if (evolved) lines.push({ text: `${def.evolution!.name}: ${def.evolution!.text}`, cls: 'tip-evo' });
   else if (level < upgradeMax(id)) lines.push({ text: `Next level: ${strip(def.describe(level + 1))}`, cls: 'tip-muted' });
   else if (def.evolution) lines.push({ text: `Evolves at a Forge into ${def.evolution.name}: ${def.evolution.text}`, cls: 'tip-muted' });
@@ -165,7 +170,7 @@ export const formatTime = (seconds: number) =>
 /** The HTML overlays: lobby, HUD, loadout, level-up picks and game-over screen. */
 export class UI {
   onPick: (character: CharacterId) => void = () => {};
-  onPickMap: (index: number) => void = () => {};
+  onPickMap: (index: number, hard: boolean) => void = () => {};
   onStart: () => void = () => {};
   onLobby: () => void = () => {};
   onChoose: (index: number) => void = () => {};
@@ -192,6 +197,8 @@ export class UI {
   private startButton = $<HTMLButtonElement>('start');
   private startNote = $('start-note');
   private maps = $('maps');
+  private mapMode = $('map-mode');
+  private hardTag = $('hard-tag');
   private characters = $('characters');
   private artifactPicker = $('artifact-picker');
   private artifactCount = $('artifact-count');
@@ -433,6 +440,7 @@ export class UI {
     this.xpFill.style.width = `${Math.min(100, (snap.xp / snap.xpNext) * 100)}%`;
     this.level.textContent = `Lv ${snap.level}`;
     this.timer.textContent = formatTime(snap.time);
+    this.hardTag.classList.toggle('hidden', !snap.hard);
     this.kills.textContent = `${me?.kills ?? 0} kills`;
     this.gold.textContent = `${snap.me?.gold ?? 0} gold`;
     this.eventChip.classList.toggle('hidden', !snap.event);
@@ -470,18 +478,34 @@ export class UI {
   // --- Lobby ---
 
   private renderMaps(snap: Snapshot): void {
-    const key = `${snap.map}|${snap.unlocked}|${this.amHost}`;
+    const key = `${snap.map}|${snap.unlocked}|${snap.hard}|${snap.hardUnlocked}|${this.amHost}`;
     if (key === this.shown.maps) return;
     this.shown.maps = key;
+    // Normal or hard mode (once Mordak has fallen): switching keeps the map if it's open on the other mode too.
+    const hard = snap.hard;
+    this.mapMode.classList.toggle('hidden', snap.hardUnlocked <= 0);
+    this.mapMode.replaceChildren(
+      ...[false, true].map((mode) => {
+        const button = el('button', `map-mode-button${mode ? ' hard' : ''}${mode === hard ? ' selected' : ''}`, mode ? 'Hard' : 'Normal') as HTMLButtonElement;
+        button.disabled = !this.amHost;
+        button.title = mode ? 'Every map again: enemies hit harder, the horde is faster and bosses attack relentlessly, with new patterns. More prestige and better loot.' : 'The maps as you first played them';
+        button.addEventListener('click', () => {
+          if (mode === hard) return;
+          this.onPickMap(Math.min(snap.map, (mode ? snap.hardUnlocked : snap.unlocked) - 1), mode);
+        });
+        return button;
+      }),
+    );
+    this.maps.classList.toggle('hard', hard);
     this.maps.replaceChildren(
       ...MAPS.map((map, i) => {
-        const locked = i >= snap.unlocked;
+        const locked = i >= (hard ? snap.hardUnlocked : snap.unlocked);
         const card = el('button', `map-card${i === snap.map ? ' selected' : ''}${locked ? ' locked' : ''}${this.amHost ? '' : ' readonly'}`) as HTMLButtonElement;
         card.disabled = locked || !this.amHost;
         // The details (description, boss, kind of finale) are in the hover text, to keep the cards small.
         const kind = map.arena ? 'Boss arena' : map.lava ? 'Closing lava' : 'Open field';
         card.title = locked
-          ? `Beat ${MAPS[i - 1].name} to unlock`
+          ? `Beat ${MAPS[i - 1].name}${hard ? ' on hard mode' : ''} to unlock`
           : `${map.subtitle}\nFinal ${map.twin !== undefined ? 'bosses' : 'boss'}: ${mapBossName(map)} (${kind})${this.amHost ? '' : '\nThe host picks the map'}`;
         const icon = el('div', 'map-card-icon');
         icon.innerHTML = mapIconSvg(map, 54); // Static SVG.
@@ -489,10 +513,10 @@ export class UI {
         card.append(
           icon,
           el('div', 'map-card-name', map.name),
-          el('div', 'map-card-difficulty', `Enemies ×${map.difficulty}`),
-          el('div', 'map-card-difficulty', `Prestige ×${map.prestigeReward}`),
+          el('div', 'map-card-difficulty', `Enemies ×${+(map.difficulty * (hard ? HARD.difficulty : 1)).toFixed(2)}`),
+          el('div', 'map-card-difficulty', `Prestige ×${+(map.prestigeReward * (hard ? HARD.prestige : 1)).toFixed(2)}`),
         );
-        card.addEventListener('click', () => this.onPickMap(i));
+        card.addEventListener('click', () => this.onPickMap(i, hard));
         return card;
       }),
     );
@@ -1106,10 +1130,45 @@ export class UI {
           text += ` Attunes: +${Math.round(ATTUNEMENT[def.damage] * 100)}% ${def.damage} damage.`;
         }
         card.append(header, iconEl(id, 56), el('div', 'card-name', evolution?.name ?? def.name), el('p', 'card-desc', text), pips(next, evolution ? MAX_LEVEL : max));
+        card.append(this.boostRow(id, upgrades));
         card.addEventListener('click', () => this.onChoose(i));
         return card;
       }),
     );
+  }
+
+  /**
+   * What makes this upgrade better or what it makes better: a weapon lists the passives that boost it (as icons); a
+   * passive lists the weapons you carry that it boosts (or says none of them use it yet).
+   */
+  private boostRow(id: UpgradeId, upgrades: Upgrades): HTMLElement {
+    const row = el('div', 'card-boosts');
+    const def = UPGRADES[id];
+    if (def.kind === 'weapon') {
+      const boosts = boostedBy(id);
+      if (boosts.length === 0) return row;
+      row.append(el('span', 'card-boosts-label', 'Boosted by'));
+      for (const b of boosts) {
+        const icon = iconEl(b, 20);
+        icon.title = UPGRADES[b].name;
+        row.append(icon);
+      }
+      return row;
+    }
+    const mine = ownedWeapons(upgrades).filter((w) => boostedBy(w).includes(id as PassiveId));
+    const specific = ALL_UPGRADES.some((w) => boostedBy(w).includes(id as PassiveId));
+    if (!specific) return row; // Might, Haste and the like help everything.
+    if (mine.length === 0) {
+      row.append(el('span', 'card-boosts-label', 'None of your weapons use this yet'));
+      return row;
+    }
+    row.append(el('span', 'card-boosts-label', 'Boosts'));
+    for (const w of mine) {
+      const icon = iconEl(w, 20);
+      icon.title = UPGRADES[w].name;
+      row.append(icon);
+    }
+    return row;
   }
 
   /** While you're down: your teammates' portraits; click one to follow their camera, or yourself to come back. */

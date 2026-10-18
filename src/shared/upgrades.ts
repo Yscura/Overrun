@@ -584,6 +584,11 @@ interface UpgradeDef {
   owner?: string;
   /** A regular weapon only this hero (a CharacterId) can be offered. */
   exclusive?: string;
+  /**
+   * Passives that make this weapon better beyond Might (and Crit or Arcana, by its damage type): Expanse ('area'),
+   * Multishot ('multishot'), Duration ('duration'). Keep it in step with how the server fires it.
+   */
+  scales?: ('area' | 'multishot' | 'duration')[];
   /** Text shown on the level-up card for reaching `level`. */
   describe: (level: number) => string;
   /** Weapons and hero abilities: the level 6 form unlocked at a Forge. */
@@ -601,6 +606,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   bolt: {
     name: 'Arcane Bolt',
     kind: 'weapon',
+    scales: ['multishot'],
     damage: 'magic',
     role: 'ranged',
     describe: (level) => {
@@ -612,6 +618,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   knives: {
     name: 'Throwing Knives',
     kind: 'weapon',
+    scales: ['multishot'],
     damage: 'physical',
     role: 'ranged',
     describe: (level) => {
@@ -623,6 +630,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   storm: {
     name: 'Lightning Storm',
     kind: 'weapon',
+    scales: ['multishot', 'area'],
     damage: 'magic',
     role: 'ranged',
     describe: (level) => {
@@ -635,6 +643,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   hex: {
     name: 'Seeker Hex',
     kind: 'weapon',
+    scales: ['multishot'],
     damage: 'magic',
     role: 'ranged',
     describe: (level) => {
@@ -646,6 +655,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   cleave: {
     name: 'Cleave',
     kind: 'weapon',
+    scales: ['area'],
     damage: 'physical',
     role: 'melee',
     describe: (level) => {
@@ -657,6 +667,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   slam: {
     name: 'Ground Slam',
     kind: 'weapon',
+    scales: ['area'],
     damage: 'physical',
     role: 'melee',
     describe: (level) => {
@@ -668,6 +679,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   venom: {
     name: 'Venom Trail',
     kind: 'weapon',
+    scales: ['area', 'duration'],
     damage: 'magic',
     role: 'melee',
     describe: (level) => {
@@ -679,6 +691,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   field: {
     name: 'Radiant Field',
     kind: 'weapon',
+    scales: ['area'],
     damage: 'magic',
     describe: (level) => {
       const s = fieldStats(level);
@@ -689,6 +702,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   mines: {
     name: 'Mine Layer',
     kind: 'weapon',
+    scales: ['area'],
     damage: 'physical',
     describe: (level) => {
       const s = minesStats(level);
@@ -699,6 +713,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   orbit: {
     name: 'Spirit Blades',
     kind: 'weapon',
+    scales: ['multishot', 'area'],
     damage: 'physical',
     describe: (level) => {
       const s = orbitStats(level);
@@ -709,6 +724,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   shuriken: {
     name: 'Shuriken',
     kind: 'weapon',
+    scales: ['multishot', 'area'],
     damage: 'physical',
     role: 'ranged',
     describe: (level) => {
@@ -720,6 +736,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   daggers: {
     name: 'Shadow Daggers',
     kind: 'weapon',
+    scales: ['multishot'],
     damage: 'physical',
     role: 'melee',
     describe: (level) => {
@@ -731,6 +748,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   fireball: {
     name: 'Fireball',
     kind: 'weapon',
+    scales: ['multishot', 'area'],
     damage: 'magic',
     role: 'ranged',
     describe: (level) => {
@@ -742,6 +760,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   arrows: {
     name: 'Longbow',
     kind: 'weapon',
+    scales: ['multishot'],
     damage: 'physical',
     role: 'ranged',
     describe: (level) => {
@@ -753,6 +772,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   wolves: {
     name: 'Wolf Pack',
     kind: 'weapon',
+    scales: ['multishot', 'area'],
     damage: 'physical',
     exclusive: 'druid',
     describe: (level) => {
@@ -764,6 +784,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   embers: {
     name: 'Ember Halo',
     kind: 'weapon',
+    scales: ['multishot', 'area'],
     damage: 'magic',
     exclusive: 'dragonmancer',
     describe: (level) => {
@@ -775,6 +796,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   flask: {
     name: 'Flask Toss',
     kind: 'weapon',
+    scales: ['multishot', 'area', 'duration'],
     damage: 'magic',
     role: 'ranged',
     describe: (level) => {
@@ -786,6 +808,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   hammer: {
     name: 'Judgment Hammer',
     kind: 'weapon',
+    scales: ['multishot', 'area'],
     damage: 'magic',
     role: 'melee',
     describe: (level) => {
@@ -797,6 +820,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   smite: {
     name: 'Smite',
     kind: 'weapon',
+    scales: ['multishot'],
     damage: 'magic',
     role: 'ranged',
     describe: (level) => {
@@ -960,6 +984,17 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
 };
 
 export const ALL_UPGRADES = Object.keys(UPGRADES) as UpgradeId[];
+
+/**
+ * The passives that make a weapon better, apart from the ones that help everything (Might, Haste): Crit for physical
+ * weapons or Arcana for magic ones, then whichever of Expanse, Multishot and Duration it uses. Empty for anything else.
+ */
+export function boostedBy(id: UpgradeId): PassiveId[] {
+  const def = UPGRADES[id];
+  if (def.kind !== 'weapon' || def.owner) return [];
+  const list: PassiveId[] = [def.damage === 'magic' ? 'arcana' : 'crit'];
+  return [...list, ...(def.scales ?? [])];
+}
 
 export function upgradeMax(id: UpgradeId): number {
   return UPGRADES[id].maxLevel ?? MAX_LEVEL;

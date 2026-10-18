@@ -6,7 +6,7 @@ const DOWN = ['KeyS', 'ArrowDown'];
 const LEFT = ['KeyA', 'ArrowLeft'];
 const RIGHT = ['KeyD', 'ArrowRight'];
 /** God-mode cheat keys (see the dev panel). */
-export const DEV_KEYS: Record<string, DevAction> = { KeyT: 'skip', KeyJ: 'boss', KeyU: 'level', KeyF: 'forge', KeyB: 'max', KeyG: 'god' };
+export const DEV_KEYS: Record<string, DevAction> = { KeyT: 'skip', KeyJ: 'boss', KeyK: 'finale', KeyU: 'level', KeyF: 'forge', KeyB: 'max', KeyG: 'god' };
 
 export class Input {
   private keys = new Set<string>();
