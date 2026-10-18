@@ -7,8 +7,13 @@ export interface Wall {
   w: number;
   h: number;
   thin: boolean;
-  /** How it's drawn: stonework by default, or as water, a tree or rock. Collision doesn't care. */
-  look?: 'water' | 'tree' | 'rock';
+  /**
+   * How it's drawn: stonework by default, or as water, a tree or rock. `terrain`: ground you can't enter at all (filled
+   * in beside a boss arena), not drawn as a wall, and solid even to dodges that pass through walls.
+   */
+  look?: 'water' | 'tree' | 'rock' | 'terrain';
+  /** Stops everything, even dodges that pass through walls (the boss arenas' walls and gates). */
+  solid?: boolean;
 }
 
 /** Which walls a mover may pass through. */
@@ -58,6 +63,7 @@ export class WallIndex {
 }
 
 function blocks(wall: Wall, pass: PassFlags | undefined): boolean {
+  if (wall.look === 'terrain' || wall.solid) return true;
   return wall.thin ? !pass?.thin : !pass?.thick;
 }
 

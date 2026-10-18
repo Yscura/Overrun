@@ -155,6 +155,43 @@ function landmarks(map: MapDef, still: Graphics, glow: Graphics, top: Graphics, 
   }
 }
 
+/**
+ * The ground walled off beside a boss arena: the same dark void as past the edges of the map (it's out of bounds).
+ * Null for maps without it.
+ */
+export function sealedTerrain(map: MapDef): Graphics | null {
+  if (!map.sealed) return null;
+  const { x: x0, hole } = map.sealed;
+  const g = new Graphics();
+  const dark = { color: map.theme.outside, alpha: 0.85 };
+  if ('r' in hole) {
+    if (hole.x - hole.r >= x0) {
+      g.rect(x0, 0, map.width - x0, map.height).fill(dark);
+      g.circle(hole.x, hole.y, hole.r).cut();
+      return g;
+    }
+    // The arena pokes out past the void's edge: go round it. Down the edge to where the arena meets it, round the
+    // arena's far side, and on up the edge.
+    const a1 = Math.acos(Math.max(-1, Math.min(1, (x0 - hole.x) / hole.r)));
+    const points: number[] = [x0, 0, map.width, 0, map.width, map.height, x0, map.height, x0, hole.y + Math.sin(a1) * hole.r];
+    const steps = 48;
+    for (let i = 0; i <= steps; i++) {
+      const a = a1 - (2 * a1 * i) / steps;
+      points.push(hole.x + Math.cos(a) * hole.r, hole.y + Math.sin(a) * hole.r);
+    }
+    g.poly(points).fill(dark);
+    return g;
+  }
+  // Around a rectangle (the keep), as the four pieces around it (a cut-out touching the map's edge doesn't take).
+  const right = hole.x + hole.w;
+  g.rect(x0, 0, map.width - x0, hole.y)
+    .rect(x0, hole.y + hole.h, map.width - x0, map.height - hole.y - hole.h)
+    .rect(x0, hole.y, Math.max(0, hole.x - x0), hole.h)
+    .rect(right, hole.y, Math.max(0, map.width - right), hole.h)
+    .fill(dark);
+  return g;
+}
+
 /** Is (x, y) within `margin` of the river's water? */
 function nearRiver(map: MapDef, x: number, y: number, margin: number): boolean {
   const river = map.river!;
@@ -781,12 +818,12 @@ export function drawWalls(map: MapDef): Graphics {
   const g = new Graphics();
   // Shadows first, so no wall is darkened by its neighbor's. Water has none (the river is drawn with the floor).
   for (const w of map.walls) {
-    if (w.look === 'water') continue;
+    if (w.look === 'water' || w.look === 'terrain') continue;
     if (w.look === 'tree' || isBoulder(w)) g.ellipse(w.x + w.w / 2 + 8, w.y + w.h / 2 + 12, w.w * 0.62, w.h * 0.5).fill({ color: 0x000000, alpha: 0.35 });
     else g.rect(w.x + 6, w.y + 9, w.w, w.h).fill({ color: 0x000000, alpha: w.thin ? 0.22 : 0.4 });
   }
   for (const w of map.walls) {
-    if (w.look === 'water') continue;
+    if (w.look === 'water' || w.look === 'terrain') continue;
     if (w.look === 'tree') {
       treeTop(g, w);
       continue;

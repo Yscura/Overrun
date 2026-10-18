@@ -84,6 +84,11 @@ export interface MapDef {
   arena: Arena | null;
   /** A lava rim that closes in for the boss (who then spawns in the middle). */
   lava?: Lava;
+  /**
+   * Walled off behind the boss arena: everything east of `x` but the arena itself (`hole`, a circle or a rectangle) is
+   * out of bounds, drawn dark like the outside of the map.
+   */
+  sealed?: { x: number; hole: { x: number; y: number; r: number } | { x: number; y: number; w: number; h: number } };
   /** What happens after the boss dies, if it isn't the end (see Finale). */
   finale?: Finale;
   /**
@@ -158,6 +163,15 @@ export function arenaReach(a: Arena): number {
 }
 
 /** The map's walls, plus the arena gate while it's shut. */
+/** Is (x, y) in the ground walled off beside the boss arena (where no one may ever be)? */
+export function inSealed(map: MapDef, x: number, y: number): boolean {
+  const s = map.sealed;
+  if (!s || x <= s.x) return false;
+  const h = s.hole;
+  if ('r' in h) return (x - h.x) ** 2 + (y - h.y) ** 2 > h.r ** 2;
+  return x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h;
+}
+
 /** Standing on a finale's stepping stones or in its den (`margin` in from their edges). */
 export function onFinaleGround(finale: Finale, x: number, y: number, margin = 0): boolean {
   if ((x - finale.den.x) ** 2 + (y - finale.den.y) ** 2 < (finale.den.r - margin) ** 2) return true;
@@ -218,7 +232,7 @@ function fenceV(x: number, y1: number, y2: number, gap = 0): Wall[] {
  * A round wall of overlapping blocks around (cx, cy) with an opening facing west, and the gate that fills it.
  * `opening` is roughly how wide the way in is.
  */
-function colosseum(cx: number, cy: number, r: number, size: number, opening: number, look?: Wall['look']): { walls: Wall[]; gate: Wall[] } {
+function colosseum(cx: number, cy: number, r: number, size: number, opening: number, look?: Wall['look']): { walls: Wall[]; gate: Wall[]; front: { x: number; reach: number }; outer: number; inner: number } {
   const count = Math.ceil((Math.PI * 2 * r) / (size * 0.85));
   const half = Math.asin(opening / 2 / r);
   const walls: Wall[] = [];
@@ -232,7 +246,58 @@ function colosseum(cx: number, cy: number, r: number, size: number, opening: num
   }
   // The gate reaches the middle of the blocks on either side of the opening.
   const reach = Math.sin(nearest) * r;
-  return { walls, gate: [wall(cx - r - size / 2, cy - reach, size, reach * 2)] };
+  // The front: the blocks on either side of the way in (where walls closing off the sides start).
+  const front = { x: cx - Math.cos(nearest) * r, reach };
+  // Nothing dodges through an arena's walls or its gate.
+  for (const w of walls) w.solid = true;
+  const gate = { ...wall(cx - r - size / 2, cy - reach, size, reach * 2), solid: true };
+  return { walls, gate: [gate], front, outer: r + size / 2, inner: r - size / 2 };
+}
+
+/**
+ * Solid ground filling everything east of `x0` but the arena (`hole`: inside its ring, or the keep): bands of terrain
+ * walls, each stopping short of the arena's floor. Nothing spawns, walks or dodges in there.
+ */
+function terrainWalls(x0: number, width: number, height: number, hole: { x: number; y: number; r: number } | { x: number; y: number; w: number; h: number }): Wall[] {
+  const band = 50;
+  const walls: Wall[] = [];
+  const add = (from: number, to: number, y: number) => {
+    if (to - from > 1) walls.push(wall(from, y, to - from, band, 'terrain'));
+  };
+  for (let y = 0; y < height; y += band) {
+    let gap: [number, number] | null = null;
+    if ('r' in hole) {
+      // Where the band comes closest to the arena's middle, its floor is widest: keep clear of all of it.
+      const near = y <= hole.y && hole.y <= y + band ? 0 : Math.min(Math.abs(y - hole.y), Math.abs(y + band - hole.y));
+      if (near < hole.r) {
+        const half = Math.sqrt(hole.r ** 2 - near ** 2);
+        gap = [hole.x - half, hole.x + half];
+      }
+    } else if (y + band > hole.y && y < hole.y + hole.h) {
+      gap = [hole.x, hole.x + hole.w];
+    }
+    if (!gap) add(x0, width, y);
+    else {
+      add(x0, Math.max(x0, gap[0]), y);
+      add(Math.min(width, gap[1]), width, y);
+    }
+  }
+  return walls;
+}
+
+/**
+ * Walls from an arena's front (either side of its way in) straight to the top and bottom of the map, so nothing can
+ * get round the sides of the arena or behind it. As trees, rock or plain stone.
+ */
+function sealSides(frontX: number, cy: number, reach: number, height: number, size: number, look?: Wall['look']): Wall[] {
+  if (look === 'tree') {
+    // A thicket: trees close enough that nothing slips between them.
+    const trees: Wall[] = [];
+    for (let y = size / 2; y < cy - reach; y += size * 0.6) trees.push(tree(frontX, y, size));
+    for (let y = cy + reach; y < height + size / 2; y += size * 0.6) trees.push(tree(frontX, y, size));
+    return trees;
+  }
+  return [wall(frontX - size / 2, 0, size, cy - reach, look), wall(frontX - size / 2, cy + reach, size, height - cy - reach, look)];
 }
 
 /** Blocks along an arc around (cx, cy), from angle a0 to a1: a stretch of a ruined round wall. */
@@ -350,6 +415,7 @@ export const MAPS: MapDef[] = [
     spawn: { x: 800, y: 1700 },
     boss: EnemyType.Sylvara,
     arena: { x: 3550, y: 1700, r: 430, zone: 640, gate: GLADE.gate, gateLook: 'vines' },
+    sealed: { x: GLADE.front.x, hole: { x: 3550, y: 1700, r: GLADE.outer } },
     river: RIVER,
     difficulty: 0.7,
     prestigeReward: 0.75,
@@ -369,8 +435,10 @@ export const MAPS: MapDef[] = [
     theme: { background: 0x172e18, grid: 0x1f3a20, wall: 0x6b7a5c, wallEdge: 0x3b4a32, fence: 0x9c7b4f, outside: 0x07110a },
     walls: [
       ...riverWalls(RIVER, WOODS.height),
-      // The glade, and groves dotted around the woods.
+      // The glade, a thicket closing off the woods beside and behind it, and groves dotted around the woods.
       ...GLADE.walls,
+      ...sealSides(GLADE.front.x, 1700, GLADE.front.reach, WOODS.height, 100, 'tree'),
+      ...terrainWalls(GLADE.front.x, WOODS.width, WOODS.height, { x: 3550, y: 1700, r: GLADE.inner }),
       ...grove(450, 450),
       ...grove(1250, 330, 0.9),
       ...grove(450, 2950),
@@ -381,17 +449,11 @@ export const MAPS: MapDef[] = [
       ...grove(2800, 2950),
       ...grove(2700, 1250, 0.9),
       ...grove(2750, 2200),
-      ...grove(3450, 420, 1.1),
-      ...grove(3450, 3000, 1.1),
-      ...grove(4000, 750, 0.8),
-      ...grove(4000, 2650, 0.8),
       ...grove(250, 1700, 0.8),
       tree(900, 1050, 70),
       tree(800, 2400, 75),
       tree(1800, 520, 70),
       tree(2400, 3150, 70),
-      tree(3100, 900, 70),
-      tree(3100, 2500, 70),
       // A log pile and a woodcutter's fence near the start.
       wall(560, 1200, 150, 44),
       ...fenceH(380, 760, 2150),
@@ -406,6 +468,7 @@ export const MAPS: MapDef[] = [
     spawn: { x: 1800, y: 1800 },
     boss: EnemyType.Reaper,
     arena: { x: 4150, y: 1800, r: 470, zone: 640, gate: RUINS_ARENA.gate },
+    sealed: { x: RUINS_ARENA.front.x, hole: { x: 4150, y: 1800, r: RUINS_ARENA.outer } },
     difficulty: 1,
     prestigeReward: 1,
     enemyWeights: { [EnemyType.Wraith]: 0 },
@@ -415,8 +478,8 @@ export const MAPS: MapDef[] = [
       ...room(2650, 350, 600, 420, ['s', 'w']),
       ...room(350, 2800, 520, 450, ['n', 'e']),
       ...room(2700, 2750, 540, 480, ['n', 'w']),
-      ...room(1550, 300, 500, 300, ['s']),
-      ...room(1550, 3000, 500, 300, ['n']),
+      ...room(1550, 300, 500, 300, ['s', 'e', 'w']),
+      ...room(1550, 3000, 500, 300, ['n', 'e', 'w']),
       // The courtyard: fences with an opening on each side.
       ...fenceH(1250, 2350, 1250, 220),
       ...fenceH(1250, 2350, 2350, 220),
@@ -427,16 +490,10 @@ export const MAPS: MapDef[] = [
       wall(2950, 1500, 50, 600),
       wall(1500, 900, 600, 50),
       wall(1500, 2650, 600, 50),
-      // The colosseum, and broken columns around it.
+      // The colosseum, walled in on either side of its gate.
       ...RUINS_ARENA.walls,
-      pillar(3900, 700, 70),
-      pillar(4400, 850, 60),
-      pillar(4150, 450, 50),
-      pillar(3900, 2900, 70),
-      pillar(4400, 2750, 60),
-      pillar(4150, 3150, 50),
-      ...fenceH(3700, 4100, 1050),
-      ...fenceH(3700, 4100, 2550),
+      ...sealSides(RUINS_ARENA.front.x, 1800, RUINS_ARENA.front.reach, 3600, 80),
+      ...terrainWalls(RUINS_ARENA.front.x, 4750, 3600, { x: 4150, y: 1800, r: RUINS_ARENA.inner }),
     ],
   },
   {
@@ -454,8 +511,9 @@ export const MAPS: MapDef[] = [
       hall: { hw: (KEEP.w - K) / 2, hh: KEEP.h / 2 - K },
       // The burning zone stops just outside the keep's walls.
       zone: (KEEP.w - K) / 2 + K + 10,
-      gate: [wall(KEEP.x, KEEP.y + (KEEP.h - KEEP_GATE) / 2, K, KEEP_GATE)],
+      gate: [{ ...wall(KEEP.x, KEEP.y + (KEEP.h - KEEP_GATE) / 2, K, KEEP_GATE), solid: true }],
     },
+    sealed: { x: KEEP.x + K / 2, hole: { x: KEEP.x, y: KEEP.y, w: KEEP.w, h: KEEP.h } },
     difficulty: 1.4,
     prestigeReward: 1.5,
     enemyWeights: { [EnemyType.Spitter]: 1.6, [EnemyType.Wraith]: 1, [EnemyType.Bombardier]: 0.5 },
@@ -488,10 +546,10 @@ export const MAPS: MapDef[] = [
       wall(0, 1260, 170, 140),
       wall(0, 1600, 170, 140),
       // The keep: thick walls with towers, and its gate (see the arena) facing the courtyard.
-      wall(KEEP.x, KEEP.y, KEEP.w, K),
-      wall(KEEP.x, KEEP.y + KEEP.h - K, KEEP.w, K),
-      wall(KEEP.x, KEEP.y, K, (KEEP.h - KEEP_GATE) / 2),
-      wall(KEEP.x, KEEP.y + (KEEP.h + KEEP_GATE) / 2, K, (KEEP.h - KEEP_GATE) / 2),
+      { ...wall(KEEP.x, KEEP.y, KEEP.w, K), solid: true },
+      { ...wall(KEEP.x, KEEP.y + KEEP.h - K, KEEP.w, K), solid: true },
+      { ...wall(KEEP.x, KEEP.y, K, (KEEP.h - KEEP_GATE) / 2), solid: true },
+      { ...wall(KEEP.x, KEEP.y + (KEEP.h + KEEP_GATE) / 2, K, (KEEP.h - KEEP_GATE) / 2), solid: true },
       wall(KEEP.x - 60, KEEP.y - 60, 190, 190),
       wall(KEEP.x - 60, KEEP.y + KEEP.h - 130, 190, 190),
       wall(KEEP.x - 50, KEEP.y + (KEEP.h - KEEP_GATE) / 2 - 120, 120, 120),
@@ -502,9 +560,9 @@ export const MAPS: MapDef[] = [
       pillar(4090, 1220, 90),
       pillar(4090, 1780, 90),
       // Barracks and a smithy against the north wall, stables and a storehouse against the south.
-      ...room(450, 40, 760, 420, ['s'], 180),
+      ...room(450, 40, 760, 420, ['s', 'e', 'w'], 180),
       ...room(1750, 40, 560, 380, ['s', 'e']),
-      ...room(450, 2540, 760, 420, ['n'], 180),
+      ...room(450, 2540, 760, 420, ['n', 'e', 'w'], 180),
       ...fenceV(700, 2720, 2940),
       ...fenceV(950, 2720, 2940),
       ...room(1750, 2580, 560, 380, ['n', 'w']),
@@ -524,13 +582,10 @@ export const MAPS: MapDef[] = [
       wall(1050, 1950, 50, 170),
       wall(2450, 750, 180, 50),
       wall(2450, 2190, 180, 50),
-      // Frozen orchards beside the keep.
-      ...fenceH(3450, 4150, 600, 200),
-      ...fenceH(3450, 4150, 2400, 200),
-      pillar(3700, 350, 50),
-      pillar(4000, 420, 50),
-      pillar(3650, 2650, 50),
-      pillar(4000, 2600, 50),
+      // Walls from the keep's front corners to the curtain walls: nothing gets round the keep's sides or behind it.
+      wall(KEEP.x, 0, K, KEEP.y),
+      wall(KEEP.x, KEEP.y + KEEP.h, K, 3000 - KEEP.y - KEEP.h),
+      ...terrainWalls(KEEP.x + K / 2, 4400, 3000, { x: KEEP.x + K, y: KEEP.y + K, w: KEEP.w - K, h: KEEP.h - 2 * K }),
     ],
   },
   {
@@ -542,6 +597,7 @@ export const MAPS: MapDef[] = [
     spawn: { x: 500, y: 1500 },
     boss: EnemyType.Kharzak,
     arena: { x: 4600, y: 1500, r: 440, zone: 680, gate: DEN.gate },
+    sealed: { x: DEN.front.x, hole: { x: 4600, y: 1500, r: DEN.outer } },
     difficulty: 1.5,
     prestigeReward: 1.75,
     enemyWeights: { [EnemyType.Charger]: 1, [EnemyType.Spitter]: 1.1, [EnemyType.Runner]: 1.3, [EnemyType.Wraith]: 0.6 },
@@ -560,6 +616,9 @@ export const MAPS: MapDef[] = [
     walls: [
       ...cliffs(CANYON.width, CANYON.height),
       ...DEN.walls,
+      // Rock walling the den in on either side of its mouth.
+      ...sealSides(DEN.front.x, 1500, DEN.front.reach, CANYON.height, 110, 'rock'),
+      ...terrainWalls(DEN.front.x, CANYON.width, CANYON.height, { x: 4600, y: 1500, r: DEN.inner }),
       // Boulders in the den: bait Kharzak's charge into one to crack its shell.
       boulder(4600 + Math.cos(Math.PI / 3) * 260, 1500 + Math.sin(Math.PI / 3) * 260, 100),
       boulder(4600 - 260, 1500, 100),

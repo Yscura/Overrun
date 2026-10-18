@@ -5,7 +5,7 @@ import { BOMB, BOSS_DEATH, BOSS_INTRO, COIN, DRAGON_INTRO, CRATE_RADIUS, DODGE_S
 import { DAMAGE_COLORS, DAMAGE_TYPES, type DamageType } from '../shared/upgrades';
 import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType, isBossType } from '../shared/enemies';
 import { DRAGON_SHOULDER, NO_ROTATE, drawDragonWing, drawEnemy, shade } from './enemyArt';
-import { TILE, decorations, drawGate, lavaField, drawWalls, groundTile } from './mapArt';
+import { decorations, drawGate, drawWalls, groundTile, lavaField, sealedTerrain, TILE } from './mapArt';
 import { MAPS, mapWalls, enemyColor, zoneRect } from '../shared/maps';
 import { Minimap } from './minimap';
 import { portraitUrl } from './portraits';
@@ -516,6 +516,9 @@ export class GameRenderer {
       this.finaleDrawn = false;
       this.mapLayer.addChild(this.finaleGround);
     }
+    // Walled off beside the boss arena: the void, like past the map's edges.
+    const sealed = sealedTerrain(map);
+    if (sealed) this.mapLayer.addChild(sealed);
     this.mapLayer.addChild(outside, drawWalls(map), decor.top);
     this.gateDrawn = -1;
   }

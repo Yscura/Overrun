@@ -31,7 +31,7 @@ export class Minimap {
   private size = SIZE;
   private scale = 1;
   private frame = 0;
-  /** The part of the map shown (see shownArea), and whether the finale has revealed the rest. */
+  /** The part of the map shown (see shownArea), and whether the boss (or the finale) has revealed the rest. */
   private area = { x: 0, y: 0, w: 1, h: 1 };
   private revealed = false;
 
@@ -42,12 +42,15 @@ export class Minimap {
   }
 
   /**
-   * The part of the map the minimap shows: all of it, except on a map with a hidden finale, where it shows only the
-   * square around the playing field (from the bottom up) until the finale reveals what lies beyond.
+   * The part of the map the minimap shows: all of it, except before it's time. A map with a walled-off boss arena shows
+   * only the field up to the arena's front until the boss is due; a map with a hidden finale shows only the square
+   * around the playing field (from the bottom up) until the finale reveals what lies beyond.
    */
   private shownArea(revealed: boolean): { x: number; y: number; w: number; h: number } {
     const map = MAPS[this.mapIndex];
-    if (!map.finale || revealed || map.height <= map.width) return { x: 0, y: 0, w: map.width, h: map.height };
+    if (revealed) return { x: 0, y: 0, w: map.width, h: map.height };
+    if (map.sealed) return { x: 0, y: 0, w: map.sealed.x, h: map.height };
+    if (!map.finale || map.height <= map.width) return { x: 0, y: 0, w: map.width, h: map.height };
     return { x: 0, y: map.height - map.width, w: map.width, h: map.width };
   }
 
@@ -60,7 +63,8 @@ export class Minimap {
     pings: readonly { x: number; y: number; color: number }[],
   ): void {
     const size = screenWidth < 700 ? SMALL_SIZE : SIZE;
-    const revealed = !!snap.finale && snap.finale.stage !== 'crumble';
+    // The finale's ground gave way, or the boss is due (the arena's gate has opened).
+    const revealed = (!!snap.finale && snap.finale.stage !== 'crumble') || (!!snap.arena && snap.arena.state !== 'idle');
     if (snap.map !== this.mapIndex || size !== this.size || revealed !== this.revealed) {
       this.mapIndex = snap.map;
       this.size = size;
@@ -91,7 +95,14 @@ export class Minimap {
     g.rect(a.x * s, a.y * s, a.w * s, a.h * s)
       .fill({ color: 0x000000, alpha: 0.6 })
       .stroke({ width: 1, color: 0x4a5263 });
+    if (map.sealed) {
+      const { x, hole } = map.sealed;
+      g.rect(x * s, 0, (map.width - x) * s, map.height * s).fill({ color: 0x000000, alpha: 0.75 });
+      if ('r' in hole) g.circle(hole.x * s, hole.y * s, hole.r * s).cut();
+      else g.rect(hole.x * s, hole.y * s, hole.w * s, hole.h * s).cut();
+    }
     for (const w of map.walls) {
+      if (w.look === 'terrain') continue; // (Drawn as the sealed-off ground above.)
       const color = w.look === 'water' ? 0x4fc3f7 : w.look === 'tree' ? 0x66bb6a : w.look === 'rock' ? 0xbcaaa4 : 0xb0bec5;
       g.rect(w.x * s, w.y * s, Math.max(1, w.w * s), Math.max(1, w.h * s)).fill({ color, alpha: w.look ? 0.7 : w.thin ? 0.35 : 0.8 });
     }

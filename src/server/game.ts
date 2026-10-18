@@ -109,6 +109,7 @@ import {
   arenaReach,
   clampToArena,
   inZone,
+  inSealed,
   insideArena,
   mapBossName,
   mapWalls,
@@ -1880,6 +1881,7 @@ export class Game {
     this.updateQuest(dt, alive);
     this.rebuildGrid();
     this.moveEnemies(dt, alive);
+    if (this.map.sealed) for (const e of this.enemies) if (!e.dead) this.keepOutOfSealed(e, ENEMY_TYPES[e.type].radius, false);
     this.updateFlights(dt);
     this.attachParts();
     this.rebuildGrid();
@@ -2022,8 +2024,8 @@ export class Game {
   private pointNear(alive: Player[], minDist: number, maxDist: number, radius = 20): { x: number; y: number } {
     const near = alive[Math.floor(Math.random() * alive.length)];
     const nearest = (x: number, y: number) => Math.min(...alive.map((p) => Math.hypot(p.x - x, p.y - y)));
-    let best = { x: near.x, y: near.y };
-    let bestScore = -Infinity;
+    let best: { x: number; y: number } | null = null;
+    let bestGap = -Infinity;
     for (let attempt = 0; attempt < 48; attempt++) {
       // Cramped (a corner, the lava): after a while, try farther out, around anyone.
       const from = attempt < 24 ? near : alive[attempt % alive.length];
@@ -2032,18 +2034,39 @@ export class Game {
       const distance = minDist + Math.random() * (reach - minDist);
       const tx = clamp(from.x + Math.cos(angle) * distance, radius, this.map.width - radius);
       const ty = clamp(from.y + Math.sin(angle) * distance, radius, this.map.height - radius);
-      const usable = this.dry(tx, ty, radius) && !overlapsWall(this.walls, tx, ty, radius) && this.flow.distanceAt(tx, ty) < Infinity;
       const ashore = this.ashore(tx, ty, radius);
       const spot = pushOut(this.walls, ashore.x, ashore.y, radius);
+      // Only ever somewhere it may be (checked where it ends up, after being moved out of the lava and walls).
+      if (!this.openGround(spot.x, spot.y, radius)) continue;
       const gap = nearest(spot.x, spot.y);
-      if (usable && gap >= minDist * 0.8) return spot;
-      const score = Math.min(gap, minDist) - (usable ? 0 : 200);
-      if (score > bestScore) {
-        bestScore = score;
+      if (gap >= minDist * 0.8) return spot;
+      if (gap > bestGap) {
+        bestGap = gap;
         best = spot;
       }
     }
-    return best;
+    if (best) return best;
+    // Nowhere good at random: search outward from a player, ring by ring, for the first open spot.
+    for (let d = Math.max(60, minDist * 0.5); d < maxDist * 2; d += 60) {
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        const x = clamp(near.x + Math.cos(a) * d, radius, this.map.width - radius);
+        const y = clamp(near.y + Math.sin(a) * d, radius, this.map.height - radius);
+        if (this.openGround(x, y, radius)) return { x, y };
+      }
+    }
+    return { x: near.x, y: near.y };
+  }
+
+  /**
+   * Can something `radius` across be put at (x, y)? On dry ground, clear of walls, somewhere the team can walk to, never
+   * in the ground walled off beside the boss arena, and not in the arena itself before the boss is due.
+   */
+  private openGround(x: number, y: number, radius: number): boolean {
+    if (!this.dry(x, y, radius) || overlapsWall(this.walls, x, y, radius) || inSealed(this.map, x, y)) return false;
+    const arena = this.map.arena;
+    if (arena && this.bossPhase === 'waiting' && insideArena(arena, x, y, -radius - 80)) return false;
+    return this.flow.distanceAt(x, y) < Infinity;
   }
 
   private spawnEnemy(type: number, alive: Player[], minDist = SPAWN_DISTANCE, maxDist = SPAWN_DISTANCE + 200): Enemy {
@@ -2875,6 +2898,29 @@ export class Game {
     return { x: e.x + Math.cos(e.facing) * M.neck + Math.cos(look) * M.reach, y: e.y + Math.sin(e.facing) * M.neck + Math.sin(look) * M.reach };
   }
 
+  /**
+   * Nobody belongs in the ground walled off beside the boss arena: anyone who got in there anyway (a leap, a shove)
+   * is put back in front of its wall, level with where they were.
+   */
+  private keepOutOfSealed(who: { x: number; y: number; epoch?: number }, radius: number, player: boolean): void {
+    const s = this.map.sealed;
+    if (!s || !inSealed(this.map, who.x, who.y)) return;
+    ({ x: who.x, y: who.y } = pushOut(this.walls, s.x - 80 - radius, who.y, radius));
+    if (player && who.epoch !== undefined) who.epoch++;
+  }
+
+  /**
+   * Before the boss is due, nobody gets into its arena (a leap, a dodge, a teleport): whoever's inside is put back out
+   * in front of the gate.
+   */
+  private keepOutOfArena(p: Player): void {
+    const arena = this.map.arena;
+    if (!arena || this.bossPhase !== 'waiting' || this.endless || p.downed || !insideArena(arena, p.x, p.y, -PLAYER_RADIUS)) return;
+    const front = arena.x - (arena.hall ? arena.hall.hw : arena.r) - 180;
+    ({ x: p.x, y: p.y } = pushOut(this.walls, front, arena.y, PLAYER_RADIUS));
+    p.epoch++;
+  }
+
   /** Throws a player `amount` away from (fromX, fromY), stopping at walls (and short of the lava, in the den). */
   private knockPlayer(p: Player, fromX: number, fromY: number, amount: number): void {
     const dx = p.x - fromX;
@@ -3319,9 +3365,9 @@ export class Game {
     const fresh = allowed.filter((kind) => !this.shrines.some((s) => s.kind === kind));
     const kind = forced ?? pick(fresh.length > 0 ? fresh : allowed);
     // Keep shrines spread out.
-    let spot = this.pointNear(alive, 500, 800, 50);
+    let spot = this.pointNear(alive, 500, 800, SHRINE_RADIUS * 0.6);
     for (let attempt = 0; attempt < 10 && this.shrines.some((s) => dist2(s.x, s.y, spot.x, spot.y) < SHRINE_SPACING ** 2); attempt++) {
-      spot = this.pointNear(alive, 500, 1000, 50);
+      spot = this.pointNear(alive, 500, 1000, SHRINE_RADIUS * 0.6);
     }
     this.shrines.push({ id: this.nextId++, kind, x: spot.x, y: spot.y, progress: 0, captured: false });
     if (kind !== ShrineKind.Forge && kind !== ShrineKind.Armory) this.log(`${kind === ShrineKind.Event ? 'An' : 'A'} ${SHRINES[kind].name} appeared`);
@@ -3365,9 +3411,11 @@ export class Game {
         const distance = RALLY_DISTANCE[0] + Math.random() * (RALLY_DISTANCE[1] - RALLY_DISTANCE[0]);
         x = clamp(cx + Math.cos(angle) * distance, 200, this.map.width - 200);
         y = clamp(cy + Math.sin(angle) * distance, 200, this.map.height - 200);
-        if (this.dry(x, y, RALLY_RADIUS) && !overlapsWall(this.walls, x, y, RALLY_RADIUS / 2) && this.flow.distanceAt(x, y) < Infinity) break;
+        if (this.openGround(x, y, RALLY_RADIUS / 2) && this.dry(x, y, RALLY_RADIUS)) break;
       }
       ({ x, y } = this.ashore(x, y, RALLY_RADIUS));
+      // Nowhere good that far out: somewhere open a little closer.
+      if (!this.openGround(x, y, RALLY_RADIUS / 2)) ({ x, y } = this.pointNear(alive, RALLY_DISTANCE[0] * 0.6, RALLY_DISTANCE[1], RALLY_RADIUS / 2));
       this.quest = { kind, timeLeft: RALLY_TIME, x, y, targetId: 0 };
     } else {
       const thief = this.spawnEnemy(EnemyType.Thief, alive, 450, 600);
@@ -3880,6 +3928,8 @@ export class Game {
   // --- Players ---
 
   private updatePlayer(p: Player, dt: number): void {
+    this.keepOutOfSealed(p, PLAYER_RADIUS, true);
+    this.keepOutOfArena(p);
     p.invuln = Math.max(0, p.invuln - dt);
     p.dodgeCooldown = Math.max(0, p.dodgeCooldown - dt);
     p.takenTimer -= dt;
@@ -5085,8 +5135,13 @@ export class Game {
         const base = leapStats(level);
         const s = { ...base, radius: base.radius * stats.area };
         const d = Math.min(Math.max(reach, 60), s.range);
-        // Over walls, but never landing inside one.
-        const landing = pushOut(this.walls, p.x + dirX * d, p.y + dirY * d, PLAYER_RADIUS);
+        // Over walls, but never landing inside one, nor in the ground walled off beside the boss arena (it falls short).
+        let far = d;
+        let landing = pushOut(this.walls, p.x + dirX * far, p.y + dirY * far, PLAYER_RADIUS);
+        while (far > 0 && inSealed(this.map, landing.x, landing.y)) {
+          far -= 15;
+          landing = pushOut(this.walls, p.x + dirX * Math.max(0, far), p.y + dirY * Math.max(0, far), PLAYER_RADIUS);
+        }
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 40, c: p.color });
         p.x = landing.x;
         p.y = landing.y;
