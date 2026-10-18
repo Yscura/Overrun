@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { TICK_RATE } from '../shared/constants';
 import { MODES, isModeId } from '../shared/modes';
-import { DEV_NAME, type ClientMessage, type ServerMessage } from '../shared/protocol';
+import { isDevName, type ClientMessage, type ServerMessage } from '../shared/protocol';
 import { Game } from './game';
 import { buyHero, buyPrestige, combineArtifacts, equipArtifact, getProfile, profileState, refundPrestige, spinWheel } from './profiles';
 import { loadProgress, saveProgress } from './progress';
@@ -75,7 +75,7 @@ wss.on('connection', (ws) => {
   const send = (msg: ServerMessage) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   };
-  const allHeroes = () => unlockAll || session.name?.toLowerCase() === DEV_NAME;
+  const allHeroes = () => unlockAll || isDevName(session.name);
   const sendProfile = () => {
     if (session.name) send({ t: 'profile', profile: profileState(session.name, getProfile(progress.profiles, session.name), allHeroes()) });
   };

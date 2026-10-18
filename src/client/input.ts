@@ -70,7 +70,7 @@ export class Input {
     return slot;
   }
 
-  /** A god-mode cheat key, once per press (only sent when your name is "dev"). */
+  /** A god-mode cheat key, once per press (only sent when you're a testing account, "dev" or "dev2"). */
   consumeDev(): DevAction | null {
     return this.devPressed.shift() ?? null;
   }

@@ -1,4 +1,4 @@
-import { DEV_NAME, SUMMON_STRIDE, SummonKind } from '../shared/protocol';
+import { SUMMON_STRIDE, SummonKind, isDevName } from '../shared/protocol';
 import { CHARACTERS, DEFAULT_CHARACTER, isCharacterId } from '../shared/characters';
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, DRAGON_INTRO, PLAYER_RADIUS, TICK_RATE } from '../shared/constants';
@@ -248,7 +248,7 @@ async function main() {
       if (!latest.pause) net.send({ t: 'pause' });
       else if (latest.pause.kind === 'menu') net.send({ t: 'ready' });
     }
-    if (cheat && me?.name.toLowerCase() === DEV_NAME && latest!.phase === 'playing') net.send({ t: 'dev', action: cheat });
+    if (cheat && isDevName(me?.name) && latest!.phase === 'playing') net.send({ t: 'dev', action: cheat });
     if (cast && canAct && latest!.phase === 'playing') {
       if (ready(cast)) net.send({ t: 'cast', slot: cast, aim, dist: Math.round(input.aimDistance()) });
       else sound.play('denied');

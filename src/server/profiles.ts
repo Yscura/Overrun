@@ -6,7 +6,7 @@ import { CHARACTERS, CHARACTER_IDS, heroAvailable, isCharacterId, type Character
 import { ENEMY_TYPES, isBossType } from '../shared/enemies';
 import { CAMPAIGN } from '../shared/maps';
 import { PRESTIGE, isPrestigeId, prestigeCost, prestigeSpent, type PrestigeRanks } from '../shared/prestige';
-import { DEV_NAME, type ArtifactFind, type HeroRecord, type ProfileState } from '../shared/protocol';
+import { isDevName, type ArtifactFind, type HeroRecord, type ProfileState } from '../shared/protocol';
 
 export interface Profile {
   /** Unspent prestige points. */
@@ -159,7 +159,7 @@ export function getProfile(store: Record<string, Profile>, name: string): Profil
   if (Array.isArray(profile.artifacts)) profile.artifacts = Object.fromEntries((profile.artifacts as string[]).map((id) => [id, 1]));
   // The testing account always has at least one of every artifact (combining still uses them up, until next time), and
   // every map open.
-  if (key === DEV_NAME) {
+  if (isDevName(key)) {
     profile.maps = CAMPAIGN;
     profile.hardMaps = CAMPAIGN;
     profile.artifacts ??= {};

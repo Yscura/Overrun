@@ -165,7 +165,7 @@ To try one out: `npm run balance -- --map 1 --god --artifact glassEdge`.
 **Walls:** thick walls (stone) block movement and all projectiles. Thin walls (fences) block movement but you can shoot
 over them and dodge through them. Kael's dodge goes through thick walls too. Wraiths fly over everything.
 
-**God mode:** join as `dev` and you take damage but never go down (toggle it with **G**), and every hero is unlocked and you always have at least one of every artifact. A DEV panel (top left) has cheats for testing:
+**God mode:** join as `dev` (or `dev2`, so two people can test together) and you take damage but never go down (toggle it with **G**), and every hero is unlocked and you always have at least one of every artifact. A DEV panel (top left) has cheats for testing:
 **T** jumps the clock a minute ahead (with the level-ups you'd have earned; during the boss fight it pushes toward
 berserk), **J** skips to just before the boss (picking the level-ups you'd have earned at random), **K** skips to the Ashen Caldera's finale (press it again while crossing to land at the den), **U** gives a free level-up pick, **F** a free Forge pick, and **B** fills your slots and maxes everything.
 

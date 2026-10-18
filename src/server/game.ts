@@ -156,7 +156,7 @@ import {
   type ClientMessage,
   type GameMode,
   type DevAction,
-  DEV_NAME,
+  isDevName,
   type Fx,
   type SoundId,
   SummonKind,
@@ -1080,7 +1080,7 @@ export class Game {
       lifestealBudget: 0,
       // Bots get a throwaway profile, so they never end up in the saved progress.
       profile: isBot ? { points: 0, ranks: {}, gold: 0, heroes: [...CHARACTER_IDS] } : this.profile(name),
-      god: name.toLowerCase() === DEV_NAME,
+      god: isDevName(name),
       bot: null,
       lastChat: -1e9,
       pings: [],
@@ -1256,7 +1256,7 @@ export class Game {
         }
         break;
       case 'dev':
-        if (p.name.toLowerCase() === DEV_NAME && this.phase === 'playing') this.devCheat(p, msg.action);
+        if (isDevName(p.name) && this.phase === 'playing') this.devCheat(p, msg.action);
         break;
     }
   }
@@ -1398,7 +1398,7 @@ export class Game {
 
   /** Every hero is open in testing setups and for the "dev" player; otherwise starting heroes plus bought ones. */
   private allHeroes(p: Player): boolean {
-    return this.options.allHeroes === true || p.name.toLowerCase() === DEV_NAME;
+    return this.options.allHeroes === true || isDevName(p.name);
   }
 
   private canPlay(p: Player, character: CharacterId): boolean {
@@ -1423,7 +1423,7 @@ export class Game {
 
   /** Every hero is open in testing setups and for "dev". Public so the room manager can say the same in profiles. */
   allHeroesFor(name: string): boolean {
-    return this.options.allHeroes === true || name.toLowerCase() === DEV_NAME;
+    return this.options.allHeroes === true || isDevName(name);
   }
 
   tick(): void {

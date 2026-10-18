@@ -18,7 +18,7 @@ import { ENEMY_TYPES, EnemyType, MISSIONS } from '../shared/enemies';
 import { ENDLESS_MAP, MAPS, inZone, mapBossName, onFinaleGround, waveBoss } from '../shared/maps';
 import { mapIconSvg } from './mapIcons';
 import { EVENTS, QUESTS } from '../shared/objectives';
-import { DEV_NAME, type ArtifactFind, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot, type GameMode, type ProfileState } from '../shared/protocol';
+import { isDevName, type ArtifactFind, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot, type GameMode, type ProfileState } from '../shared/protocol';
 import {
   EVOLVED_LEVEL,
   MAX_LEVEL,
@@ -438,7 +438,7 @@ export class UI {
     this.lootToasts.classList.toggle('hidden', over);
     this.hud.classList.toggle('hidden', snap.phase === 'lobby');
     // God mode: the testing cheats.
-    this.devPanel.classList.toggle('hidden', snap.phase !== 'playing' || me?.name.toLowerCase() !== DEV_NAME);
+    this.devPanel.classList.toggle('hidden', snap.phase !== 'playing' || !isDevName(me?.name));
     const god = !!snap.me?.god;
     this.devGod.classList.toggle('on', god);
     this.devGod.firstChild!.textContent = god ? 'God mode: on ' : 'God mode: off ';

@@ -53,7 +53,7 @@ export type ClientMessage =
   | { t: 'combine'; artifacts: ArtifactId[] }
   /** Spin the artifact wheel (costs WHEEL.cost gold). */
   | { t: 'spin' }
-  /** Testing cheats, only for a player named "dev" (see DevAction). */
+  /** Testing cheats, only for the testing accounts, "dev" and "dev2" (see DevAction). */
   | { t: 'dev'; action: DevAction }
   /** Pause the game for everyone. */
   | { t: 'pause' }
@@ -75,6 +75,13 @@ export type ClientMessage =
  */
 export type DevAction = 'skip' | 'boss' | 'finale' | 'level' | 'forge' | 'max' | 'god';
 export const DEV_NAME = 'dev';
+/** The testing accounts (god mode, cheats, everything unlocked): `dev`, and `dev2` for a second tester alongside. */
+export const DEV_NAMES: readonly string[] = [DEV_NAME, 'dev2'];
+
+/** Is this one of the testing accounts (any capitalization)? */
+export function isDevName(name: string | null | undefined): boolean {
+  return !!name && DEV_NAMES.includes(name.toLowerCase());
+}
 
 export type ServerMessage =
   /** You're in a room now, as player `id`. */
