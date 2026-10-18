@@ -28,7 +28,7 @@ export type UltimateId =
   | 'shadowstrike'
   | 'chrono'
   | 'rage'
-  | 'rally'
+  | 'retribution'
   | 'inferno'
   | 'arrowstorm'
   | 'bear'
@@ -172,7 +172,12 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     dodgeCooldown: 3.5,
     startWeapon: 'slam',
     ability: 'warcry',
-    ultimate: { id: 'rally', name: 'Rally', text: 'Heal nearby allies for 40%, revive the downed, and halve their damage taken for 6s.', cooldown: 90 },
+    ultimate: {
+      id: 'retribution',
+      name: 'Retribution',
+      text: 'For 8s, take 40% less damage and draw nearby enemies to you. Whatever hurts you takes 2.5x that damage back (and more from your Might).',
+      cooldown: 45,
+    },
     trait: '+10% damage, and takes 25% less damage',
   },
   // Unlockable heroes: a little stronger than the starting four.

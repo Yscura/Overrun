@@ -330,7 +330,12 @@ const SECOND_WIND_IFRAMES = 1.5;
 
 /** Bloodrage: also heavy lifesteal (share of damage dealt, up to `lifestealCap` of max HP per second) and no dying. */
 const RAGE = { duration: 8, damage: 1.6, cooldown: 0.7, regen: 0.04, lifesteal: 0.06, lifestealCap: 0.08 };
-const RALLY = { radius: 700, heal: 0.4, guard: 6, reduction: 0.5 };
+/**
+ * Torvald's Retribution: for `duration` seconds he takes `reduction` less damage and enemies within `taunt` come for
+ * him (for `tauntFor` seconds). Whatever hurts him takes `mult` times the damage back, plus `flat` (times his damage
+ * multiplier) per blow; hits from nowhere in particular (shots, telegraphs) go back to the nearest enemy within `reach`.
+ */
+const RETRIBUTION = { duration: 8, reduction: 0.4, taunt: 420, tauntFor: 3, mult: 2.5, flat: 15, reach: 500, color: 0xff8f00 };
 const AURA = { rage: 0xff1744, guard: 0xffd54f, strike: 0xce93d8, storm: 0x9ccc65, inferno: 0xff6d00, elixir: 0x76ff03, wrath: 0xfff59d };
 /** Grand Elixir: the alchemist drinks it, healing and buffing herself for a while. */
 const ELIXIR = { duration: 8, heal: 0.3, damage: 1.25, cooldown: 0.8, speed: 1.25, reduction: 0.25 };
@@ -415,6 +420,8 @@ interface Player {
   ultCd: number;
   // Seconds left on buffs.
   rage: number;
+  /** Retribution (Torvald's ultimate). */
+  retribution: number;
   /** Grand Elixir (from any alchemist on the team). */
   elixir: number;
   /** Avenging Wrath: seconds of light pillars left. */
@@ -1023,6 +1030,7 @@ export class Game {
       abilityCd: 0,
       ultCd: 0,
       rage: 0,
+      retribution: 0,
       elixir: 0,
       wrath: 0,
       guard: 0,
@@ -1535,6 +1543,7 @@ export class Game {
     p.abilityCd = 0;
     p.ultCd = 0;
     p.rage = 0;
+    p.retribution = 0;
     p.elixir = 0;
     p.wrath = 0;
     p.guard = 0;
@@ -3541,7 +3550,7 @@ export class Game {
         for (const p of alive) {
           const reach = Math.max(def.radius, e.chargeWidth / 2);
           if (e.charged.has(p.id) || dist2(p.x, p.y, e.x, e.y) >= (PLAYER_RADIUS + reach) ** 2) continue;
-          if (this.hurtPlayer(p, damage * this.damageScale(e))) e.charged.add(p.id);
+          if (this.hurtPlayer(p, damage * this.damageScale(e), false, e)) e.charged.add(p.id);
         }
       }
     }
@@ -3882,6 +3891,7 @@ export class Game {
     p.abilityCd = Math.max(0, p.abilityCd - dt);
     p.ultCd = Math.max(0, p.ultCd - dt);
     p.rage = Math.max(0, p.rage - dt);
+    p.retribution = p.downed ? 0 : Math.max(0, p.retribution - dt);
     p.elixir = Math.max(0, p.elixir - dt);
     p.guard = Math.max(0, p.guard - dt);
     p.relicCd = Math.max(0, p.relicCd - dt);
@@ -3910,7 +3920,7 @@ export class Game {
       if (e.dead || def.damage === 0 || this.isStunned(e)) continue;
       if (dist2(e.x, e.y, p.x, p.y) >= (PLAYER_RADIUS + def.radius) ** 2) continue;
       const amount = def.damage * this.damageScale(e) * dt;
-      if (this.hurtPlayer(p, amount, true) && e.affix === Affix.Vampiric) e.hp = Math.min(e.maxHp, e.hp + amount * AFFIX_TUNING.vampHeal);
+      if (this.hurtPlayer(p, amount, true, e) && e.affix === Affix.Vampiric) e.hp = Math.min(e.maxHp, e.hp + amount * AFFIX_TUNING.vampHeal);
     }
     if (!p.downed) this.fireWeapons(p, stats, dt);
   }
@@ -3920,14 +3930,41 @@ export class Game {
    * evaded, or already down). Discrete hits (bullets, bombs, charges) can be evaded; `continuous` damage
    * (contact with the horde, the burning zone) can't.
    */
-  private hurtPlayer(p: Player, amount: number, continuous = false): boolean {
+  /**
+   * Retribution: whoever hurt him takes it back, several times over. Blows with no one behind them (shots, telegraphs)
+   * go to the nearest enemy; the lava, the burning zone and such don't count.
+   */
+  private retribute(p: Player, amount: number, continuous: boolean, from: Enemy | undefined, stats: PlayerStats): void {
+    const R = RETRIBUTION;
+    if (!from && continuous) return;
+    let target = from && !from.dead ? from : undefined;
+    if (!target) {
+      let best = R.reach ** 2;
+      for (const e of this.grid.query(p.x, p.y, R.reach, this.near)) {
+        const d = dist2(e.x, e.y, p.x, p.y);
+        if (!e.dead && d < best) {
+          best = d;
+          target = e;
+        }
+      }
+    }
+    if (!target) return;
+    this.damageEnemy(target, amount * R.mult + (continuous ? 0 : R.flat * stats.damageMult), p, 'physical');
+    if (!continuous) {
+      const a = Math.atan2(target.y - p.y, target.x - p.x);
+      this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: Math.round(Math.sqrt(dist2(target.x, target.y, p.x, p.y)) + 10), a: round2(a), arc: 0.35, c: R.color });
+    }
+  }
+
+  private hurtPlayer(p: Player, amount: number, continuous = false, from?: Enemy): boolean {
     if (p.downed || p.invuln > 0 || this.sheltered(p)) return false;
     const stats = this.stats(p);
     if (!continuous && Math.random() < stats.evasion) {
       p.taken.push(0); // Shown as "EVADE".
       return false;
     }
-    const taken = amount * (1 - stats.armor) * stats.damageTaken;
+    if (p.retribution > 0) this.retribute(p, amount, continuous, from, stats);
+    const taken = amount * (1 - stats.armor) * stats.damageTaken * (p.retribution > 0 ? 1 - RETRIBUTION.reduction : 1);
     p.hp -= taken;
     p.damageTaken += taken;
     if (continuous || taken < 1) p.takenAcc += taken;
@@ -5338,22 +5375,18 @@ export class Game {
         p.rage = RAGE.duration * stats.duration;
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 120, c: AURA.rage });
         break;
-      case 'rally':
-        for (const ally of this.players.values()) {
-          if (dist2(ally.x, ally.y, p.x, p.y) >= RALLY.radius ** 2) continue;
-          const maxHp = this.stats(ally).maxHp;
-          if (ally.downed) {
-            this.log(`${ally.name} was revived by ${p.name}'s Rally`, 'good');
-            ally.downed = false;
-            ally.revive = 0;
-            ally.hp = maxHp * RALLY.heal;
-          } else {
-            this.heal(ally, maxHp * RALLY.heal, p);
-          }
-          this.shield(ally, RALLY.reduction, RALLY.guard * stats.duration, p);
+      case 'retribution': {
+        // Spikes out, and every enemy around comes for him.
+        p.retribution = RETRIBUTION.duration * stats.duration;
+        for (const e of this.grid.query(p.x, p.y, RETRIBUTION.taunt + MAX_ENEMY_RADIUS, this.near)) {
+          if (e.dead || this.isBoss(e) || dist2(e.x, e.y, p.x, p.y) > RETRIBUTION.taunt ** 2) continue;
+          e.tauntBy = p.id;
+          e.tauntUntil = this.time + RETRIBUTION.tauntFor;
         }
-        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: RALLY.radius, c: AURA.guard });
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: RETRIBUTION.taunt, c: RETRIBUTION.color, snd: 'bigSlam' });
+        p.sounds.push('warcry');
         break;
+      }
     }
   }
 
@@ -5814,7 +5847,9 @@ export class Game {
       aim: round2(p.aim),
       ...(p.dragonForm > 0 && { body: round2(p.body) }),
       aura:
-        p.strikes > 0
+        p.retribution > 0
+          ? RETRIBUTION.color
+          : p.strikes > 0
           ? AURA.strike
           : p.arrowStorm > 0
             ? AURA.storm

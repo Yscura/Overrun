@@ -184,7 +184,7 @@ Pick a hero in the lobby. Ranged and melee heroes are offered different weapons:
 | Kael, the Assassin | Melee | Shadow Daggers | Shadow Veil: vanish (enemies lose you and can't touch you), then erupt | Shadow Strike (45s): blink between 7 enemies | +40% damage, 30% smaller areas, 70 HP, phases through walls |
 | Lyra, the Mage | Ranged | Arcane Bolt | Meteor: lands at your cursor | Chrono Freeze (70s) | +15% damage |
 | Brakka, the Bruiser | Melee | Cleave | Leap: jump to your cursor and smash | Bloodrage (60s): 8s of damage, lifesteal and can't drop below 1 HP | Regenerates HP |
-| Torvald, the Tank | Melee | Ground Slam | War Cry: taunt enemies, take less damage | Rally (90s): heal, shield, revive | Takes 25% less damage |
+| Torvald, the Tank | Melee | Ground Slam | War Cry: taunt enemies, take less damage | Retribution (45s): 8s of 40% less damage, nearby enemies drawn to you, and whatever hurts you takes 2.5x the damage back | Takes 25% less damage |
 | Ignis, the Pyromancer | Ranged | Fireball | Flame Nova: fire ring that leaves the ground burning | Inferno (60s): fireballs rain around you | +25% damage, 30% bigger areas, 70 HP |
 | Sylva, the Ranger | Ranged | Longbow | Tumble: roll toward the cursor and loose a fan of arrows | Arrow Storm (50s): 4s of rapid fire at the cursor | +15% damage, fast, dodges every 1.4s |
 | Oakhart, the Druid | Melee | Wolf Pack (druid only) | Call of the Wild: more spirit wolves join the hunt for a while | Spirit Bear (70s): a slow, hard-hitting bear fights beside you for 18s; R again sends it at the enemy nearest your cursor | 200 HP, regenerates |

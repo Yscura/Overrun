@@ -307,7 +307,7 @@ export class Bot {
       const use: Record<string, boolean> = {
         chrono: near(600) >= 14 || (hpShare < 0.4 && near(250) >= 4),
         rage: near(200) >= 6 || !!(boss && boss.d < 300),
-        rally: allyHurt || hpShare < 0.35,
+        retribution: near(250) >= 6 || !!(boss && boss.d < 350),
         shadowstrike: near(650) >= 6 || !!boss,
         inferno: near(380) >= 10 || !!(boss && boss.d < 380),
         arrowstorm: near(600) >= 10 || !!boss,
