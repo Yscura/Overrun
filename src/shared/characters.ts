@@ -87,6 +87,19 @@ export interface CharacterDef {
  * taken cut by that share), and his E breathes fire (see FIREBREATH) on a `breathCooldown`.
  */
 export const DRAGON_FORM = { duration: 25, damage: 1.5, maxHp: 1.4, reduction: 0.25, speed: 1.15, area: 1.2, breathCooldown: 2.4 };
+/**
+ * The dragon's body turns toward where he walks (`turn` radians a second) and his head toward the cursor, at most
+ * `headReach` off the body's line: aiming further round swings the body with it. His mouth (where the fire breath
+ * comes from) is `neck` along the body, then `reach` along the head, in world units. Keep these in step with how the
+ * client draws him (see the renderer's updateDragon).
+ */
+export const DRAGON_FORM_TURN = { turn: 5, headReach: Math.PI / 2, neck: 29, reach: 61 };
+
+/** Turns a dragon's body (`body`, radians) for an aim (`aim`): no more than DRAGON_FORM_TURN.headReach off it. */
+export function dragonBody(body: number, aim: number): number {
+  const rel = Math.atan2(Math.sin(aim - body), Math.cos(aim - body));
+  return Math.abs(rel) <= DRAGON_FORM_TURN.headReach ? body : aim - Math.sign(rel) * DRAGON_FORM_TURN.headReach;
+}
 /** His fire breath: a cone (`half` its half-angle) burning every `tick` seconds for `duration`, following his aim. */
 export const FIREBREATH = { duration: 1.3, tick: 0.12, range: 420, half: 0.5, damage: 26, perLevel: 9 };
 

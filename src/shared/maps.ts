@@ -68,7 +68,7 @@ export interface MapDef {
   name: string;
   subtitle: string;
   /** Which look the client gives it: ground, props and landmarks. */
-  art: 'forest' | 'ruins' | 'frost' | 'canyon' | 'caldera';
+  art: 'forest' | 'ruins' | 'frost' | 'canyon' | 'caldera' | 'underworld';
   width: number;
   height: number;
   /** Where the team starts. */
@@ -86,6 +86,11 @@ export interface MapDef {
   lava?: Lava;
   /** What happens after the boss dies, if it isn't the end (see Finale). */
   finale?: Finale;
+  /**
+   * Endless mode's own map (played only in endless mode, not part of the campaign): the bosses its waves bring, in
+   * turn (see waveBoss).
+   */
+  endless?: { waves: { boss: number; twin?: number }[] };
   river?: River;
   /**
    * Multiplier on enemy health and damage (bosses included). Later maps are meant to need a few ranks of
@@ -316,6 +321,22 @@ const DEN_PATH = [
   { dx: 50, dy: -1280 },
   { dx: -70, dy: -1516 },
 ].map(({ dx, dy }) => ({ x: CALDERA.x + dx, y: CALDERA.y + dy, r: 85 }));
+/** The Underworld: a big square realm around the Altar of the Dead at its center (`c`). */
+const UNDERWORLD = {
+  size: 5600,
+  c: 2800,
+  graveyards: [
+    [1900, 700],
+    [3200, 700],
+    [700, 1900],
+    [4350, 1900],
+    [700, 3300],
+    [4350, 3300],
+    [1900, 4550],
+    [3200, 4550],
+  ] as [number, number][],
+};
+
 /** Mordak's den, out over the lava north of the caldera's heart (a jump past the last stone). */
 const DRAGON_DEN = { x: CALDERA.x, y: CALDERA.y - 2584, r: 900 };
 
@@ -624,7 +645,93 @@ export const MAPS: MapDef[] = [
       ...fenceH(1950, 2450, CALDERA.y + 1050, 160),
     ],
   },
+  // Endless mode's map (last, so it never gets in the way of the campaign's order).
+  {
+    name: 'The Underworld',
+    subtitle: 'Death\'s own realm, with no way out. The fallen bosses rise again and again: hold out as long as you can.',
+    art: 'underworld',
+    width: UNDERWORLD.size,
+    height: UNDERWORLD.size,
+    spawn: { x: UNDERWORLD.c, y: UNDERWORLD.c },
+    // The Reaper is Death's own hand; the bosses he raises come after him, in turn.
+    boss: EnemyType.Reaper,
+    bossName: 'Death and the risen',
+    arena: null,
+    endless: {
+      waves: [
+        { boss: EnemyType.Reaper },
+        { boss: EnemyType.Sylvara },
+        { boss: EnemyType.Rime },
+        { boss: EnemyType.Kharzak },
+        { boss: EnemyType.AshlordVael, twin: EnemyType.Embra },
+      ],
+    },
+    difficulty: 1.2,
+    prestigeReward: 1.5,
+    enemyWeights: { [EnemyType.Wraith]: 1.8, [EnemyType.Brute]: 1.2, [EnemyType.Bombardier]: 0.7 },
+    // The dead: bone-white skeletons, spectral runners and wraiths, purple ghouls. The bosses come back pale.
+    enemyColors: {
+      [EnemyType.Grunt]: 0xcfc6b4,
+      [EnemyType.Runner]: 0x4dd0c8,
+      [EnemyType.Brute]: 0x7e57c2,
+      [EnemyType.Spitter]: 0x9ccc65,
+      [EnemyType.Bombardier]: 0xb388ff,
+      [EnemyType.Charger]: 0x90a4ae,
+      [EnemyType.Wraith]: 0x80deea,
+      [EnemyType.Warlord]: 0x5e35b1,
+      [EnemyType.Sylvara]: 0x4db6ac,
+      [EnemyType.Kharzak]: 0x7e57c2,
+    },
+    theme: { background: 0x16121d, grid: 0x231b2e, wall: 0x4d4659, wallEdge: 0x1a1522, fence: 0x8e8a9c, outside: 0x050308 },
+    walls: [
+      // The Altar of the Dead, where the team stands: a ring of obelisks to hide behind.
+      ...[0, 1, 2, 3, 4, 5, 6, 7].map((i) => pillar(UNDERWORLD.c + Math.cos((i * Math.PI) / 4 + Math.PI / 8) * 520, UNDERWORLD.c + Math.sin((i * Math.PI) / 4 + Math.PI / 8) * 520, 70)),
+      // A broken ring of crypt walls further out, with wide gaps.
+      ...[0, 1, 2, 3, 4, 5].flatMap((i) => {
+        const mid = (i * Math.PI) / 3;
+        return arc(UNDERWORLD.c, UNDERWORLD.c, 1500, mid - 0.32, mid + 0.32, 80);
+      }),
+      // Mausoleums in the four corners of the realm, a door on each side facing the altar.
+      ...room(800, 800, 560, 440, ['s', 'e']),
+      ...room(UNDERWORLD.size - 1360, 800, 560, 440, ['s', 'w']),
+      ...room(800, UNDERWORLD.size - 1240, 560, 440, ['n', 'e']),
+      ...room(UNDERWORLD.size - 1360, UNDERWORLD.size - 1240, 560, 440, ['n', 'w']),
+      // Graveyards between them: rows of headstones.
+      ...UNDERWORLD.graveyards.flatMap(([gx, gy]) =>
+        Array.from({ length: 12 }, (_, k) => boulder(gx + (k % 4) * 150 + (Math.floor(k / 4) % 2) * 60, gy + Math.floor(k / 4) * 150, 46)),
+      ),
+      // Great tombs out in the open, for cover (and for Kharzak to charge into).
+      ...[
+        [1700, 2800],
+        [3900, 2800],
+        [2800, 1700],
+        [2800, 3900],
+        [1300, 1900],
+        [4300, 3700],
+      ].map(([x, y]) => boulder(x, y, 120)),
+      // Iron railings around the old burial grounds.
+      ...fenceH(2350, 3250, 4550, 200),
+      ...fenceH(2350, 3250, 1050, 200),
+      ...fenceV(1050, 2350, 3250, 200),
+      ...fenceV(4550, 2350, 3250, 200),
+    ],
+  },
 ];
+
+/** The campaign: every map but endless mode's own, in order. Unlocks (normal and hard) count only these. */
+export const CAMPAIGN = MAPS.filter((m) => !m.endless).length;
+/** Endless mode's map. */
+export const ENDLESS_MAP = MAPS.findIndex((m) => m.endless);
+
+/** Who endless mode's `wave`th boss wave (1 = the first) brings on this map, and what they're called. */
+export function waveBoss(map: MapDef, wave: number): { boss: number; twin?: number; name: string } {
+  const waves = map.endless?.waves;
+  if (!waves) return { boss: map.boss, twin: map.twin, name: mapBossName(map) };
+  const w = waves[(Math.max(1, wave) - 1) % waves.length];
+  // Twins are known by their own map's name for them.
+  const home = MAPS.find((m) => !m.endless && m.boss === w.boss && m.twin === w.twin);
+  return { ...w, name: w.twin !== undefined && home ? mapBossName(home) : bossDisplayName(w.boss) };
+}
 
 /** An enemy type's color on this map. */
 export function enemyColor(map: MapDef, type: number): number {

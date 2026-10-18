@@ -135,7 +135,10 @@ export class Bot {
     }
 
     if (snap.pause) {
-      if (snap.me.options) this.send({ t: 'choose', index: this.pickUpgrade(snap.me.options, snap.me.upgrades, me.character, me.hp / me.maxHp) });
+      // At the Armory, bots keep the weapons they've built up (the "keep" choice is the last one).
+      const armory = snap.pause.kind === 'choose' && snap.pause.reason === 'armory';
+      if (snap.me.options && armory) this.send({ t: 'choose', index: snap.me.options.length - 1 });
+      else if (snap.me.options) this.send({ t: 'choose', index: this.pickUpgrade(snap.me.options, snap.me.upgrades, me.character, me.hp / me.maxHp) });
       return;
     }
     if (me.downed) return;

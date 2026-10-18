@@ -50,6 +50,23 @@ export const BOSS_DEATH = { shatter: 2.6, total: 4.2 };
  */
 export const HARD = { difficulty: 1.35, damage: 1.25, speed: 1.08, haste: 1.25, area: 1.1, comboEvery: 4, comboGap: 0.7, prestige: 1.6, luck: 3 };
 
+/**
+ * Endless mode: no final victory, the run goes on until the team falls. The map's boss comes back in waves: the first
+ * at `firstWave` of the usual boss time, then every `waveEvery` seconds after the last one falls, tougher each time
+ * (see endlessWave). Past the usual boss time the horde keeps growing (see Game.horde). A Forge comes every
+ * `forgeEvery` seconds once the usual ones are done, and an Armory every `armoryEvery` seconds.
+ */
+export const ENDLESS = { firstWave: 0.6, waveEvery: 360, forgeEvery: 150, armoryEvery: 240 };
+
+/** How much tougher endless mode's `wave`th boss wave is (1 = the first): its health, and how hard it hits. */
+export function endlessWave(wave: number): { hp: number; damage: number } {
+  const n = Math.max(0, wave - 1);
+  return { hp: 0.5 + 0.5 * n + 0.12 * n * n, damage: 0.8 + 0.15 * n };
+}
+
+/** The Armory (trade a weapon for a new one, same level) first appears this far into the usual boss time. */
+export const ARMORY_AT = 0.35;
+
 export const BOSS_INTRO = { speed: 0.12, hold: 2.3, ease: 1, panIn: 0.5, panOut: 0.6 };
 /**
  * Mordak's entrance is longer: everything stops dead (`speed` 0) while the camera creeps over to him, a moment of
@@ -61,8 +78,8 @@ export const DRAGON_INTRO = { speed: 0, hold: 5, ease: 0.8, panIn: 1.2, panOut: 
 export const CRATE_RADIUS = 16;
 export const CRATE_HP = 10;
 /** A new crate appears near the team every this many seconds. */
-export const CRATE_INTERVAL = 18;
-export const MAX_CRATES = 5;
+export const CRATE_INTERVAL = 10;
+export const MAX_CRATES = 9;
 /** What a broken crate holds: the chances of a heart, a pile of gold or a bomb. */
 export const CRATE_LOOT = { heart: 0.45, gold: 0.4, bomb: 0.15 };
 /** Gold coins: a pile has `min`-`max` coins worth `value` each. They fly to you within your pickup radius. */

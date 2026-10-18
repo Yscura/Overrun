@@ -35,7 +35,7 @@ import {
   FACING_SHIFT,
   FACING_STEPS,
 } from '../shared/protocol';
-import { fieldRadius, orbitLayout } from '../shared/characters';
+import { dragonBody, fieldRadius, orbitLayout } from '../shared/characters';
 import type { Sample } from './snapshots';
 
 const MAX_PARTICLES = 800;
@@ -66,6 +66,8 @@ interface DamageNumber {
 }
 /** The Dragonmancer's dragon: fiery orange, so it's never mistaken for Mordak. */
 const DRAGON_FORM_COLOR = 0xe65100;
+/** ...with golden horns. */
+const DRAGON_FORM_HORNS = 0xffb300;
 /** Dragon Form's body parts along its spine, in Mordak's radii: x is along the body (head forward). */
 const DRAGON_PARTS = {
   head: { x: 0.92 },
@@ -143,6 +145,13 @@ interface DragonView {
   body: Graphics;
   /** How much it's walking (0 to 1, eased; Mordak's), its own stride (slower than a hero's walk), and when it was last drawn. */
   moving: number;
+  /** Dragon Form: which way the body faces (eased toward the server's). */
+  facing: number;
+  /** Mordak's head and tail (radians), how far he's sitting and how wide his jaws are open (0 to 1), eased. */
+  head: number;
+  tail: number;
+  sit: number;
+  mouth: number;
   stride: number;
   last: number;
 }
@@ -243,6 +252,8 @@ export class GameRenderer {
     hex: Texture;
     mine: Texture;
     enemyShot: Texture;
+    /** Mordak's fireballs. */
+    fireOrb: Texture;
     blade: Texture;
     gemSmall: Texture;
     gemBig: Texture;
@@ -331,6 +342,17 @@ export class GameRenderer {
       // Mines keep their own colors: dark casing with a red light.
       mine: this.texture(new Graphics().circle(0, 0, 9).fill(0x37474f).stroke({ width: 2, color: 0xffab40 }).circle(0, 0, 3).fill(0xff1744)),
       enemyShot: this.texture(new Graphics().circle(0, 0, 10).fill({ color: 0xffffff, alpha: 0.3 }).circle(0, 0, 6).fill(0xffffff)),
+      fireOrb: this.texture(
+        new Graphics()
+          .circle(0, 0, 16)
+          .fill({ color: 0xff3d00, alpha: 0.25 })
+          .circle(0, 0, 11)
+          .fill({ color: 0xff6d00, alpha: 0.85 })
+          .circle(-1.5, -1.5, 6.5)
+          .fill(0xffab40)
+          .circle(-2.5, -2.5, 3)
+          .fill(0xfff3e0),
+      ),
       blade: this.texture(new Graphics().poly([0, -14, 5, 0, 0, 14, -5, 0]).fill(0xffffff)),
       // Spirit wolves are little wolf heads (like the Wolf Pack icon), in their own colors. The bear points where it
       // runs; from above: a broad body, head, ears and snout.
@@ -430,7 +452,20 @@ export class GameRenderer {
     const key = `${type}|${color}`;
     let url = this.artCache.get(key);
     if (!url) {
-      const canvas = this.app.renderer.extract.canvas(this.enemyTexture(type, false, color)) as HTMLCanvasElement;
+      let canvas: HTMLCanvasElement;
+      if (type === EnemyType.Mordak) {
+        // Mordak is drawn from parts in the game: pose his model once, standing still, head up.
+        const d = this.newDragon();
+        // (Wings half folded, so he fills the picture.)
+        this.poseDragon(d, { R: ENEMY_TYPES[type].radius, color, flash: false, moving: 0, seed: 1, bulk: MORDAK_BULK, heavy: true, sit: 0.9, membrane: 0.3 });
+        d.root.rotation = -Math.PI / 2;
+        const holder = new Container();
+        holder.addChild(d.root);
+        canvas = this.app.renderer.extract.canvas({ target: holder, resolution: 1 }) as HTMLCanvasElement;
+        holder.destroy({ children: true });
+      } else {
+        canvas = this.app.renderer.extract.canvas(this.enemyTexture(type, false, color)) as HTMLCanvasElement;
+      }
       url = canvas.toDataURL();
       this.artCache.set(key, url);
     }
@@ -768,6 +803,27 @@ export class GameRenderer {
       case 'quake':
         this.quake = Math.max(this.quake, 12 * fx.strength);
         break;
+      case 'lob': {
+        const dx = fx.tx - fx.x;
+        const dy = fx.ty - fx.y;
+        const high = 220 + Math.hypot(dx, dy) * 0.25;
+        this.addEffect(fx.x, fx.y, fx.t, (g, p) => {
+          const x = dx * p;
+          const y = dy * p;
+          const lift = Math.sin(Math.PI * p) * high;
+          const size = 14 + 10 * Math.sin(Math.PI * p);
+          g.ellipse(x, y, size * 0.9, size * 0.45).fill({ color: 0x000000, alpha: 0.18 + 0.2 * p });
+          // A short trail of fire behind it.
+          for (let k = 1; k <= 4; k++) {
+            const q = Math.max(0, p - k * 0.025);
+            g.circle(dx * q, dy * q - Math.sin(Math.PI * q) * high, size * (1 - k * 0.18)).fill({ color: 0xff6d00, alpha: 0.35 - k * 0.07 });
+          }
+          g.circle(x, y - lift, size * 1.4).fill({ color: 0xff3d00, alpha: 0.3 });
+          g.circle(x, y - lift, size).fill(0xff6d00);
+          g.circle(x - size * 0.2, y - lift - size * 0.2, size * 0.55).fill(0xffd180);
+        });
+        break;
+      }
       case 'breath': {
         // A gout of flame: a cone that flares out and fades, hot at its heart.
         const half = fx.arc / 2;
@@ -940,10 +996,11 @@ export class GameRenderer {
     this.renderPoints(this.summonViews, a.snap.summons, a.summons, b.snap.summons, SUMMON_STRIDE, 2, t, this.layers.projectiles, (list, i) =>
       list[i + 1] === SummonKind.Bear ? { texture: this.tex.bear, tint: 0xd7a86e, rotate: true } : { texture: this.tex.wolf, tint: 0xffffff },
     );
-    this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_STRIDE, 1, t, this.layers.enemyShots, () => ({
-      texture: this.tex.enemyShot,
-      tint: 0xd4e157,
-    }));
+    // In the dragon's den, the only things flying are Mordak's fireballs.
+    const den = b.snap.finale?.stage === 'den';
+    this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_STRIDE, 1, t, this.layers.enemyShots, () =>
+      den ? { texture: this.tex.fireOrb, tint: 0xffffff } : { texture: this.tex.enemyShot, tint: 0xd4e157 },
+    );
     this.renderPoints(this.gemViews, a.snap.gems, a.gems, b.snap.gems, GEM_STRIDE, 1, t, this.layers.gems, (list, i) =>
       list[i + 3] ? { texture: this.tex.gemBig, tint: 0xb388ff } : { texture: this.tex.gemSmall, tint: 0x69f0ae },
     );
@@ -1006,6 +1063,13 @@ export class GameRenderer {
         break;
       case ShrineKind.Event: // An hourglass.
         icon.poly([-14, -20, 14, -20, 0, 0]).poly([-14, 20, 14, 20, 0, 0]).fill(color);
+        break;
+      case ShrineKind.Armory: // Two crossed swords.
+        for (const r of [Math.PI / 4, -Math.PI / 4]) {
+          const blade = new Graphics().rect(-2.5, -24, 5, 32).rect(-9, 8, 18, 4).rect(-2, 12, 4, 10).fill(color);
+          blade.rotation = r;
+          icon.addChild(blade);
+        }
         break;
       case ShrineKind.Sigil: // A rune: a diamond with a cross.
         icon.poly([0, -24, 18, 0, 0, 24, -18, 0]).stroke({ width: 4, color }).rect(-2, -14, 4, 28).rect(-10, -2, 20, 4).fill(color);
@@ -1196,7 +1260,13 @@ export class GameRenderer {
         d.moving += ((moving ? 1 : 0) - d.moving) * 0.12;
         const flash = view.sprite.texture === this.tex.enemyFlash[type];
         const torn: [boolean, boolean] = [(flags & BossFlag.LeftWingGone) !== 0, (flags & BossFlag.RightWingGone) !== 0];
-        this.poseDragon(d, { R: r, color: this.enemyColors[type], flash, moving: d.moving, seed: id, torn, flying, bulk: MORDAK_BULK, heavy: true });
+        // His head and tail ease toward where the server has them (quickly, so a tail lash still snaps).
+        const pose = b.snap.bossFight?.bosses.find((boss) => boss.id === id)?.pose;
+        d.head += ((pose?.head ?? 0) - d.head) * 0.3;
+        d.tail += ((pose?.tail ?? 0) - d.tail) * 0.45;
+        d.sit += ((pose?.sit ? 1 : 0) - d.sit) * 0.12;
+        d.mouth += ((pose?.mouth ? 1 : 0) - d.mouth) * 0.25;
+        this.poseDragon(d, { R: r, color: this.enemyColors[type], flash, moving: d.moving * (1 - d.sit), seed: id, torn, flying, bulk: MORDAK_BULK, heavy: true, head: d.head, tail: d.tail, sit: d.sit, mouth: d.mouth });
         d.root.position.copyFrom(view.sprite.position);
         d.root.rotation = view.facing;
         d.root.scale.set(size * MORDAK_SCALE);
@@ -1227,7 +1297,8 @@ export class GameRenderer {
       if (flags & EnemyFlag.Linked) marks.circle(x, y, r + 16).fill({ color: 0xff9100, alpha: 0.1 + 0.08 * pulse }).stroke({ width: 3, color: 0xffab40, alpha: 0.6 + 0.3 * pulse });
       // A shimmering bubble on shielded bosses; a gold ring on enemies a side mission needs dead.
       if (flags & EnemyFlag.Shielded) {
-        marks.circle(x, y, r + 14).fill({ color: 0xe040fb, alpha: 0.12 + 0.08 * pulse }).stroke({ width: 3, color: 0xea80fc, alpha: 0.5 + 0.4 * pulse });
+        // (Mordak's bubble covers all of him, not just his middle.)
+        marks.circle(x, y, (type === EnemyType.Mordak ? r * 1.9 : r) + 14).fill({ color: 0xe040fb, alpha: 0.12 + 0.08 * pulse }).stroke({ width: 3, color: 0xea80fc, alpha: 0.5 + 0.4 * pulse });
       }
       if (flags & EnemyFlag.Marked) {
         marks.circle(x, y, r + 6).stroke({ width: 2.5, color: 0xffd54f, alpha: 0.5 + 0.5 * pulse });
@@ -1939,6 +2010,7 @@ export class GameRenderer {
     const dragon = p.dragon && !p.downed;
     if (dragon && !view.dragon) {
       view.dragon = this.newDragon();
+      view.dragon.facing = p.body ?? aim ?? p.aim;
       view.root.addChildAt(view.dragon.root, view.root.getChildIndex(view.avatar));
     }
     view.avatar.visible = !dragon;
@@ -1948,9 +2020,17 @@ export class GameRenderer {
     d.root.visible = dragon;
     if (!dragon) return;
     const R = ENEMY_TYPES[EnemyType.Mordak].radius;
-    d.root.scale.set((TOKEN_R * 2.3) / R);
-    d.root.rotation = aim ?? p.aim;
-    this.poseDragon(d, { R, color: DRAGON_FORM_COLOR, flash: p.hurt, moving: view.moving, seed: p.id });
+    d.root.scale.set((TOKEN_R * 2.9) / R);
+    // The body faces where the server says (it turns with how he walks); the head looks at the cursor, as far round as
+    // the neck allows. Turning further swings the body too (straight away, here, so the head never overreaches).
+    const look = aim ?? p.aim;
+    const server = p.body ?? look;
+    d.facing += Math.atan2(Math.sin(server - d.facing), Math.cos(server - d.facing)) * 0.3;
+    d.facing = dragonBody(d.facing, look);
+    d.root.rotation = d.facing;
+    const head = Math.atan2(Math.sin(look - d.facing), Math.cos(look - d.facing));
+    // The same breed as Mordak, but his own: fiery orange with deep orange wings (smaller than Mordak's), golden horns.
+    this.poseDragon(d, { R, color: DRAGON_FORM_COLOR, flash: p.hurt, moving: view.moving, seed: p.id, heavy: true, bulk: 1.5, horns: DRAGON_FORM_HORNS, wingSize: 0.75, membrane: 0.12, head });
   }
 
   /** The parts of a dragon (Dragon Form, or Mordak himself): wings first, legs over their roots, the body on top. */
@@ -1960,7 +2040,7 @@ export class GameRenderer {
     const wings: [Sprite, Sprite] = [new Sprite(), new Sprite()];
     const body = new Graphics();
     root.addChild(...wings, legs, body);
-    return { root, legs, wings, body, stride: 0, last: performance.now(), moving: 0 };
+    return { root, legs, wings, body, stride: 0, last: performance.now(), moving: 0, head: 0, tail: 0, sit: 0, mouth: 0, facing: 0 };
   }
 
   /**
@@ -1981,6 +2061,17 @@ export class GameRenderer {
       bulk?: number;
       /** Mordak's build (see drawHeavyDragonBody): broader wings, dark claws. */
       heavy?: boolean;
+      /** The horns' color (the heavy build). */
+      horns?: number;
+      /** How big the wings are drawn, and (the heavy build) how much paler than the body their membranes are. */
+      wingSize?: number;
+      membrane?: number;
+      /** Mordak: his head turned, and his tail curled, in radians; how far he's sat back on his haunches (0 to 1). */
+      head?: number;
+      tail?: number;
+      sit?: number;
+      /** Mordak's jaws: 0 shut, 1 wide open. */
+      mouth?: number;
     },
   ): void {
     const { R, color, flash, seed } = o;
@@ -2001,17 +2092,21 @@ export class GameRenderer {
       return walk + tail;
     };
     const breath = 1 + Math.sin(now * 2.4 + seed) * 0.03;
-    if (o.heavy) this.drawHeavyDragonBody(d.body, R, sway, breath, flash, color, bulk);
+    const sit = o.sit ?? 0;
+    if (o.heavy) this.drawHeavyDragonBody(d.body, R, sway, breath, flash, color, bulk, o.head, (o.tail ?? 0) + sit * 1.1, o.mouth, o.horns);
     else this.drawDragonBody(d.body, R, sway, breath, flash, color, bulk);
-    const wingSize = o.heavy ? 1.2 : 0.85;
+    const wingSize = o.wingSize ?? (o.heavy ? 1.15 : 0.85);
+    // (Mordak's sweep forward, like great sails catching the wind.)
+    const wingTilt = o.heavy ? -0.4 : DRAGON_WING_TILT;
 
     // The wings: hinged at the shoulders (on the chest). A beat folds them in and sweeps them further back.
     const beat = Math.sin(now * (o.flying ? 9 : moving > 0.3 ? 11 : 4.5) + seed);
-    const depth = o.flying ? 0.5 : 0.12 + 0.33 * moving;
+    // (Mordak's great wings stay spread, beating shallowly, except in flight.)
+    const depth = (o.flying ? 0.5 : 0.12 + 0.33 * moving) * (o.heavy && !o.flying ? 0.5 : 1);
     const shoulderX = DRAGON_PARTS.chest.x * R;
     for (const [i, side] of [-1, 1].entries()) {
       const wing = d.wings[i];
-      const art = this.dragonWingTexture(side, flash, color);
+      const art = o.heavy ? this.heavyWingTexture(side, flash, color, o.membrane) : this.dragonWingTexture(side, flash, color);
       wing.texture = art.texture;
       wing.anchor.set(art.anchor.x, art.anchor.y);
       wing.position.set(shoulderX, sway(shoulderX) + side * DRAGON_PARTS.chest.ry * bulk * 0.8 * R);
@@ -2019,13 +2114,15 @@ export class GameRenderer {
         // Torn: folded back along the body, limp, scorched dark, twitching now and then.
         const twitch = Math.max(0, Math.sin(now * 1.3 + seed + i * 2)) ** 8 * 0.08;
         wing.scale.set(wingSize * 0.73, wingSize * 0.59);
-        wing.rotation = side * (DRAGON_WING_TILT + 0.55 + twitch);
+        wing.rotation = side * (wingTilt + 0.55 + twitch);
         wing.tint = flash ? 0xffffff : 0x6a5050;
         continue;
       }
       wing.tint = 0xffffff;
-      wing.scale.set(wingSize * (1 - 0.08 * depth * (beat + 1)), wingSize * (1 - depth * (beat + 1) * 0.5));
-      wing.rotation = side * (DRAGON_WING_TILT + 0.12 * depth * (beat + 1));
+      // Sitting, the wings fold back and in.
+      const fold = 1 - 0.5 * sit;
+      wing.scale.set(wingSize * (1 - 0.08 * depth * (beat + 1)) * (1 - 0.15 * sit), wingSize * (1 - depth * (beat + 1) * 0.5) * fold);
+      wing.rotation = side * (wingTilt + 0.12 * depth * (beat + 1) + sit * 0.9);
     }
 
     // The legs: front ones on the chest, back ones on the hips, trotting (front left with back right, then the other
@@ -2033,6 +2130,8 @@ export class GameRenderer {
     const g = d.legs.clear();
     const legColor = flash ? 0xffffff : shade(color, -0.45);
     const tuck = o.flying ? 0.55 : 1;
+    // Mordak stands lower, on short, thick legs.
+    const legLength = o.heavy ? 0.55 : 1;
     for (const [part, side, phase] of [
       ['chest', -1, 0],
       ['chest', 1, Math.PI],
@@ -2044,14 +2143,31 @@ export class GameRenderer {
       const lift = Math.max(0, Math.cos(step + phase)) * moving;
       const hipX = at.x * R;
       const hipY = sway(hipX) + side * at.ry * bulk * 0.7 * R;
-      const footX = hipX + cycle * 0.26 * R * moving - (o.flying ? 0.12 * R : 0);
-      const footY = sway(hipX) + side * (0.56 * bulk - 0.08 * lift) * R * tuck;
+      // Sitting: haunches tucked forward under him, front legs braced straight ahead.
+      const footX = hipX + cycle * 0.26 * R * moving - (o.flying ? 0.12 * R : 0) + sit * (part === 'hips' ? 0.32 : 0.22) * R;
+      const reach = (out: number) => hipY + side * (out * bulk * R - at.ry * bulk * 0.7 * R) * legLength * tuck;
+      const footY = reach(0.56 - 0.08 * lift / bulk);
       const kneeX = (hipX + footX) / 2 + (part === 'chest' ? 0.06 : -0.06) * R;
-      const kneeY = sway(hipX) + side * 0.44 * bulk * R * tuck;
+      const kneeY = reach(0.44);
       g.moveTo(hipX, hipY).lineTo(kneeX, kneeY).lineTo(footX, footY).stroke({ width: R * 0.15 * bulk, color: 0x140404, cap: 'round', join: 'round' });
       g.moveTo(hipX, hipY).lineTo(kneeX, kneeY).lineTo(footX, footY).stroke({ width: R * 0.09 * bulk, color: legColor, cap: 'round', join: 'round' });
+      if (o.heavy) {
+        // A broad foot, and three claws spread forward and out.
+        g.circle(footX, footY, R * 0.075).fill(legColor).stroke({ width: 2, color: 0x140404 });
+        for (const c of [-1, 0, 1]) {
+          const ca = c * 0.55 + side * 0.25;
+          const cx = footX + Math.cos(ca) * R * 0.06;
+          const cy = footY + Math.sin(ca) * R * 0.06;
+          const tx = footX + Math.cos(ca) * R * 0.17;
+          const ty = footY + Math.sin(ca) * R * 0.17;
+          const nx = -Math.sin(ca) * R * 0.025;
+          const ny = Math.cos(ca) * R * 0.025;
+          g.poly([cx + nx, cy + ny, tx, ty, cx - nx, cy - ny]).fill(flash ? 0xffffff : 0xd7ccc8).stroke({ width: 1.5, color: 0x140404 });
+        }
+        continue;
+      }
       for (const c of [-1, 0, 1]) {
-        g.moveTo(footX, footY).lineTo(footX + R * 0.1, footY + side * R * 0.03 + c * R * 0.05).stroke({ width: R * 0.04, color: o.heavy ? 0x0d0202 : 0xfff3e0, cap: 'round' });
+        g.moveTo(footX, footY).lineTo(footX + R * 0.1, footY + side * R * 0.03 + c * R * 0.05).stroke({ width: R * 0.04, color: 0xfff3e0, cap: 'round' });
       }
     }
   }
@@ -2134,109 +2250,264 @@ export class GameRenderer {
   }
 
   /**
-   * Mordak's body: not plates but one powerful shape along the spine, broad at the shoulders and narrowing into a long,
-   * thick neck, with a heavy tail behind it fringed with spikes. Rows of black scales across the back with lava between
-   * them, a ridge of great spines, and a big wedge of a head: long snout, jaw, brow ridges and two huge horns swept
-   * back. All white when hit.
+   * Mordak's body: one powerful shape along the spine, broad at the shoulders and narrowing into a thick neck, with a
+   * long tail behind it that lies in a lazy S and curls at the tip. Armored plates run down his back from the neck to
+   * the hips, with lava glowing at their edges, and his head is a big wedge (long snout, brow ridges) with two great
+   * ram's horns curling back around it. All white when hit. The neck bends to turn his head by `head` radians, and the
+   * tail swings by `tail`.
    */
-  private drawHeavyDragonBody(g: Graphics, R: number, sway: (x: number) => number, breath: number, flash: boolean, color: number, bulk: number): void {
+  private drawHeavyDragonBody(
+    g: Graphics,
+    R: number,
+    sway: (x: number) => number,
+    breath: number,
+    flash: boolean,
+    color: number,
+    bulk: number,
+    head = 0,
+    tail = 0,
+    mouth = 0,
+    horns = 0x4a3a33,
+  ): void {
     g.clear();
     const fill = (c: number) => (flash ? 0xffffff : c);
     const ink = 0x1a0505;
     const dark = shade(color, -0.4);
     // Half the body's width along the spine (x in R): the tail tapering from the hips, the torso swelling to the
     // shoulders, then the neck narrowing to the head.
-    const TAIL_END = -1.9;
+    const TAIL_END = -2.1;
     const HIPS = -0.45;
     const SHOULDERS = 0.62;
+    const NECK = 0.5;
     const HEAD = 1.05;
     const width = (x: number) => {
       if (x < HIPS) {
-        const t = (x - HIPS) / (TAIL_END - HIPS);
-        return (0.13 * (1 - t) ** 1.3 + 0.012) * bulk;
+        const t = Math.min(1, (x - HIPS) / (TAIL_END - HIPS));
+        return (0.14 * (1 - t) ** 0.9 + 0.02) * bulk;
       }
       if (x < SHOULDERS) {
         const t = (x - HIPS) / (SHOULDERS - HIPS);
         return (0.13 + 0.12 * Math.sin(Math.PI * t ** 1.9)) * bulk * breath;
       }
-      const t = (x - SHOULDERS) / (HEAD - SHOULDERS);
+      const t = Math.min(1, (x - SHOULDERS) / (HEAD - SHOULDERS));
       return (0.13 - 0.05 * t) * bulk;
+    };
+    // The spine at x (in R): where it is and which way it runs. Straight through the torso (swaying as he walks); the
+    // neck bends evenly from NECK to the head by `head`, and the tail from the hips to its tip by `tail`.
+    const bendAt = (s: number, length: number, angle: number) => {
+      const u = Math.min(s, length);
+      const a = (angle * u) / length;
+      const along = Math.abs(angle) < 1e-3 ? u : (length / angle) * Math.sin(a);
+      const across = Math.abs(angle) < 1e-3 ? 0 : (length / angle) * (1 - Math.cos(a));
+      // Past the end, straight on.
+      return { along: along + Math.cos(angle) * (s - u), across: across + Math.sin(angle) * (s - u), a };
+    };
+    const spine = (x: number): { x: number; y: number; a: number } => {
+      if (x > NECK) {
+        const p = bendAt((x - NECK) * R, (HEAD - NECK) * R, head);
+        return { x: NECK * R + p.along, y: sway(NECK * R) + p.across, a: p.a };
+      }
+      if (x < HIPS) {
+        // Going backward: a positive `tail` swings the tip toward +y. At rest it lies in a lazy S.
+        const at = (xx: number) => {
+          const length = (HIPS - TAIL_END) * R;
+          const sDist = (HIPS - xx) * R;
+          const p = bendAt(sDist, length, tail);
+          const u = Math.min(1, sDist / length);
+          const lazy = Math.sin(u * Math.PI * 1.4) * 0.22 * R * u;
+          return { x: HIPS * R - p.along, y: sway(xx * R) + p.across + lazy };
+        };
+        const c = at(x);
+        const n = at(x + 0.01);
+        return { x: c.x, y: c.y, a: Math.atan2(n.y - c.y, n.x - c.x) };
+      }
+      return { x: x * R, y: sway(x * R), a: 0 };
+    };
+    /** A point `along` the spine's direction and `across` it, from the spine at x. */
+    const off = (x: number, along: number, across: number): [number, number] => {
+      const c = spine(x);
+      const ca = Math.cos(c.a);
+      const sa = Math.sin(c.a);
+      return [c.x + ca * along - sa * across, c.y + sa * along + ca * across];
     };
     const outline = (from: number, to: number, steps: number) => {
       const top: number[] = [];
       const bottom: number[] = [];
       for (let i = 0; i <= steps; i++) {
-        const x = (from + ((to - from) * i) / steps) * R;
-        const w = width(x / R) * R;
-        top.push(x, sway(x) - w);
-        bottom.unshift(x, sway(x) + w);
+        const x = from + ((to - from) * i) / steps;
+        const w = width(x) * R;
+        top.push(...off(x, 0, -w));
+        bottom.unshift(...off(x, 0, w));
       }
       return [...top, ...bottom];
     };
-    // Spikes along both edges of the tail, then the tail, and its barbed tip.
-    for (let i = 1; i < 9; i++) {
-      const x = (HIPS + ((TAIL_END - HIPS) * i) / 9) * R;
-      const w = width(x / R) * R;
-      const size = R * 0.07 * (1 - i / 11);
-      for (const side of [-1, 1]) {
-        const y = sway(x) + side * w;
-        g.poly([x + size, y, x - size * 0.6, y + side * size * 1.3, x - size * 1.1, y]).fill(fill(0x0d0202));
+    // The tail, ending in a spade-shaped fin.
+    g.poly(outline(HIPS + 0.05, TAIL_END, 30)).fill(fill(dark)).stroke({ width: 3, color: ink, join: 'round' });
+    g.poly([
+      ...off(TAIL_END, 0.08 * R, 0),
+      ...off(TAIL_END, 0.02 * R, -0.17 * R),
+      ...off(TAIL_END, -0.14 * R, -0.13 * R),
+      ...off(TAIL_END, -0.1 * R, -0.05 * R),
+      ...off(TAIL_END, -0.3 * R, 0),
+      ...off(TAIL_END, -0.1 * R, 0.05 * R),
+      ...off(TAIL_END, -0.14 * R, 0.13 * R),
+      ...off(TAIL_END, 0.02 * R, 0.17 * R),
+    ])
+      .fill(fill(shade(color, -0.55)))
+      .stroke({ width: 2.5, color: ink, join: 'round' });
+    if (!flash) {
+      for (let x = HIPS - 0.12; x > TAIL_END + 0.12; x -= 0.15) {
+        const size = width(x) * R * 0.38;
+        g.poly([...off(x, size * 1.2, 0), ...off(x, 0, -size), ...off(x, -size * 1.2, 0), ...off(x, 0, size)]).fill({ color: shade(color, -0.6), alpha: 0.85 });
       }
     }
-    g.poly(outline(HIPS + 0.05, TAIL_END, 18)).fill(fill(dark)).stroke({ width: 3, color: ink, join: 'round' });
-    const tipX = TAIL_END * R;
-    const tipY = sway(tipX);
-    g.poly([tipX + 0.05 * R, tipY, tipX - 0.1 * R, tipY - 0.16 * R, tipX - 0.3 * R, tipY, tipX - 0.1 * R, tipY + 0.16 * R]).fill(fill(0x0d0202)).stroke({ width: 2, color: ink });
     // The torso and neck, as one.
-    g.poly(outline(HIPS - 0.02, HEAD - 0.05, 24)).fill(fill(color)).stroke({ width: 4, color: ink, join: 'round' });
-    // The head: a long wedge with a jaw, brow ridges and horns sweeping back past the neck.
-    const hx = HEAD * R;
-    const hy = sway(hx);
-    const k = R * bulk * 0.62;
-    const at = (dx: number, dy: number) => [hx + dx * k, hy + dy * k];
+    g.poly(outline(HIPS - 0.02, HEAD - 0.05, 28)).fill(fill(color)).stroke({ width: 4, color: ink, join: 'round' });
+    // The head: a long wedge with a jaw, brow ridges and horns sweeping back past the neck, turned with the neck.
+    const k = R * bulk * 0.5;
+    const at = (dx: number, dy: number): [number, number] => off(HEAD, dx * k, dy * k);
     for (const side of [-1, 1]) {
-      // Horns: long, curving back and out.
-      g.poly([...at(-0.05, side * 0.18), ...at(-0.32, side * 0.42), ...at(-0.62, side * 0.66), ...at(-0.5, side * 0.44), ...at(-0.26, side * 0.24), ...at(-0.02, side * 0.08)])
-        .fill(fill(0x5d4e44))
-        .stroke({ width: 3, color: 0x120404, join: 'round' });
-      if (!flash) g.poly([...at(-0.42, side * 0.52), ...at(-0.62, side * 0.66), ...at(-0.5, side * 0.48)]).fill(0xd7ccc8);
+      // A ram's horn: from the back of the skull it sweeps out and back, then curls forward around itself, thinning.
+      const cx = -0.08;
+      const cy = side * 0.4;
+      const points: [number, number][] = [];
+      const steps = 18;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const ang = Math.atan2(-0.26, -0.05) - t * Math.PI * 1.15;
+        const rad = 0.22 - 0.1 * t;
+        points.push(at(cx + Math.cos(ang) * rad, cy + side * Math.sin(ang) * rad));
+      }
+      for (const [pass, color] of [[0, 0x0a0202], [1, horns]] as const) {
+        for (let i = 0; i < steps; i++) {
+          const w = k * (0.13 - 0.1 * (i / steps)) - pass * 4;
+          g.moveTo(...points[i]).lineTo(...points[i + 1]).stroke({ width: Math.max(1.5, w), color: fill(color), cap: 'round' });
+        }
+      }
+      if (!flash) {
+        // Ridges across the horn.
+        for (let i = 2; i < steps - 2; i += 2) {
+          const [x0, y0] = points[i];
+          const [x1, y1] = points[i + 1];
+          const nx = -(y1 - y0);
+          const ny = x1 - x0;
+          const len = Math.hypot(nx, ny) || 1;
+          const w = k * (0.13 - 0.1 * (i / steps)) * 0.4;
+          g.moveTo(x0 - (nx / len) * w, y0 - (ny / len) * w).lineTo(x0 + (nx / len) * w, y0 + (ny / len) * w).stroke({ width: 1.5, color: 0x2a1e1a, alpha: 0.9 });
+        }
+      }
       // A frill of smaller spikes along the jaw.
       g.poly([...at(0.1, side * 0.15), ...at(-0.08, side * 0.3), ...at(-0.1, side * 0.14)]).fill(fill(0x0d0202));
     }
-    g.poly([...at(-0.15, -0.2), ...at(0.1, -0.22), ...at(0.45, -0.1), ...at(0.62, -0.05), ...at(0.66, 0), ...at(0.62, 0.05), ...at(0.45, 0.1), ...at(0.1, 0.22), ...at(-0.15, 0.2)])
+    const m = mouth;
+    if (m > 0.05 && !flash) {
+      // The fire in his throat, glowing out between his jaws.
+      g.poly([...at(0.34, 0), ...at(0.86, -0.22 * m), ...at(1.0, 0), ...at(0.86, 0.22 * m)]).fill({ color: 0xff3d00, alpha: 0.55 * m });
+      g.poly([...at(0.4, 0), ...at(0.78, -0.1 * m), ...at(0.86, 0), ...at(0.78, 0.1 * m)]).fill({ color: 0xffd180, alpha: 0.85 * m });
+    }
+    g.poly([
+      ...at(-0.18, -0.26),
+      ...at(0.08, -0.29),
+      ...at(0.3, -0.2),
+      ...at(0.5, -0.14 - 0.03 * m),
+      ...at(0.64, -0.08 - 0.06 * m),
+      ...at(0.7, -0.02 - 0.09 * m),
+      ...at(0.7 - 0.34 * m, 0),
+      ...at(0.7, 0.02 + 0.09 * m),
+      ...at(0.64, 0.08 + 0.06 * m),
+      ...at(0.5, 0.14 + 0.03 * m),
+      ...at(0.3, 0.2),
+      ...at(0.08, 0.29),
+      ...at(-0.18, 0.26),
+    ])
       .fill(fill(shade(color, 0.06)))
       .stroke({ width: 4, color: ink, join: 'round' });
     if (flash) return;
     // The snout's ridge and the mouth line, brow ridges over eyes like coals, smoldering nostrils.
-    g.moveTo(...(at(0.05, 0) as [number, number])).lineTo(...(at(0.55, 0) as [number, number])).stroke({ width: 3, color: shade(color, -0.3), cap: 'round' });
+    g.moveTo(...at(0.05, 0)).lineTo(...at(Math.min(0.55, 0.62 - 0.36 * m), 0)).stroke({ width: 3, color: shade(color, -0.3), cap: 'round' });
+    if (m > 0.2) {
+      // Teeth along the open jaws.
+      for (const side of [-1, 1]) {
+        for (const t of [0.35, 0.7]) {
+          const bx = 0.7 - 0.34 * m * (1 - t);
+          const by = side * (0.02 + 0.09 * m) * t;
+          g.poly([...at(bx, by), ...at(bx - 0.06, by - side * 0.015), ...at(bx - 0.02, by - side * 0.05)]).fill(0xfff3e0);
+        }
+      }
+    }
     for (const side of [-1, 1]) {
-      g.moveTo(...(at(0.62, side * 0.04) as [number, number])).lineTo(...(at(0.2, side * 0.14) as [number, number])).stroke({ width: 2, color: 0x2b0000, alpha: 0.9 });
-      g.poly([...at(0.02, side * 0.06), ...at(0.2, side * 0.08), ...at(0.08, side * 0.13)]).fill(0x0d0202);
-      const [ex, ey] = at(0.1, side * 0.085);
+      g.moveTo(...at(0.64, side * 0.05)).lineTo(...at(0.25, side * 0.19)).stroke({ width: 2, color: 0x2b0000, alpha: 0.9 });
+      // A heavy brow ridge over each eye.
+      g.poly([...at(-0.12, side * 0.08), ...at(0.12, side * 0.15), ...at(0.02, side * 0.23), ...at(-0.14, side * 0.19)]).fill(0x0d0202);
+      const [ex, ey] = at(-0.02, side * 0.15);
       g.circle(ex, ey, 0.032 * k * 1.6).fill({ color: 0xff6d00, alpha: 0.5 }).circle(ex, ey, 0.03 * k).fill(0xffd740);
       const [nx, ny] = at(0.6, side * 0.03);
       g.circle(nx, ny, 0.018 * k).fill(0xff3d00);
     }
-    // Rows of black scales across the back, with lava glowing between some of them.
-    for (let x = HIPS + 0.08; x < SHOULDERS + 0.15; x += 0.13) {
-      const px = x * R;
-      const py = sway(px);
-      const w = width(x) * R * 0.85;
-      g.moveTo(px - 0.05 * R, py - w).quadraticCurveTo(px + 0.06 * R, py, px - 0.05 * R, py + w).stroke({ width: 3, color: 0x2a0606, alpha: 0.85 });
+    // Armored plates down his back, from the neck to the hips, overlapping like shingles, lava glowing at their edges.
+    const plate = (x: number, length: number, half: number) => {
+      const shape = [...off(x, length * 0.55, 0), ...off(x, length * 0.15, -half), ...off(x, -length * 0.45, -half * 0.75), ...off(x, -length * 0.2, 0), ...off(x, -length * 0.45, half * 0.75), ...off(x, length * 0.15, half)];
+      g.poly(shape).stroke({ width: 5, color: 0xff6d00, alpha: 0.35, join: 'round' });
+      g.poly(shape).fill(shade(color, -0.55)).stroke({ width: 2, color: ink, join: 'round' });
+      g.moveTo(...off(x, length * 0.4, 0)).lineTo(...off(x, -length * 0.1, 0)).stroke({ width: 2, color: shade(color, -0.2), alpha: 0.8 });
+    };
+    for (let x = NECK + 0.1; x > HIPS - 0.05; x -= 0.13) plate(x, 0.16 * R, width(x) * R * 0.5);
+  }
+
+  /**
+   * One of Mordak's great bat wings (`side` -1 left, 1 right), drawn with its shoulder at the origin (its anchor): the
+   * arm reaches out and back to the wrist, three long fingers fan forward from it with hooked claws at their tips, and a
+   * paler membrane stretches between them in scalloped curves. A soft shadow falls beneath it.
+   */
+  private heavyWingTexture(side: number, flash: boolean, color: number, pale = 0.5): { texture: Texture; anchor: { x: number; y: number } } {
+    const key = `heavyWing|${side}|${flash}|${color}|${pale}`;
+    const cached = this.dragonWings.get(key);
+    if (cached) return cached;
+    const R = ENEMY_TYPES[EnemyType.Mordak].radius;
+    const p = (x: number, y: number): [number, number] => [x * R, side * y * R];
+    const bone = flash ? 0xffffff : 0x220606;
+    const membrane = flash ? 0xffffff : shade(color, pale);
+    // Broad, like a sail: the arm reaches out to the wrist; one long finger runs far back from it, two more fan out to
+    // the side, and the membrane stretches between them and back to his flank behind the shoulder.
+    const shoulder = p(0.05, 0.12);
+    const elbow = p(-0.1, 0.75);
+    const wrist = p(0.05, 1.45);
+    const tips = [p(0.1, 2.35), p(-0.75, 2.45), p(-1.75, 1.75)];
+    const root = p(-0.95, 0.25);
+    // Between two fingertips the membrane sags in toward the wrist.
+    const sag = (a: [number, number], b: [number, number]): [number, number] => {
+      const mx = (a[0] + b[0]) / 2;
+      const my = (a[1] + b[1]) / 2;
+      return [mx + (wrist[0] - mx) * 0.28, my + (wrist[1] - my) * 0.28];
+    };
+    const outline = [...shoulder, ...elbow, ...wrist, ...tips[0], ...sag(tips[0], tips[1]), ...tips[1], ...sag(tips[1], tips[2]), ...tips[2], ...sag(tips[2], root), ...root];
+    const g = new Graphics();
+    // The shadow, a little behind and below.
+    if (!flash) g.poly(outline.map((v, i) => v + (i % 2 ? 0.1 * R : 0.06 * R))).fill({ color: 0x000000, alpha: 0.22 });
+    g.poly(outline).fill(membrane).stroke({ width: 3, color: bone, join: 'round' });
+    // Darker webbing along the arm, and the fingers.
+    if (!flash) g.poly([...shoulder, ...elbow, ...wrist, ...sag(wrist, tips[0]), ...p(-0.2, 0.75)]).fill({ color: shade(color, -0.1), alpha: 0.45 });
+    for (const [i, tip] of tips.entries()) {
+      g.moveTo(...wrist).lineTo(...tip).stroke({ width: R * (0.05 - i * 0.008), color: bone, cap: 'round' });
     }
-    for (const x of [-0.12, 0.2, 0.45]) {
-      const px = x * R;
-      const py = sway(px);
-      const w = width(x) * R * 0.6;
-      g.moveTo(px, py - w).quadraticCurveTo(px + 0.05 * R, py, px, py + w).stroke({ width: 5, color: 0xff6d00, alpha: 0.4 }).moveTo(px, py - w).quadraticCurveTo(px + 0.05 * R, py, px, py + w).stroke({ width: 1.5, color: 0xffd180, alpha: 0.85 });
-    }
-    // A ridge of great spines from the head down the tail.
-    for (let i = 0; i < 16; i++) {
-      const x = (0.95 - i * 0.16) * R;
-      const y = sway(x);
-      const size = R * 0.1 * bulk * 0.6 * (1 - i * 0.045);
-      g.poly([x + size * 0.6, y, x - size, y - size * 0.55, x - size * 0.75, y, x - size, y + size * 0.55]).fill(0x0d0202);
-    }
+    g.moveTo(...shoulder).lineTo(...elbow).lineTo(...wrist).stroke({ width: R * 0.1, color: bone, cap: 'round', join: 'round' });
+    g.moveTo(...shoulder).lineTo(...elbow).lineTo(...wrist).stroke({ width: R * 0.05, color: flash ? 0xffffff : shade(color, -0.2), cap: 'round', join: 'round' });
+    // Hooked claws: at the wrist (the thumb), and at the outer fingertip.
+    const hook = (at: [number, number], dx: number, dy: number) => {
+      const [x, y] = at;
+      g.poly([x, y - side * 0.04 * R, x + dx * R, y + side * dy * R, x + dx * 0.4 * R, y + side * 0.04 * R]).fill(flash ? 0xffffff : 0x140303);
+    };
+    hook(wrist, -0.12, 0.2);
+    hook(tips[0], 0.16, 0.12);
+    const frame = (() => {
+      const b = g.getLocalBounds();
+      return new Rectangle(b.x - 4, b.y - 4, b.width + 8, b.height + 8);
+    })();
+    const texture = this.app.renderer.generateTexture({ target: g, frame, resolution: 2 });
+    g.destroy();
+    const wing = { texture, anchor: { x: -frame.x / frame.width, y: -frame.y / frame.height } };
+    this.dragonWings.set(key, wing);
+    return wing;
   }
 
   /** One dragon wing (see drawDragonWing), and where its shoulder falls in it (its anchor, to flap around). */

@@ -4,7 +4,7 @@
  * Stand inside a shrine to capture it. One player fills it in SHRINE_CAPTURE_TIME seconds, and every extra player
  * inside speeds it up (see captureSpeed).
  */
-export const ShrineKind = { Forge: 0, Event: 1, Quest: 2, Sigil: 3 } as const;
+export const ShrineKind = { Forge: 0, Event: 1, Quest: 2, Sigil: 3, Armory: 4 } as const;
 
 export const SHRINES = [
   { name: 'Forge', hint: 'Upgrade a weapon (evolves max-level weapons and abilities)', color: 0xffa726 },
@@ -12,6 +12,7 @@ export const SHRINES = [
   { name: 'Quest', hint: 'Starts a quest with a gem reward', color: 0xffee58 },
   // Only during a boss side mission.
   { name: 'Sigil', hint: 'Stand in it to break the boss shield', color: 0xe040fb },
+  { name: 'Armory', hint: 'Trade in a weapon for a new one, at the same level', color: 0x7fd8ff },
 ];
 
 export const SHRINE_RADIUS = 100;

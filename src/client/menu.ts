@@ -10,7 +10,7 @@ import type { ProfileState, RoomInfo } from '../shared/protocol';
 import type { Sound } from './audio';
 import { artifactIcon, effectLines, sortArtifacts, tierColor, tierTag } from './artifactView';
 import { renderBestiary } from './bestiary';
-import { heroDetail, heroPortrait, statGrid } from './heroView';
+import { heroDetail, heroPortrait, mystery, mysteryDetail, statGrid } from './heroView';
 import { portraitHtml } from './portraits';
 
 export type Screen = 'name' | 'home' | 'multiplayer' | 'profile' | 'settings' | 'bestiary';
@@ -544,9 +544,11 @@ export class Menu {
         const owned = heroAvailable(id, profile.heroes);
         const runs = profile.records[id]?.runs ?? 0;
         const card = el('button', `hero-tile${id === selected ? ' selected' : ''}${owned ? '' : ' locked'}`);
-        card.append(heroPortrait(id, 0x4fc3f7, 'hero-tile-portrait'), el('div', 'hero-tile-name', c.name), el('div', 'hero-tile-title', c.title));
+        // A secret hero stays a mystery until it's earned.
+        if (!owned && c.secret) card.append(mystery('hero-tile-portrait'), el('div', 'hero-tile-name', '???'), el('div', 'hero-tile-title', '???'));
+        else card.append(heroPortrait(id, 0x4fc3f7, 'hero-tile-portrait'), el('div', 'hero-tile-name', c.name), el('div', 'hero-tile-title', c.title));
         card.append(el('div', 'hero-tile-runs', owned ? `${runs} run${runs === 1 ? '' : 's'}` : ''));
-        if (!owned) card.append(el('span', 'hero-tile-lock', c.secret ? 'Locked: ???' : `${c.unlockCost} gold`));
+        if (!owned) card.append(el('span', 'hero-tile-lock', c.secret ? 'Locked' : `${c.unlockCost} gold`));
         card.addEventListener('click', () => {
           this.profileHero = id;
           this.renderHeroShop(profile);
@@ -560,6 +562,10 @@ export class Menu {
     const owned = heroAvailable(selected, profile.heroes);
     const record = profile.records[selected];
     const panel = $('profile-hero');
+    if (!owned && c.secret) {
+      panel.replaceChildren(...mysteryDetail());
+      return;
+    }
     panel.replaceChildren(...heroDetail(selected, 0x4fc3f7));
     panel.append(el('h2', 'profile-record-title', 'Your record'));
     if (record && record.runs > 0) {
@@ -582,7 +588,7 @@ export class Menu {
       panel.append(el('p', 'prestige-hint', owned ? 'No runs with this hero yet.' : 'Unlock this hero to start a record.'));
     }
     if (!owned && c.secret) {
-      panel.append(el('p', 'prestige-hint', 'This hero can only be earned. How is a secret.'));
+      panel.append(el('p', 'prestige-hint', 'Play more to unlock.'));
     } else if (!owned) {
       const buy = el('button', 'primary hero-buy', `Unlock for ${c.unlockCost} gold`) as HTMLButtonElement;
       buy.disabled = profile.gold < c.unlockCost!;

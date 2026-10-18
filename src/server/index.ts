@@ -6,7 +6,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { TICK_RATE } from '../shared/constants';
 import { MODES, isModeId } from '../shared/modes';
 import { DEV_NAME, type ClientMessage, type ServerMessage } from '../shared/protocol';
-import { MAPS } from '../shared/maps';
+import { CAMPAIGN, MAPS } from '../shared/maps';
 import { Game } from './game';
 import { buyHero, buyPrestige, combineArtifacts, equipArtifact, getProfile, profileState, refundPrestige, spinWheel } from './profiles';
 import { loadProgress, saveProgress } from './progress';
@@ -53,14 +53,14 @@ const save = () => saveProgress(progress);
 const rooms = new Rooms(
   (room) =>
     new Game({
-      unlocked: unlockAll ? MAPS.length : progress.unlocked,
+      unlocked: unlockAll ? CAMPAIGN : progress.unlocked,
       onUnlock: (unlocked) => {
         progress.unlocked = Math.max(progress.unlocked, unlocked);
         save();
         for (const other of rooms.all()) other.game.setUnlocked(progress.unlocked);
         console.log(`Unlocked ${MAPS[unlocked - 1].name}`);
       },
-      hardUnlocked: unlockAll ? MAPS.length : progress.hardUnlocked,
+      hardUnlocked: unlockAll ? CAMPAIGN : progress.hardUnlocked,
       onHardUnlock: (unlocked) => {
         progress.hardUnlocked = Math.max(progress.hardUnlocked, unlocked);
         save();

@@ -15,10 +15,10 @@ import { ARTIFACTS, TIERS, artifact, artifactSummary, describeActive, describeAr
 import { HARD, MAX_PLAYERS } from '../shared/constants';
 import { MODES } from '../shared/modes';
 import { ENEMY_TYPES, EnemyType, MISSIONS } from '../shared/enemies';
-import { MAPS, inZone, mapBossName, onFinaleGround } from '../shared/maps';
+import { ENDLESS_MAP, MAPS, inZone, mapBossName, onFinaleGround, waveBoss } from '../shared/maps';
 import { mapIconSvg } from './mapIcons';
 import { EVENTS, QUESTS } from '../shared/objectives';
-import { DEV_NAME, type ArtifactFind, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot } from '../shared/protocol';
+import { DEV_NAME, type ArtifactFind, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot, type GameMode, type ProfileState } from '../shared/protocol';
 import {
   EVOLVED_LEVEL,
   MAX_LEVEL,
@@ -42,7 +42,7 @@ import {
 import { artifactIcon, sortArtifacts, tierColor } from './artifactView';
 import type { Sound } from './audio';
 import { iconEl, ultIconEl } from './icons';
-import { heroDetail } from './heroView';
+import { heroDetail, mystery, mysteryDetail } from './heroView';
 import { portraitHtml } from './portraits';
 
 const SPEAKER =
@@ -52,7 +52,7 @@ const SPEAKER_OFF = `<svg viewBox="0 0 24 24" aria-hidden="true">${SPEAKER}<path
 
 const NAME_KEY = 'overrun.name';
 const CHARACTER_KEY = 'overrun.character';
-const CHOICE_KEYS = ['Digit1', 'Digit2', 'Digit3'];
+const CHOICE_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'];
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -170,7 +170,14 @@ export const formatTime = (seconds: number) =>
 /** The HTML overlays: lobby, HUD, loadout, level-up picks and game-over screen. */
 export class UI {
   onPick: (character: CharacterId) => void = () => {};
-  onPickMap: (index: number, hard: boolean) => void = () => {};
+  onPickMap: (index: number, mode: GameMode) => void = () => {};
+  /** Your profile, for your endless records on the map cards. */
+  private profile: ProfileState | null = null;
+
+  setProfile(profile: ProfileState): void {
+    this.profile = profile;
+    this.shown.maps = ''; // Redraw the cards (new records).
+  }
   onStart: () => void = () => {};
   onLobby: () => void = () => {};
   onChoose: (index: number) => void = () => {};
@@ -440,7 +447,9 @@ export class UI {
     this.xpFill.style.width = `${Math.min(100, (snap.xp / snap.xpNext) * 100)}%`;
     this.level.textContent = `Lv ${snap.level}`;
     this.timer.textContent = formatTime(snap.time);
-    this.hardTag.classList.toggle('hidden', !snap.hard);
+    this.hardTag.classList.toggle('hidden', snap.mode === 'normal');
+    this.hardTag.classList.toggle('endless', snap.mode === 'endless');
+    this.hardTag.textContent = snap.mode === 'hard' ? 'HARD' : `ENDLESS · WAVE ${snap.wave}`;
     this.kills.textContent = `${me?.kills ?? 0} kills`;
     this.gold.textContent = `${snap.me?.gold ?? 0} gold`;
     this.eventChip.classList.toggle('hidden', !snap.event);
@@ -463,10 +472,19 @@ export class UI {
     this.renderPauseMenu(anyPause?.kind === 'menu' ? anyPause : null, snap, myId);
     this.renderSpectate(snap, me);
     if (pause) {
-      this.chooseTitle.textContent = pause.reason === 'forge' ? 'The Forge: upgrade a weapon' : 'Level up!';
+      const swap = snap.me?.swapOut ?? null;
+      this.chooseTitle.textContent =
+        pause.reason === 'forge'
+          ? 'The Forge: upgrade a weapon'
+          : pause.reason === 'armory'
+            ? swap
+              ? `The Armory: what takes the place of ${UPGRADES[swap.id].name}?`
+              : 'The Armory: trade in a weapon?'
+            : 'Level up!';
       this.chooseTimer.textContent = `${Math.ceil(pause.timeLeft)}s`;
       this.chooseTimer.classList.toggle('urgent', pause.timeLeft <= 5);
-      this.renderOptions(snap.me?.options ?? null, snap.me?.upgrades ?? {});
+      if (pause.reason === 'armory') this.renderArmory(snap.me?.options ?? null, snap.me?.upgrades ?? {}, swap);
+      else this.renderOptions(snap.me?.options ?? null, snap.me?.upgrades ?? {});
       this.renderWaiting(snap, myId);
     } else {
       this.renderOptions(null, {});
@@ -478,28 +496,39 @@ export class UI {
   // --- Lobby ---
 
   private renderMaps(snap: Snapshot): void {
-    const key = `${snap.map}|${snap.unlocked}|${snap.hard}|${snap.hardUnlocked}|${this.amHost}`;
+    const key = `${snap.map}|${snap.unlocked}|${snap.mode}|${snap.hardUnlocked}|${this.amHost}`;
     if (key === this.shown.maps) return;
     this.shown.maps = key;
-    // Normal or hard mode (once Mordak has fallen): switching keeps the map if it's open on the other mode too.
-    const hard = snap.hard;
-    this.mapMode.classList.toggle('hidden', snap.hardUnlocked <= 0);
+    // Normal, hard (once Mordak has fallen) or endless: switching keeps the map if it's open on the other mode too.
+    const mode = snap.mode;
+    const hard = mode === 'hard';
+    const modes: GameMode[] = snap.hardUnlocked > 0 ? ['normal', 'hard', 'endless'] : ['normal', 'endless'];
+    const MODE_INFO: Record<GameMode, [string, string]> = {
+      normal: ['Normal', 'The maps as you first played them'],
+      hard: ['Hard', 'Every map again: enemies hit harder, the horde is faster and bosses attack relentlessly, with new patterns. More prestige and better loot.'],
+      endless: ['Endless', 'No final victory: survive as long as you can. The boss comes back in waves, stronger each time, and the horde never stops growing. Armories let you trade in weapons.'],
+    };
+    this.mapMode.classList.remove('hidden');
     this.mapMode.replaceChildren(
-      ...[false, true].map((mode) => {
-        const button = el('button', `map-mode-button${mode ? ' hard' : ''}${mode === hard ? ' selected' : ''}`, mode ? 'Hard' : 'Normal') as HTMLButtonElement;
+      ...modes.map((m) => {
+        const button = el('button', `map-mode-button ${m}${m === mode ? ' selected' : ''}`, MODE_INFO[m][0]) as HTMLButtonElement;
         button.disabled = !this.amHost;
-        button.title = mode ? 'Every map again: enemies hit harder, the horde is faster and bosses attack relentlessly, with new patterns. More prestige and better loot.' : 'The maps as you first played them';
+        button.title = MODE_INFO[m][1];
         button.addEventListener('click', () => {
-          if (mode === hard) return;
-          this.onPickMap(Math.min(snap.map, (mode ? snap.hardUnlocked : snap.unlocked) - 1), mode);
+          if (m === mode) return;
+          this.onPickMap(m === 'endless' ? ENDLESS_MAP : Math.min(snap.map, (m === 'hard' ? snap.hardUnlocked : snap.unlocked) - 1), m);
         });
         return button;
       }),
     );
     this.maps.classList.toggle('hard', hard);
+    this.maps.classList.toggle('endless', mode === 'endless');
     this.maps.replaceChildren(
-      ...MAPS.map((map, i) => {
-        const locked = i >= (hard ? snap.hardUnlocked : snap.unlocked);
+      // Endless has its own map; the other modes show the campaign.
+      ...MAPS.map((map, i) => ({ map, i }))
+        .filter(({ map }) => (mode === 'endless') === !!map.endless)
+        .map(({ map, i }) => {
+        const locked = !map.endless && i >= (hard ? snap.hardUnlocked : snap.unlocked);
         const card = el('button', `map-card${i === snap.map ? ' selected' : ''}${locked ? ' locked' : ''}${this.amHost ? '' : ' readonly'}`) as HTMLButtonElement;
         card.disabled = locked || !this.amHost;
         // The details (description, boss, kind of finale) are in the hover text, to keep the cards small.
@@ -516,7 +545,11 @@ export class UI {
           el('div', 'map-card-difficulty', `Enemies ×${+(map.difficulty * (hard ? HARD.difficulty : 1)).toFixed(2)}`),
           el('div', 'map-card-difficulty', `Prestige ×${+(map.prestigeReward * (hard ? HARD.prestige : 1)).toFixed(2)}`),
         );
-        card.addEventListener('click', () => this.onPickMap(i, hard));
+        if (mode === 'endless' && !locked) {
+          const best = this.profile?.endless[map.name];
+          card.append(el('div', 'map-card-best', best ? `Best ${formatTime(best)}` : 'No run yet'));
+        }
+        card.addEventListener('click', () => this.onPickMap(i, mode));
         return card;
       }),
     );
@@ -535,8 +568,10 @@ export class UI {
         const c = CHARACTERS[id];
         const locked = !heroAvailable(id, unlocked);
         const card = el('button', `hero-tile${id === me.character ? ' selected' : ''}${id === viewing ? ' viewing' : ''}${locked ? ' locked' : ''}`) as HTMLButtonElement;
-        card.append(portrait(id, me.color, 'portrait hero-tile-portrait'), el('div', 'hero-tile-name', c.name), el('div', 'hero-tile-title', c.title));
-        if (locked) card.append(el('span', 'hero-tile-lock', c.secret ? 'Locked: ???' : `${c.unlockCost} gold`));
+        // A secret hero stays a mystery until it's earned.
+        if (locked && c.secret) card.append(mystery('hero-tile-portrait'), el('div', 'hero-tile-name', '???'), el('div', 'hero-tile-title', '???'));
+        else card.append(portrait(id, me.color, 'portrait hero-tile-portrait'), el('div', 'hero-tile-name', c.name), el('div', 'hero-tile-title', c.title));
+        if (locked) card.append(el('span', 'hero-tile-lock', c.secret ? 'Locked' : `${c.unlockCost} gold`));
         card.addEventListener('click', () => {
           this.viewing = id;
           // Locked in: you can look, but not swap until you unlock.
@@ -632,9 +667,12 @@ export class UI {
     const c = CHARACTERS[id];
     const locked = !heroAvailable(id, unlocked);
 
+    if (locked && c.secret) {
+      this.heroDetail.replaceChildren(...mysteryDetail());
+      return;
+    }
     this.heroDetail.replaceChildren(...heroDetail(id, me.color));
     if (locked && c.secret) {
-      this.heroDetail.append(el('p', 'prestige-hint', 'This hero can only be earned. How is a secret.'));
     } else if (locked) {
       const unlock = el('button', 'secondary hero-unlock', `Unlock for ${c.unlockCost} gold${gold < c.unlockCost! ? ` (you have ${gold})` : ''}`) as HTMLButtonElement;
       unlock.addEventListener('click', () => this.onOpenProfile());
@@ -754,8 +792,8 @@ export class UI {
       });
       // The berserk clock.
       const berserk = fight.berserk > 0;
-      this.bossStatus.classList.toggle('urgent', berserk || fight.berserkIn <= 30);
-      this.bossStatus.textContent = berserk ? `BERSERK x${fight.berserk} · stronger every 30s` : `Berserk in ${formatTime(fight.berserkIn)}`;
+      this.bossStatus.classList.toggle('urgent', berserk || (fight.berserkIn >= 0 && fight.berserkIn <= 30));
+      this.bossStatus.textContent = berserk ? `BERSERK x${fight.berserk} · stronger every 30s` : fight.berserkIn >= 0 ? `Berserk in ${formatTime(fight.berserkIn)}` : '';
       if (fight.mission) this.missionChip.textContent = `Shielded! ${MISSIONS[fight.mission.kind].goal} (${fight.mission.done}/${fight.mission.total})`;
     }
     let text = '';
@@ -778,7 +816,8 @@ export class UI {
       urgent = true;
       text = `The lava is closing in! ${mapBossName(MAPS[snap.map])} ${MAPS[snap.map].twin ? 'arrive' : 'arrives'} when it stops.`;
     } else if (snap.phase === 'playing' && !fight && (!arena || arena.state === 'idle') && snap.time < snap.bossTime) {
-      text = `${mapBossName(MAPS[snap.map])} in ${formatTime(snap.bossTime - snap.time)}`;
+      const next = snap.mode === 'endless' ? `Wave ${snap.wave + 1}: ${waveBoss(MAPS[snap.map], snap.wave + 1).name}` : mapBossName(MAPS[snap.map]);
+      text = `${next} in ${formatTime(snap.bossTime - snap.time)}`;
     }
     this.bossChip.classList.toggle('hidden', !text);
     this.bossChip.classList.toggle('urgent', urgent);
@@ -1096,6 +1135,50 @@ export class UI {
 
   // --- Level-up ---
 
+  /**
+   * The Armory's cards. First your weapons, to trade one in (or keep them all, for a little gold); then three new
+   * weapons, each shown at the level it would come in at.
+   */
+  private renderArmory(options: ChoiceId[] | null, upgrades: Upgrades, swap: { id: UpgradeId; level: number } | null): void {
+    const key = `armory|${swap?.id ?? ''}|${options ? options.join(',') : ''}`;
+    if (key === this.shown.options) return;
+    this.shown.options = key;
+    this.cards.replaceChildren(
+      ...(options ?? []).map((id, i) => {
+        const header = el('div', 'card-header');
+        header.append(el('span', 'key', String(i + 1)));
+        if (isBonus(id)) {
+          const card = el('button', 'card bonus');
+          header.append(el('span', 'tag', 'KEEP'));
+          card.append(header, iconEl(id, 56), el('div', 'card-name', 'Keep your weapons'), el('p', 'card-desc', `Trade nothing in, and take ${BONUSES[id].text.toLowerCase()}`));
+          card.addEventListener('click', () => this.onChoose(i));
+          return card;
+        }
+        const def = UPGRADES[id];
+        const card = el('button', `card weapon armory${def.damage ? ` ${def.damage}` : ''}`);
+        const tags = el('span', 'card-tags');
+        if (swap) {
+          tags.append(el('span', 'tag', `NEW · Lv ${swap.level}`));
+          if (def.damage) tags.append(el('span', `damage-tag ${def.damage}`, DAMAGE_NAMES[def.damage]));
+          header.append(tags);
+          card.append(header, iconEl(id, 56), el('div', 'card-name', def.name), el('p', 'card-desc', def.describe(swap.level)), pips(swap.level, upgradeMax(id)));
+          card.append(this.boostRow(id, upgrades));
+        } else {
+          const level = upgrades[id] ?? 1;
+          const evolved = level >= EVOLVED_LEVEL && def.evolution;
+          tags.append(el('span', 'tag', 'TRADE IN'));
+          header.append(tags);
+          const name = evolved ? def.evolution!.name : def.name;
+          const keeps = Math.min(MAX_LEVEL, level);
+          const text = `Give up ${name} (Lv ${Math.min(level, MAX_LEVEL)}${evolved ? ', evolved' : ''}) and pick one of three new weapons to take its place, at Lv ${keeps}.`;
+          card.append(header, iconEl(id, 56), el('div', 'card-name', name), el('p', 'card-desc', text), pips(keeps, upgradeMax(id)));
+        }
+        card.addEventListener('click', () => this.onChoose(i));
+        return card;
+      }),
+    );
+  }
+
   private renderOptions(options: ChoiceId[] | null, upgrades: Upgrades): void {
     const key = options ? options.join(',') : '';
     if (key === this.shown.options) return;
@@ -1258,15 +1341,22 @@ export class UI {
     const key = `${JSON.stringify(result)}|${snap.players.map((p) => p.id).join(',')}`;
     if (key === this.shown.result) return;
     this.shown.result = key;
-    const title = result.victory ? 'VICTORY' : 'DEFEAT';
+    const endless = result.endless;
+    const title = endless ? 'RUN OVER' : result.victory ? 'VICTORY' : 'DEFEAT';
     for (const node of [this.gameoverTitle, $('splash-title')]) {
       node.textContent = title;
       node.classList.toggle('victory', result.victory);
+      node.classList.toggle('endless', !!endless);
     }
-    $('splash-sub').textContent = result.victory
-      ? `${result.boss} defeated in ${formatTime(result.time)}`
-      : `Overrun at ${formatTime(result.time)}`;
-    this.survived.textContent = result.victory
+    const waves = endless ? `${endless.waves} boss ${endless.waves === 1 ? 'wave' : 'waves'} beaten` : '';
+    $('splash-sub').textContent = endless
+      ? `Survived ${formatTime(result.time)} · ${waves}${endless.record ? ' · New record!' : ''}`
+      : result.victory
+        ? `${result.boss} defeated in ${formatTime(result.time)}`
+        : `Overrun at ${formatTime(result.time)}`;
+    this.survived.textContent = endless
+      ? `Your team lasted ${formatTime(result.time)}, reached level ${result.level} and beat ${waves.replace(' beaten', '')}.${endless.record ? ' A new record on this map!' : ''}`
+      : result.victory
       ? `You defeated ${result.boss} in ${formatTime(result.time)}!` + (result.unlockedMap ? ` ${result.unlockedMap} is now unlocked.` : '') + (result.feats.length ? ` ${result.feats.join(' ')}` : '')
       : `Your team survived ${formatTime(result.time)} and reached level ${result.level}.`;
 

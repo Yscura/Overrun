@@ -144,6 +144,7 @@ export const BOSS_ATTACK = { cooldown: 5, radius: 95, delay: 1.4, damage: 35 };
  */
 export type BossAttack =
   | 'fireballs'
+  | 'roost'
   | 'flight'
   | 'firebeam'
   | 'barrage'
@@ -245,8 +246,8 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
   // wings to keep him on the ground.
   [EnemyType.Mordak]: {
     title: 'the Earth Scourger',
-    attacks: ['fireballs', 'firebeam', 'charge', 'flight', 'fireballs', 'summon', 'firebeam', 'flight'],
-    hard: ['fireballs', 'firebeam', 'charge', 'meteor', 'flight', 'fireballs', 'shockwave', 'firebeam', 'summon', 'flight'],
+    attacks: ['fireballs', 'firebeam', 'charge', 'flight', 'roost', 'fireballs', 'summon', 'firebeam', 'flight', 'roost'],
+    hard: ['fireballs', 'firebeam', 'charge', 'meteor', 'flight', 'roost', 'fireballs', 'shockwave', 'firebeam', 'summon', 'flight', 'roost'],
     cooldown: 3.1,
     minions: [EnemyType.Charger, EnemyType.Runner],
     phase: 'none',
@@ -307,14 +308,46 @@ export const BOSS_MECHANICS = {
    * Mordak takes to the sky (untargetable), sweeps over the den and out across the lava dropping fire as he goes,
    * and lands somewhere in the den. `speed` is how fast he flies; a bomb falls every `every` seconds.
    */
-  flight: { speed: 720, every: 0.16, radius: 100, delay: 1.0, damage: 36, overshoot: 650 },
+  /**
+   * At each turn of the fire flight he sends down `adds` of his minions (plus `addsPerPlayer` for each player past the
+   * first) around the team, and drops fire on everyone again.
+   */
+  flight: { speed: 720, every: 0.16, radius: 100, delay: 1.0, damage: 36, overshoot: 650, adds: 3, addsPerPlayer: 1 },
   /** Mordak: a beam of fire that sweeps a half circle in front of him. Its damage is a share of your max HP. */
   firebeam: { windup: 1.7, sweep: 2.3, length: 1000, width: 50, damage: 0.35 },
   /**
    * Mordak's wings each have `hp` of his max health. Destroying one stuns him for `stagger` seconds and tears
    * `bodyDamage` of his max health off him; with both gone he can't fly.
    */
-  wings: { hp: 0.12, stagger: 3, bodyDamage: 0.06 },
+  /**
+   * His wings as targets of their own (tear both off and he can't fly). `enabled`: off for now; the rest still works
+   * if it's turned back on.
+   */
+  wings: { enabled: false, hp: 0.12, stagger: 3, bodyDamage: 0.06 },
+  /**
+   * Mordak's tail: anyone behind him (within `half` radians of straight back, and `reach` of his middle) gets swept
+   * aside. He cocks it for `windup` seconds (a cone shows where), it lashes across, and swings back over `recover`.
+   * Every `cooldown` seconds at most.
+   */
+  tail: { reach: 360, half: 1.1, windup: 0.65, recover: 0.7, damage: 30, knockback: 210, cooldown: 4.5 },
+  /**
+   * Mordak sits back on his haunches for `duration` seconds and hurls meteors of fire around the den: one every `every`
+   * seconds (after `settle` seconds to sit down), each landing `delay` seconds later in a big circle (`radius`). About
+   * `aimed` of them fall on someone; the rest anywhere in the den.
+   */
+  roost: { duration: 5, settle: 0.7, every: 0.32, delay: 1.7, radius: 175, damage: 42, aimed: 0.45 },
+  /**
+   * The fire flight crosses the den this many times: `start` at the start of the fight, one more at each of
+   * `more` (shares of his health lost).
+   */
+  flightPasses: { start: 3, more: [0.5] },
+  /**
+   * Where Mordak's mouth is (his fire comes from it): `neck` along his body from his middle to where the neck bends,
+   * then `reach` on toward wherever his head is turned. To match how the client draws him.
+   */
+  mouth: { neck: 70, reach: 170 },
+  /** How fast Mordak's head turns (radians a second), and how far from straight ahead it can look. */
+  head: { turn: 3, reach: 0.85 },
   /** Embra: slow fire orbs that turn toward their target. */
   orbs: { count: 3, speed: 150, turn: 1.5, life: 7, damage: 22 },
 };

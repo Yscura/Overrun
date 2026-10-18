@@ -22,7 +22,7 @@ function seeded(seed: number): () => number {
 export const TILE = 256;
 
 /** Random seeds per look, so each map always looks the same (and keeps its look if the map order changes). */
-const SEED: Record<MapDef['art'], number> = { ruins: 0, frost: 1, caldera: 2, forest: 3, canyon: 4 };
+const SEED: Record<MapDef['art'], number> = { ruins: 0, frost: 1, caldera: 2, forest: 3, canyon: 4, underworld: 5 };
 
 /** The repeating floor texture: the base color with speckles, a faint grid, and a touch of the map's flavor. */
 export function groundTile(map: MapDef): Graphics {
@@ -71,6 +71,15 @@ export function groundTile(map: MapDef): Graphics {
       const y = rand() * TILE;
       g.moveTo(x, y).lineTo(x + (rand() - 0.5) * 4, y - 4 - rand() * 4).stroke({ width: 1.5, color: 0x2e4a2f, alpha: 0.8 });
     }
+  } else if (map.art === 'underworld') {
+    // Grave dust, bone chips, and the odd mote of a lost soul.
+    for (let i = 0; i < 45; i++) g.circle(rand() * TILE, rand() * TILE, 0.8 + rand() * 1.4).fill({ color: 0xbdb5c8, alpha: 0.1 });
+    for (let i = 0; i < 8; i++) {
+      const x = rand() * TILE;
+      const y = rand() * TILE;
+      g.moveTo(x, y).lineTo(x + 3 + rand() * 4, y + (rand() - 0.5) * 3).stroke({ width: 1.5, color: 0xd7ccc8, alpha: 0.18, cap: 'round' });
+    }
+    for (let i = 0; i < 4; i++) g.circle(rand() * TILE, rand() * TILE, 1.1).fill({ color: 0x4dd0c8, alpha: 0.3 });
   } else if (map.art === 'frost') {
     // Snow dust.
     for (let i = 0; i < 70; i++) g.circle(rand() * TILE, rand() * TILE, 0.8 + rand() * 1.5).fill({ color: 0xffffff, alpha: 0.12 + rand() * 0.12 });
@@ -112,6 +121,7 @@ export function decorations(map: MapDef): { still: Graphics; glow: Graphics; top
     else if (map.art === 'ruins') ruinsProp(still, x, y, roll, size, rand);
     else if (map.art === 'frost') frostProp(still, x, y, roll, size, rand);
     else if (map.art === 'canyon') canyonProp(still, x, y, roll, size, rand);
+    else if (map.art === 'underworld') underworldProp(still, glow, x, y, roll, size, rand);
     else calderaProp(still, glow, x, y, roll, size, rand);
   }
   return { still, glow, top };
@@ -138,6 +148,8 @@ function landmarks(map: MapDef, still: Graphics, glow: Graphics, top: Graphics, 
     colosseumArt(map, still, rand);
   } else if (map.art === 'frost') {
     castleArt(map, still, top, rand);
+  } else if (map.art === 'underworld') {
+    underworldArt(map, still, glow, top, rand);
   } else {
     calderaArt(map, still, glow, top, rand);
   }
@@ -390,6 +402,71 @@ function calderaArt(map: MapDef, still: Graphics, glow: Graphics, top: Graphics,
 }
 
 /**
+ * The Underworld: the Altar of the Dead in the middle (a great ritual circle with glowing runes, and a slab where the
+ * team starts), a river of souls winding around it, mist pooling in the hollows, and teal runes on the obelisks.
+ */
+function underworldArt(map: MapDef, still: Graphics, glow: Graphics, top: Graphics, rand: () => number): void {
+  const cx = map.spawn.x;
+  const cy = map.spawn.y;
+  // Mist pooling in the hollows, all over the realm.
+  for (let i = 0; i < 40; i++) {
+    still.ellipse(rand() * map.width, rand() * map.height, 160 + rand() * 260, 80 + rand() * 120).fill({ color: 0x0a0710, alpha: 0.35 });
+  }
+  // The river of souls: a slow teal current winding around the altar. Only mist: you can walk through it.
+  const river: [number, number][] = [];
+  for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.05) {
+    const r = 1050 + Math.sin(a * 3) * 120 + Math.sin(a * 7 + 1) * 40;
+    river.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+  }
+  const line = (g: Graphics) => {
+    g.moveTo(river[0][0], river[0][1]);
+    for (const [x, y] of river) g.lineTo(x, y);
+    return g;
+  };
+  line(still).stroke({ width: 190, color: 0x0d1d22, alpha: 0.7, join: 'round' });
+  line(glow).stroke({ width: 150, color: 0x26a69a, alpha: 0.12, join: 'round' });
+  line(glow).stroke({ width: 60, color: 0x4dd0c8, alpha: 0.14, join: 'round' });
+  for (let i = 0; i < river.length; i += 2) {
+    const [x, y] = river[i];
+    const off = (rand() - 0.5) * 120;
+    glow.circle(x + off * 0.6, y + off * 0.6, 2 + rand() * 3).fill({ color: 0xb2fef7, alpha: 0.6 });
+  }
+  // The Altar of the Dead: a ritual circle of rings and runes, a star carved through it, and the slab in the middle.
+  still.circle(cx, cy, 660).fill({ color: 0x1d1727, alpha: 0.85 });
+  for (const r of [640, 600, 300]) still.circle(cx, cy, r).stroke({ width: 6, color: 0x3b3249, alpha: 0.8 });
+  glow.circle(cx, cy, 620).stroke({ width: 3, color: 0x7c4dff, alpha: 0.5 });
+  for (let i = 0; i < 48; i++) {
+    const a = (i / 48) * Math.PI * 2;
+    const rx = cx + Math.cos(a) * 620;
+    const ry = cy + Math.sin(a) * 620;
+    glow.poly([rx, ry - 8, rx + 5, ry, rx, ry + 8, rx - 5, ry]).fill({ color: i % 2 ? 0x4dd0c8 : 0xb388ff, alpha: 0.7 });
+  }
+  const star = Array.from({ length: 5 }, (_, i) => {
+    const a = -Math.PI / 2 + (i * 4 * Math.PI) / 5;
+    return [cx + Math.cos(a) * 580, cy + Math.sin(a) * 580] as const;
+  });
+  still.moveTo(star[0][0], star[0][1]);
+  for (const [x, y] of [...star.slice(1), star[0]]) still.lineTo(x, y);
+  still.stroke({ width: 10, color: 0x0c0912, alpha: 0.8, join: 'round' });
+  glow.moveTo(star[0][0], star[0][1]);
+  for (const [x, y] of [...star.slice(1), star[0]]) glow.lineTo(x, y);
+  glow.stroke({ width: 2.5, color: 0xb388ff, alpha: 0.5, join: 'round' });
+  still.roundRect(cx - 90, cy - 55, 180, 110, 8).fill(0x2c2538).stroke({ width: 4, color: 0x120e18 });
+  still.roundRect(cx - 70, cy - 38, 140, 76, 6).stroke({ width: 2, color: 0x5d5470, alpha: 0.8 });
+  glow.circle(cx, cy, 16).fill({ color: 0x4dd0c8, alpha: 0.5 });
+  glow.circle(cx, cy, 6).fill({ color: 0xe0f7fa, alpha: 0.9 });
+  for (let i = 0; i < 8; i++) crack(still, cx + (rand() - 0.5) * 1000, cy + (rand() - 0.5) * 1000, 60 + rand() * 90, 0x0a0710, 0.7, rand, 3);
+  // Teal runes on the altar's obelisks.
+  for (const w of map.walls) {
+    const wx = w.x + w.w / 2;
+    const wy = w.y + w.h / 2;
+    if ((wx - cx) ** 2 + (wy - cy) ** 2 > 600 ** 2) continue;
+    top.poly([wx, wy - 18, wx + 11, wy, wx, wy + 18, wx - 11, wy]).stroke({ width: 3, color: 0x4dd0c8, alpha: 0.9 });
+    top.circle(wx, wy, 4).fill(0xb2fef7);
+  }
+}
+
+/**
  * The sea of lava around the Caldera: molten rock under drifting plates of crust. Drawn once over the whole map;
  * the renderer masks it to whatever lies past the current edge.
  */
@@ -632,6 +709,47 @@ function frostProp(g: Graphics, x: number, y: number, roll: number, s: number, r
   }
 }
 
+function underworldProp(g: Graphics, glow: Graphics, x: number, y: number, roll: number, s: number, rand: () => number): void {
+  const bone = 0xcfc6b4;
+  if (roll < 0.2) {
+    // Scattered bones.
+    for (let i = 0; i < 2; i++) {
+      const a = rand() * Math.PI;
+      const bx = x + (rand() - 0.5) * 16;
+      const by = y + (rand() - 0.5) * 10;
+      const dx = Math.cos(a) * 9 * s;
+      const dy = Math.sin(a) * 9 * s;
+      g.moveTo(bx - dx, by - dy).lineTo(bx + dx, by + dy).stroke({ width: 3, color: bone, alpha: 0.8, cap: 'round' });
+      g.circle(bx - dx, by - dy, 2.4).circle(bx + dx, by + dy, 2.4).fill({ color: bone, alpha: 0.8 });
+    }
+  } else if (roll < 0.3) {
+    // A skull.
+    g.circle(x, y, 7 * s).fill({ color: bone, alpha: 0.85 });
+    g.roundRect(x - 4 * s, y + 4 * s, 8 * s, 5 * s, 1.5).fill({ color: bone, alpha: 0.85 });
+    g.circle(x - 2.6 * s, y - 0.5, 1.8 * s).circle(x + 2.6 * s, y - 0.5, 1.8 * s).fill(0x16121d);
+  } else if (roll < 0.45) {
+    // The ground cracked open over the void below.
+    crack(g, x, y, 60 * s, 0x07050a, 0.9, rand, 4);
+    crack(glow, x, y, 50 * s, 0x7c4dff, 0.5, seeded(Math.floor(x * 13 + y)), 1.5);
+  } else if (roll < 0.6) {
+    // A small, sunken headstone.
+    g.roundRect(x - 9 * s, y - 14 * s, 18 * s, 22 * s, 7 * s).fill(0x3e3849).stroke({ width: 1.5, color: 0x16121d });
+    g.rect(x - 1 * s, y - 10 * s, 2 * s, 9 * s).rect(x - 4 * s, y - 7 * s, 8 * s, 2 * s).fill({ color: 0x6d6580, alpha: 0.8 });
+  } else if (roll < 0.78) {
+    // Dead, ashen grass.
+    for (let i = 0; i < 5; i++) {
+      const bx = x + (rand() - 0.5) * 14 * s;
+      g.moveTo(bx, y).lineTo(bx + (rand() - 0.5) * 10, y - (6 + rand() * 9) * s).stroke({ width: 1.5, color: 0x4a4256, cap: 'round' });
+    }
+  } else if (roll < 0.9) {
+    rock(g, x, y, (6 + rand() * 8) * s, 0x3a3444, rand);
+  } else {
+    // A lost soul's glow, flickering over the ground.
+    glow.circle(x, y, 9 * s).fill({ color: 0x4dd0c8, alpha: 0.18 });
+    glow.circle(x, y, 3 * s).fill({ color: 0xb2fef7, alpha: 0.7 });
+  }
+}
+
 function calderaProp(g: Graphics, glow: Graphics, x: number, y: number, roll: number, s: number, rand: () => number): void {
   if (roll < 0.3) {
     // A pile of ash.
@@ -720,6 +838,10 @@ function treeTop(g: Graphics, w: Wall): void {
 function rockWall(g: Graphics, w: Wall, map: MapDef): void {
   const { theme } = map;
   const rand = seeded(Math.floor(w.x * 7 + w.y * 13));
+  if (isBoulder(w) && map.art === 'underworld') {
+    tombstone(g, w, theme);
+    return;
+  }
   if (isBoulder(w)) {
     rock(g, w.x + w.w / 2, w.y + w.h / 2, Math.max(w.w, w.h) * 0.62, theme.wall, rand);
     return;
@@ -769,6 +891,30 @@ function rockWall(g: Graphics, w: Wall, map: MapDef): void {
     g.rect(w.x, w.y, w.w, face).fill(side);
     rubble(w.x, w.y, w.x + w.w, w.y, 0, -1);
   }
+}
+
+/**
+ * The Underworld's small rock blocks: a headstone with a rounded top and a cross, or (the big ones) a stone
+ * sarcophagus with a carved lid.
+ */
+function tombstone(g: Graphics, w: Wall, theme: MapDef['theme']): void {
+  const cx = w.x + w.w / 2;
+  const cy = w.y + w.h / 2;
+  const light = shade(theme.wall, 0.25);
+  const dark = shade(theme.wall, -0.4);
+  if (w.w >= 100) {
+    // A sarcophagus: a long box with a raised, carved lid.
+    g.roundRect(w.x - 10, w.y + 4, w.w + 20, w.h - 8, 8).fill(dark).stroke({ width: 3, color: theme.wallEdge });
+    g.roundRect(w.x - 2, w.y + 12, w.w + 4, w.h - 24, 6).fill(theme.wall).stroke({ width: 2, color: light, alpha: 0.6 });
+    g.rect(cx - 4, w.y + 22, 8, w.h - 44).rect(cx - 22, cy - 14, 44, 8).fill({ color: light, alpha: 0.7 });
+    g.circle(cx, cy - 10, 5).fill({ color: 0x4dd0c8, alpha: 0.8 });
+    return;
+  }
+  // A headstone: rounded on top, a cross carved in it, a little mound of earth in front.
+  g.ellipse(cx, w.y + w.h + 2, w.w * 0.6, 8).fill({ color: 0x0c0912, alpha: 0.8 });
+  g.roundRect(w.x, w.y - 6, w.w, w.h + 6, w.w * 0.45).fill(theme.wall).stroke({ width: 2.5, color: theme.wallEdge });
+  g.roundRect(w.x + 4, w.y - 2, w.w - 8, 6, 3).fill({ color: light, alpha: 0.5 });
+  g.rect(cx - 2.5, w.y + 4, 5, w.h * 0.6).rect(cx - 9, w.y + 11, 18, 5).fill({ color: dark, alpha: 0.9 });
 }
 
 /** Small rock blocks are drawn as boulders. */

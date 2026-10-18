@@ -21,18 +21,34 @@ const REDRAW_EVERY = 2;
 /** Top-right overview: walls, players, upgrade points, quest target, elites and where the hordes are. */
 export class Minimap {
   readonly container = new Container();
+  /** Everything drawn in map coordinates (scaled), shifted so the shown area starts at the corner. */
+  private inner = new Container();
   private base = new Graphics();
   private dots = new Graphics();
-  /** Keeps the dots (and the burning zone's ring) inside the minimap. */
+  /** Keeps everything (the burning zone's ring too) inside the minimap. */
   private clip = new Graphics();
   private mapIndex = -1;
   private size = SIZE;
   private scale = 1;
   private frame = 0;
+  /** The part of the map shown (see shownArea), and whether the finale has revealed the rest. */
+  private area = { x: 0, y: 0, w: 1, h: 1 };
+  private revealed = false;
 
   constructor() {
-    this.container.addChild(this.base, this.dots, this.clip);
-    this.dots.mask = this.clip;
+    this.inner.addChild(this.base, this.dots);
+    this.container.addChild(this.inner, this.clip);
+    this.inner.mask = this.clip;
+  }
+
+  /**
+   * The part of the map the minimap shows: all of it, except on a map with a hidden finale, where it shows only the
+   * square around the playing field (from the bottom up) until the finale reveals what lies beyond.
+   */
+  private shownArea(revealed: boolean): { x: number; y: number; w: number; h: number } {
+    const map = MAPS[this.mapIndex];
+    if (!map.finale || revealed || map.height <= map.width) return { x: 0, y: 0, w: map.width, h: map.height };
+    return { x: 0, y: map.height - map.width, w: map.width, h: map.width };
   }
 
   update(
@@ -44,32 +60,35 @@ export class Minimap {
     pings: readonly { x: number; y: number; color: number }[],
   ): void {
     const size = screenWidth < 700 ? SMALL_SIZE : SIZE;
-    if (snap.map !== this.mapIndex || size !== this.size) {
+    const revealed = !!snap.finale && snap.finale.stage !== 'crumble';
+    if (snap.map !== this.mapIndex || size !== this.size || revealed !== this.revealed) {
       this.mapIndex = snap.map;
       this.size = size;
+      this.revealed = revealed;
       this.drawBase();
     }
-    const map = MAPS[snap.map];
-    this.container.position.set(screenWidth - map.width * this.scale - MARGIN, TOP);
+    this.container.position.set(screenWidth - this.area.w * this.scale - MARGIN, TOP);
     if (this.frame++ % REDRAW_EVERY === 0) this.drawDots(snap, myId, local, view, pings);
   }
 
   /** The map spot under a screen point, or null if it's not on the minimap. */
   toWorld(sx: number, sy: number): { x: number; y: number } | null {
     if (this.mapIndex < 0 || !this.container.visible) return null;
-    const map = MAPS[this.mapIndex];
-    const x = (sx - this.container.x) / this.scale;
-    const y = (sy - this.container.y) / this.scale;
-    return x >= 0 && y >= 0 && x <= map.width && y <= map.height ? { x, y } : null;
+    const a = this.area;
+    const x = (sx - this.container.x) / this.scale + a.x;
+    const y = (sy - this.container.y) / this.scale + a.y;
+    return x >= a.x && y >= a.y && x <= a.x + a.w && y <= a.y + a.h ? { x, y } : null;
   }
 
   /** The parts that only change with the map: background, walls, arena. */
   private drawBase(): void {
     const map = MAPS[this.mapIndex];
-    const s = (this.scale = this.size / Math.max(map.width, map.height));
-    this.clip.clear().rect(0, 0, map.width * s, map.height * s).fill(0xffffff);
+    const a = (this.area = this.shownArea(this.revealed));
+    const s = (this.scale = this.size / Math.max(a.w, a.h));
+    this.clip.clear().rect(0, 0, a.w * s, a.h * s).fill(0xffffff);
+    this.inner.position.set(-a.x * s, -a.y * s);
     const g = this.base.clear();
-    g.rect(0, 0, map.width * s, map.height * s)
+    g.rect(a.x * s, a.y * s, a.w * s, a.h * s)
       .fill({ color: 0x000000, alpha: 0.6 })
       .stroke({ width: 1, color: 0x4a5263 });
     for (const w of map.walls) {
@@ -93,7 +112,13 @@ export class Minimap {
 
     // The lava, and the arena gate while it's shut.
     const map = MAPS[this.mapIndex];
-    if (snap.lava) g.rect(0, 0, map.width * s, map.height * s).fill({ color: 0xff6d00, alpha: 0.45 }).circle(snap.lava.x * s, snap.lava.y * s, snap.lava.r * s).cut();
+    if (snap.lava && this.revealed && map.finale) {
+      // The caldera has given way: lava everywhere but the stepping stones and the den.
+      g.rect(0, 0, map.width * s, map.height * s).fill({ color: 0xff6d00, alpha: 0.45 });
+      for (const c of [map.finale.den, ...map.finale.stones]) g.circle(c.x * s, c.y * s, c.r * s).cut();
+    } else if (snap.lava) {
+      g.rect(0, 0, map.width * s, map.height * s).fill({ color: 0xff6d00, alpha: 0.45 }).circle(snap.lava.x * s, snap.lava.y * s, snap.lava.r * s).cut();
+    }
     if (map.arena && !snap.arena?.open) for (const w of map.arena.gate) g.rect(w.x * s, w.y * s, Math.max(2, w.w * s), Math.max(2, w.h * s)).fill(0xffab40);
 
     // Ordinary enemies as a heat map, elites individually.
@@ -199,6 +224,10 @@ function shrineGlyph(g: Graphics, kind: number, x: number, y: number, color: num
     case ShrineKind.Event:
       // A four-pointed sparkle.
       g.poly([x, y - 5.5, x + 1.5, y - 1.5, x + 5.5, y, x + 1.5, y + 1.5, x, y + 5.5, x - 1.5, y + 1.5, x - 5.5, y, x - 1.5, y - 1.5]).fill(color);
+      break;
+    case ShrineKind.Armory:
+      // Crossed blades.
+      g.moveTo(x - 4, y - 4).lineTo(x + 4, y + 4).moveTo(x + 4, y - 4).lineTo(x - 4, y + 4).stroke({ width: 1.8, color });
       break;
     case ShrineKind.Quest:
       // An exclamation mark.

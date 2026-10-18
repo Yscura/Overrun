@@ -74,12 +74,16 @@ const MAP_MUSIC: Partial<Record<MapDef['art'], MapMusic>> = {
     themes: [composed(calderaTheme, 135, false, 1.18)],
     boss: composed(calderaBoss, 165, true, 1.16),
   },
+  // The Underworld borrows the Desecrated Ruins' haunted themes (the Reaper's own).
+  underworld: { themes: [composed(ruinsTheme, 140, false, 1.62)], boss: composed(ruinsBoss, 160, true, 1.15) },
 };
 
 /** Fade in at the start of a run, and out when it ends or you leave. The boss theme comes in faster. */
 const FADE_IN = 2.5;
 const BOSS_FADE_IN = 1.2;
 const FADE_OUT = 2.5;
+/** Under a big roar the music dips to `level` (in `down` seconds), and comes back over `up` seconds. */
+const DUCK = { level: 0.3, down: 0.15, up: 1.2 };
 /** Paused: the music drops to this share of its volume. */
 const PAUSED_LEVEL = 0.35;
 
@@ -101,7 +105,23 @@ export class Music {
   /** This run's theme (picked when the run starts), and the map it was picked for. */
   private theme: { map: MapDef; track: Track } | null = null;
 
+  /** Between every track and the music bus: dips the music under a big sound effect (see duck). */
+  private ducker: GainNode | null = null;
+
   constructor(private readonly sound: Sound) {}
+
+  /** Dip the music to DUCK.level for about `seconds` (a big roar is playing), then bring it back. */
+  duck(seconds: number): void {
+    const ctx = this.sound.context;
+    if (!ctx || !this.ducker) return;
+    const g = this.ducker.gain;
+    const now = ctx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(DUCK.level, now + DUCK.down);
+    g.setValueAtTime(DUCK.level, now + seconds);
+    g.linearRampToValueAtTime(1, now + seconds + DUCK.up);
+  }
 
   /**
    * What should be playing: `map` during a run (null otherwise), `boss` once the boss phase has started. Call it with
@@ -152,7 +172,11 @@ export class Music {
     const buffer = await this.load(ctx, track.url);
     if (!buffer || this.wanted !== track || this.current) return;
     const out = ctx.createGain();
-    out.connect(bus);
+    if (!this.ducker || this.ducker.context !== ctx) {
+      this.ducker = ctx.createGain();
+      this.ducker.connect(bus);
+    }
+    out.connect(this.ducker);
     const now = ctx.currentTime + 0.05;
     out.gain.setValueAtTime(0, now);
     out.gain.linearRampToValueAtTime(track.gain * (this.paused ? PAUSED_LEVEL : 1), now + (fromTheme ? BOSS_FADE_IN : FADE_IN));

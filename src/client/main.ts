@@ -44,6 +44,7 @@ async function main() {
   const buffer = new SnapshotBuffer();
   const sound = new Sound();
   const cues = new SoundCues(sound);
+  cues.onDuck = (seconds) => music.duck(seconds);
   const music = new Music(sound);
   ui.bindSound(sound);
   renderer.onEnemyDeath = (x, y, big) => sound.play(big ? 'explode' : 'death', { x, y }, local);
@@ -111,7 +112,7 @@ async function main() {
 
   // --- In a room ---
   ui.onPick = (character) => net.send({ t: 'pick', character });
-  ui.onPickMap = (index, hard) => net.send({ t: 'map', index, hard });
+  ui.onPickMap = (index, mode) => net.send({ t: 'map', index, mode });
   ui.onStart = () => net.send({ t: 'start' });
   ui.onLobby = () => net.send({ t: 'lobby' });
   ui.onChoose = (index) => net.send({ t: 'choose', index });
@@ -152,7 +153,10 @@ async function main() {
     leftRoom();
     menu.show('home');
   };
-  net.onProfile = (profile) => menu.setProfile(profile);
+  net.onProfile = (profile) => {
+    menu.setProfile(profile);
+    ui.setProfile(profile);
+  };
   net.onArtifact = (id, how) => menu.showArtifactResult(id, how);
   net.onRooms = (rooms) => menu.setRooms(rooms);
   net.onError = (message) => menu.setStatus(message);

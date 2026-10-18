@@ -26,8 +26,8 @@ export type ClientMessage =
   | { t: 'profile' }
   // --- In a room ---
   | { t: 'pick'; character: CharacterId }
-  /** Choose the map (in the lobby), on normal or hard mode. Must be unlocked (on that mode). */
-  | { t: 'map'; index: number; hard?: boolean }
+  /** Choose the map (in the lobby) and the mode. Must be unlocked (hard mode has its own unlocks). */
+  | { t: 'map'; index: number; mode?: GameMode }
   | { t: 'start' }
   /** Back to the lobby from the game-over screen, to change characters. */
   | { t: 'lobby' }
@@ -138,6 +138,8 @@ export interface ProfileState {
   bosses: string[];
   /** You've slain Mordak: the Dragonmancer is yours to unlock once he arrives. */
   dragonmancer: boolean;
+  /** Your longest endless runs, in seconds, by map name. */
+  endless: Record<string, number>;
   /** Your artifact inventory (how many of each you have), and the one you take into runs. */
   inventory: Partial<Record<ArtifactId, number>>;
   equipped: ArtifactId | null;
@@ -179,9 +181,11 @@ export interface PlayerState {
   ready: boolean;
   /** Hidden by Shadow Veil (drawn faintly). */
   veiled: boolean;
-  /** In Dragon Form (drawn as a dragon), and which way they aim (it faces that way). */
+  /** In Dragon Form (drawn as a dragon), and which way they aim (its head looks that way). */
   dragon: boolean;
   aim: number;
+  /** In Dragon Form: which way the dragon's body faces (it turns with how they walk, and with a head turned too far). */
+  body?: number;
   /** Color of an active buff's glow (Bloodrage, guard, Death Lotus), or 0. */
   aura: number;
   /** Everything they've picked, for the scoreboard and for drawing their blades and aura. */
@@ -206,6 +210,8 @@ export interface AbilityState {
 export interface MeState {
   /** Choices while a level-up waits on you: upgrades, or bonuses once there's nothing left to upgrade. */
   options: ChoiceId[] | null;
+  /** At the Armory, once you've picked the weapon to trade in: it, and the level its replacement gets. */
+  swapOut: { id: UpgradeId; level: number } | null;
   upgrades: Upgrades;
   speed: number;
   dodgeCooldown: number;
@@ -246,7 +252,13 @@ export type Pause =
   | { kind: 'choose'; timeLeft: number; reason: ChoiceReason }
   /** A player paused the game (`by` is their name); it resumes once every player in `ready` (ids) is ready. */
   | { kind: 'menu'; by: string; ready: number[] };
-export type ChoiceReason = 'level' | 'forge';
+export type ChoiceReason = 'level' | 'forge' | 'armory';
+
+/**
+ * Normal: the maps as they come. Hard: the same, far less forgiving (see HARD). Endless: no final victory, the boss
+ * comes back in waves and the run lasts as long as the team does (see ENDLESS).
+ */
+export type GameMode = 'normal' | 'hard' | 'endless';
 
 /** A timed effect from an Altar. */
 export interface ActiveEvent {
@@ -314,6 +326,8 @@ export type Fx =
    * frozen-still entrance (DRAGON_INTRO), with his own roar.
    */
   | { k: 'intro'; x: number; y: number; dragon?: true }
+  /** A meteor of fire lobbed from (x, y) to (tx, ty), landing `t` seconds later (Mordak's roost). */
+  | { k: 'lob'; x: number; y: number; tx: number; ty: number; t: number }
   /** A boss roars (enraged, berserk): everyone hears it. */
   | { k: 'roar'; x: number; y: number }
   /** The Dragonmancer breathes fire: a cone from (x, y) toward `a`, `r` long, `arc` wide. */
@@ -350,6 +364,8 @@ export interface GameResult {
   boss: string | null;
   /** Name of a map this victory unlocked, if any. */
   unlockedMap: string | null;
+  /** An endless run: the boss waves beaten, and whether this was the longest anyone here has lasted on the map. */
+  endless: { waves: number; record: boolean } | null;
   /** Prestige points every player earned this run. */
   prestige: number;
   /** Gold the team picked up this run (everyone gets all of it). */
@@ -386,7 +402,14 @@ export interface LavaState {
 
 /** Health bar for a final boss. */
 export interface BossBar {
+  /** The boss's enemy id. */
+  id: number;
   name: string;
+  /**
+   * Mordak's head and tail, in radians from straight along his body (for the renderer to bend his neck and tail), and
+   * whether he's sitting back on his haunches (see BOSS_MECHANICS.roost).
+   */
+  pose?: { head: number; tail: number; sit: boolean; mouth: boolean };
   hp: number;
   maxHp: number;
   /** Below half health: attacks faster. */
@@ -400,7 +423,7 @@ export interface BossBar {
 /** The final boss fight: the bosses' health, the berserk clock and the current side mission. */
 export interface BossFight {
   bosses: BossBar[];
-  /** Seconds until the bosses go berserk (0 once they have). */
+  /** Seconds until the bosses go berserk (0 once they have; -1: no berserk clock in this fight). */
   berserkIn: number;
   /** Berserk stacks so far. */
   berserk: number;
@@ -478,9 +501,11 @@ export interface Snapshot {
   map: number;
   /** How many maps are unlocked (the first `unlocked` entries of MAPS). */
   unlocked: number;
-  /** Hard mode: this run is on it, and how many maps are unlocked on it (0: hard mode is still locked). */
-  hard: boolean;
+  /** The mode this run is on, and how many maps are unlocked on hard mode (0: hard mode is still locked). */
+  mode: GameMode;
   hardUnlocked: number;
+  /** Endless mode: the boss wave the team is on (0 before the first). */
+  wave: number;
   /** Seconds into the run when the named boss arrives. */
   bossTime: number;
   arena: ArenaState | null;

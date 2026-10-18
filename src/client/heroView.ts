@@ -24,6 +24,22 @@ export function heroPortrait(id: CharacterId, color: number, className: string):
   return box;
 }
 
+/** A secret hero's portrait before it's earned: just a question mark. */
+export function mystery(className: string): HTMLElement {
+  const box = el('div', `portrait ${className} hero-mystery`);
+  box.append(el('span', 'hero-mystery-mark', '?'));
+  return box;
+}
+
+/** The detail panel for a secret hero not yet earned: a question mark, no name, no kit, and a hint. */
+export function mysteryDetail(): HTMLElement[] {
+  const head = el('div', 'hero-detail-head');
+  const names = el('div', 'hero-detail-names');
+  names.append(el('div', 'hero-detail-name', '???'), el('div', 'hero-detail-title', 'A hero yet to be earned'));
+  head.append(mystery('hero-detail-portrait'), names);
+  return [head, el('p', 'prestige-hint', 'Play more to unlock.')];
+}
+
 /** The detail panel's content: header, base stats and kit. */
 export function heroDetail(id: CharacterId, color: number): HTMLElement[] {
   const c = CHARACTERS[id];

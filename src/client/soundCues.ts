@@ -14,6 +14,9 @@ export class SoundCues {
   /** Revive progress at the last chime, per downed player. */
   private reviveChimes = new Map<number, number>();
 
+  /** Big roars (a warlord arriving, Mordak) dip the music for this many seconds, so they cut through. */
+  onDuck: (seconds: number) => void = () => {};
+
   constructor(private readonly sound: Sound) {}
 
   onSnapshot(prev: Snapshot | null, snap: Snapshot, me: { x: number; y: number }, myId: number | null): void {
@@ -60,11 +63,17 @@ export class SoundCues {
           if (fx.dragon) {
             // Mordak: a low rumble in the stillness, then his roar.
             sound.play('rumble');
-            setTimeout(() => sound.play('mordakRoar'), DRAGON_INTRO.roarAt * 1000);
+            setTimeout(() => {
+              sound.play('mordakRoar');
+              this.onDuck(4);
+            }, DRAGON_INTRO.roarAt * 1000);
             break;
           }
           sound.play('bossIntro');
           sound.play('bossRoar');
+          break;
+        case 'lob':
+          sound.play('fireball', ...near(fx.x, fx.y));
           break;
         case 'roar':
           sound.play('bossRoar');
@@ -119,7 +128,10 @@ export class SoundCues {
     }
 
     // Big moments.
-    if (snap.warlord && prev && !prev.warlord) sound.play('warlord');
+    if (snap.warlord && prev && !prev.warlord) {
+      sound.play('warlord');
+      this.onDuck(3);
+    }
     // The arena gate swings open for the boss, and slams shut behind the last one in.
     if (snap.arena && prev?.arena && snap.arena.open !== prev.arena.open) sound.play('gate');
     if (snap.pause?.kind === 'choose' && !prev?.pause) sound.play('levelup');

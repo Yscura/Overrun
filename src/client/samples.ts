@@ -157,15 +157,15 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   downFemale: { files: [femaledown], volume: 0.4, max: 2 },
   downDwarf: { files: [dwarf2], volume: 0.4, rate: 0.85, max: 2 },
   // Loud on purpose: a warlord arriving should never go unnoticed.
-  warlord: { files: [warlord1, warlord2], volume: 0.8, max: 1 },
+  warlord: { files: [warlord1, warlord2], volume: 1.3, max: 1 },
   // A final boss: the warlords' roars, deeper (it's bigger). On its entrance, when it's enraged, and going berserk.
   bossRoar: { files: [warlord1, warlord2], volume: 0.75, rate: 0.8, max: 1 },
   // Bosses' voices through the fight: Grimm whispers and Rime laughs (heard the same everywhere), Sylvara hisses.
   whisper: { files: [whisper], volume: 0.5, max: 1 },
   laugh: { files: [laugh1, laugh2], volume: 0.5, max: 1, gap: 2 },
   // Mordak: his own roars and growls through the fight, and the biggest roar of all on his entrance.
-  dragon: { files: [mordak2, mordak3], volume: 0.75, max: 1, gap: 2 },
-  mordakRoar: { files: [mordak1], volume: 0.95, max: 1 },
+  dragon: { files: [mordak2, mordak3], volume: 1.1, max: 1, gap: 2 },
+  mordakRoar: { files: [mordak1], volume: 1.5, max: 1 },
   // A final boss breaking apart: a crushing slam and a blast. The ground quaking: a slam slowed to a rumble.
   shatter: { files: [bigslam], volume: 0.9, rate: 0.8, max: 1 },
   rumble: { files: [bigslam], volume: 0.35, rate: 0.55, max: 1, gap: 0.6 },

@@ -20,7 +20,7 @@
 
 import { ARTIFACTS, ARTIFACT_IDS, isArtifactId } from '../src/shared/artifacts';
 import { CHARACTERS, isCharacterId, type CharacterId } from '../src/shared/characters';
-import { BOSS_TIME, MAPS } from '../src/shared/maps';
+import { BOSS_TIME, CAMPAIGN, MAPS } from '../src/shared/maps';
 import { PRESTIGE_IDS } from '../src/shared/prestige';
 import { EVOLVED_LEVEL } from '../src/shared/upgrades';
 import { Game, type Profile } from '../src/server/game';
@@ -42,7 +42,7 @@ for (const h of heroes) {
   }
 }
 const mapArg = arg('map', '0');
-const maps = mapArg === 'all' ? MAPS.map((_, i) => i) : [Number(mapArg)];
+const maps = mapArg === 'all' ? Array.from({ length: CAMPAIGN }, (_, i) => i) : [Number(mapArg)];
 const runs = Number(arg('runs', '1'));
 const prestige = Number(arg('prestige', '0'));
 const artifact = arg('artifact', '');

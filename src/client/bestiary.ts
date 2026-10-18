@@ -26,7 +26,7 @@ const LORE: Record<string, string> = {
   'Serpent Egg': "Laid by Sylvara around her glade. Break it before it hatches into runners.",
   Spirit: 'A lost soul called up by the Reaper. Drifts through walls; the ones that reach him heal him.',
   Mordak:
-    'The Earth Scourger, a dragon of crimson and black who rules the world beneath the caldera. Hurls volleys of fire, sweeps his den with a beam of flame (hide behind a pillar, or dodge through it) and takes to the sky to rain fire on you. Tear off his wings and he stays on the ground.',
+    'The Earth Scourger, a dragon of crimson and black who rules the world beneath the caldera. Hurls volleys of fire, sweeps his den with a beam of flame (hide behind a pillar, or dodge through it) takes to the sky to rain fire on you while his minions drop in, and sits back to hurl meteors across the den. Out of reach in the air and while he hurls. Stay out from behind him: his tail lashes anyone there.',
 };
 
 const AFFIX_TEXT: Record<string, string> = {
@@ -120,7 +120,7 @@ function detail(type: number, hidden: boolean, art: (type: number, color?: numbe
   for (const [text, cls] of tagsFor(def)) head.append(el('span', `beast-tag ${cls}`, text));
   root.append(pic, head);
   if (hidden) {
-    root.append(el('p', 'beast-lore', 'Reach this boss in a run to unlock its entry. It counts even if you lose.'));
+    root.append(el('p', 'beast-lore', 'Reach this boss in a run to unlock its entry.'));
     return root;
   }
   const n = numbers(type, def);
