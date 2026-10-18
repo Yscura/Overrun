@@ -362,8 +362,6 @@ export interface GameResult {
   feats: string[];
   /** The named boss that was beaten (victories only). */
   boss: string | null;
-  /** Name of a map this victory unlocked, if any. */
-  unlockedMap: string | null;
   /** An endless run: the boss waves beaten, and whether this was the longest anyone here has lasted on the map. */
   endless: { waves: number; record: boolean } | null;
   /** Prestige points every player earned this run. */
@@ -372,8 +370,20 @@ export interface GameResult {
   gold: number;
   time: number;
   level: number;
-  /** `artifact`: what they had equipped. `loot`: the artifacts they found this run. */
-  players: { name: string; color: number; character: CharacterId; kills: number; artifact: ArtifactId | null; loot: ArtifactFind[] }[];
+  /**
+   * `artifact`: what they had equipped. `loot`: the artifacts they found this run, in order. `gold`: what they banked
+   * (after their own gold bonus). `unlockedMap`: a map this victory unlocked on their account.
+   */
+  players: {
+    name: string;
+    color: number;
+    character: CharacterId;
+    kills: number;
+    artifact: ArtifactId | null;
+    loot: ArtifactFind[];
+    gold: number;
+    unlockedMap: string | null;
+  }[];
 }
 
 /**

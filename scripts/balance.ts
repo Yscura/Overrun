@@ -72,7 +72,7 @@ for (const map of maps) {
     const ranks = Object.fromEntries(PRESTIGE_IDS.map((id) => [id, prestige]));
     const profiles: Record<string, Profile> = {};
     const bots: Bot[] = [];
-    const game = new Game({ unlocked: MAPS.length, onUnlock: () => {}, bossTime, profiles, allHeroes: true });
+    const game = new Game({ unlockAll: true, bossTime, profiles, allHeroes: true });
     // Reach into the simulation only to measure; the bots themselves just see snapshots.
     const g = game as unknown as Record<string, any>;
     heroes.forEach((hero, i) => {

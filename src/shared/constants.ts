@@ -46,9 +46,9 @@ export const BOSS_DEATH = { shatter: 2.6, total: 4.2 };
  * difficulty: more health, and harder hits) and hit `damage` times harder on top. The horde is `speed` times faster.
  * Bosses attack `haste` times as often, with `area` times bigger attacks, use their hard rotations (NamedBossDef.hard)
  * and every `comboEvery`th attack follows right on the last one (`comboGap` seconds later). The rewards: `prestige`
- * times the prestige, and artifacts drop as if the map were `luck` maps further along.
+ * times the prestige, and artifacts drop from hard mode's own steps of the loot ladder (LOOT in artifacts.ts).
  */
-export const HARD = { difficulty: 1.35, damage: 1.25, speed: 1.08, haste: 1.25, area: 1.1, comboEvery: 4, comboGap: 0.7, prestige: 1.6, luck: 3 };
+export const HARD = { difficulty: 1.35, damage: 1.25, speed: 1.08, haste: 1.25, area: 1.1, comboEvery: 4, comboGap: 0.7, prestige: 1.6 };
 
 /**
  * Endless mode: no final victory, the run goes on until the team falls. The map's boss comes back in waves: the first

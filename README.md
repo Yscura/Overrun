@@ -17,8 +17,9 @@ shop, artifacts and hero unlocks, also reachable from the lobby). Every tab
 you open is another player, which is handy for testing co-op alone.
 
 In a lobby the **host** (whoever created it, or the next player if they leave) picks the map, adds bots and starts the
-game, once everyone else has pressed **Ready**. The server can run any number of lobbies at once; unlocked maps are
-shared by everyone on it. Modes are defined in `src/shared/modes.ts`, so adding one later is a new entry there.
+game, once everyone else has pressed **Ready**. The server can run any number of lobbies at once. Each account unlocks
+maps for itself, and a lobby offers the maps its **host** has unlocked (a victory unlocks the next map for everyone who
+won it). Modes are defined in `src/shared/modes.ts`, so adding one later is a new entry there.
 No friends online? **+ Add bot** in the lobby adds a bot teammate (up to a team of four) with a random hero. Bots
 play on the server: they fight, dodge, use E and R, pick upgrades, revive you and do the boss missions. They don't save
 any progress, the pause screen doesn't wait for them, and they leave when the last person does.
@@ -109,8 +110,10 @@ pointing in for "stack up", magenta with arrows pointing out for "spread out".
 | Twin Flames | Two winged demons who growl in turn through the fight (and the survivor roars when its twin dies). A **burning tether** between the twins hurts anyone standing in it. While they're close they're **kindred** and shrug off 40% of damage: pull them apart. Vael drops **meteors** whose damage is split between everyone inside (stack up); Embra throws **homing cinder orbs**. |
 | Mordak *(spoiler)* | The Ashen Caldera's true ending. When the twins fall, the caldera **shakes apart**: lava everywhere but a few **stepping stones**, crossed by dodging over the gaps (a dodge's invulnerability carries you over the lava) under **falling rock**. They lead to a hidden **dragon's den**, where Mordak, the Earth Scourger lands: the largest boss in the game. **Fireball** volleys, a **fire beam** his head sweeps across a half circle while his body holds still (hide behind one of the den's pillars, or dodge through it), a **tail lash** at anyone standing behind him (a cone shows where; it hurts and throws you back) a **fire flight** (untargetable, carpet-bombing the den in 3 passes back and forth, 4 once he's below half health, then landing somewhere else) and a **roost**: he sits back on his haunches and hurls meteors of fire all over the den, big circles that land a moment later. He can't be hurt while he's flying or roosting, so his fight has no berserk clock. When he lands, the whole team is gathered at the edge of the den where they came in. (His **wings** can be made targets of their own, torn off to keep him on the ground: switched off for now, see `BOSS_MECHANICS.wings.enabled`.) Slaying him gives everyone the **Dragonsheart** (a legendary artifact found nowhere else) earns the **Dragonmancer** and opens **hard mode**. |
 
-All of this is tuned in `src/shared/enemies.ts` (`NAMED_BOSSES` for each boss's rotation and phase, `BOSS_MECHANICS`, `BOSS_BERSERK`, `BOSS_VENGEFUL`, `BOSS_MISSIONS`). Beating the boss shows **Victory** and unlocks the next map.
-Unlocks are saved in `data/progress.json` on the server, so the whole group shares them.
+All of this is tuned in `src/shared/enemies.ts` (`NAMED_BOSSES` for each boss's rotation and phase, `BOSS_MECHANICS`, `BOSS_BERSERK`, `BOSS_VENGEFUL`, `BOSS_MISSIONS`). Beating the boss shows **Victory**: the prestige and gold you earned count up under it, then the artifacts you found
+appear one by one (click to skip), then **Continue** goes on to the post-game screen. It also unlocks the next map.
+Unlocks are saved per account in `data/progress.json` on the server (saves from when unlocks were shared by the whole
+server give every account already there what the server had).
 
 **Hard mode.** Slaying Mordak for the first time opens hard mode (switch with **Normal / Hard** above the map cards in
 the lobby): every map again, starting with the Emerald Woods and unlocking the next one with each hard victory. Enemies
@@ -141,7 +144,9 @@ rolls their own), and any still lying around when the boss dies are found too. T
 Profile page's Artifacts tab (duplicates stack), and you pick one to take into your runs in the lobby (one at a time;
 you can't swap once you've locked in). There are four tiers, each with its own color: **common** (a small plain bonus),
 **rare**, **epic** and **legendary**, and some trade a drawback for a big upside (Glass Edge: +22% damage, 15% more
-damage taken). Later maps drop better tiers. Some artifacts can also be activated: the **Q** slot left of E shows your
+damage taken). How good they are grows with the campaign: the Emerald Woods only drops commons, each map after it
+opens the next tier (with a rare outlier one tier further), the first legendaries come from the Ashen Caldera's bosses,
+and hard mode drops far more epics and legendaries. Endless mode gets better with each boss wave. Some artifacts can also be activated: the **Q** slot left of E shows your
 artifact, and pressing Q uses its active (Tower Plate braces you, Windstep Anklet dashes, Storm Sigil and Eye of the
 Storm blast the horde, the Crown rallies the team, the Aegis of Dawn raises a dome that makes everyone inside
 untouchable...) on its own cooldown. The Jeweled Gauntlet lets magic damage crit.
@@ -154,7 +159,7 @@ All of it is in `src/shared/artifacts.ts`: each artifact is one line in `ARTIFAC
 `effects`, such as `{ damage: 0.22, damageTaken: 0.15 }`, plus an optional `active` for Q built from parts like
 `heal`, `guard`, `frenzy`, `blast`, `stun`, `blink`, `invuln` and `rally`), and the descriptions everywhere are written
 from those.
-`DROPS` holds the drop chances and tier odds, `FORGE` how many it takes to combine, and `WHEEL` the spin's cost and odds. Profiles save artifacts by key, so rename one by changing its `name`.
+`DROPS` holds the drop chances, `LOOT` the tier odds for each map and source (normal, then hard mode), `FORGE` how many it takes to combine, and `WHEEL` the spin's cost and odds. Profiles save artifacts by key, so rename one by changing its `name`.
 To try one out: `npm run balance -- --map 1 --god --artifact glassEdge`.
 
 **Walls:** thick walls (stone) block movement and all projectiles. Thin walls (fences) block movement but you can shoot

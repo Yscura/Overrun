@@ -19,7 +19,7 @@ import {
   type CharacterId,
   type PlayerStats,
 } from '../shared/characters';
-import { DROPS, TIERS, TIER_IDS, artifact as artifactDef, rollArtifact, rollTier, type ArtifactId, type DropSource, type Tier } from '../shared/artifacts';
+import { DROPS, TIERS, TIER_IDS, artifact as artifactDef, lootStep, rollArtifact, rollTier, type ArtifactId, type DropSource, type Tier } from '../shared/artifacts';
 import { WallIndex, blocksShot, moveCircle, overlapsWall, pushOut, type PassFlags } from '../shared/collision';
 import {
   ARTIFACT_RADIUS,
@@ -339,7 +339,7 @@ const RAGE = { duration: 8, damage: 1.6, cooldown: 0.7, regen: 0.04, lifesteal: 
 const RETRIBUTION = { duration: 8, reduction: 0.4, taunt: 420, tauntFor: 3, mult: 2.5, flat: 15, reach: 500, color: 0xff8f00 };
 const AURA = { rage: 0xff1744, guard: 0xffd54f, strike: 0xce93d8, storm: 0x9ccc65, inferno: 0xff6d00, elixir: 0x76ff03, wrath: 0xfff59d };
 /** Grand Elixir: the alchemist drinks it, healing and buffing herself for a while. */
-const ELIXIR = { duration: 8, heal: 0.3, damage: 1.25, cooldown: 0.8, speed: 1.25, reduction: 0.25 };
+const ELIXIR = { duration: 8, heal: 0.3, damage: 1.25, cooldown: 0.8, speed: 1.50, reduction: 0.25 };
 /** Avenging Wrath: pillars of light around the paladin, who takes less damage meanwhile. */
 const WRATH = { duration: 8, interval: 0.3, range: 420, radius: 70, damage: 70, perLevel: 5, reduction: 0.5 };
 /** Divine Intervention: everyone up, healed to full and untouchable for a moment. */
@@ -363,13 +363,8 @@ const HOLY = 0xffe082;
 const Mode = { Normal: 0, Windup: 1, Charge: 2, Recover: 3 } as const;
 
 export interface GameOptions {
-  /** How many maps are unlocked at startup. */
-  unlocked: number;
-  /** Called when a victory unlocks a new map, to save progress. */
-  onUnlock: (unlocked: number) => void;
-  /** How many maps are unlocked on hard mode (0: not yet), and the call when that grows. */
-  hardUnlocked?: number;
-  onHardUnlock?: (unlocked: number) => void;
+  /** Every map is open, on every mode, whoever hosts (for testing). Otherwise each account unlocks its own. */
+  unlockAll?: boolean;
   /** Override when the named boss arrives, in seconds (for testing). */
   bossTime?: number;
   /** Everyone's prestige, by lowercased name. Shared with the caller, who saves it on `onProfiles`. */
@@ -483,6 +478,9 @@ interface Player {
   artifact: ArtifactId | null;
   /** Artifacts they found this run (for the post-game screen), and since the last snapshot (for their toast). */
   loot: ArtifactFind[];
+  /** Gold they've banked this run (their own share, after their gold bonus), and the map this victory unlocked for them. */
+  goldEarned: number;
+  unlockedMap: string | null;
   found: ArtifactFind[];
   /** Their artifact's second wind has been used up this run. */
   secondWindUsed: boolean;
@@ -851,8 +849,8 @@ export class Game {
   private nextLobAt = 0;
 
   // The map and its final boss.
-  private unlocked: number;
-  private hardUnlocked: number;
+  /** The host the lobby's map was last fitted to (see fitHostMaps). */
+  private lobbyHost: number | null = null;
   /** Normal, hard (see HARD) or endless (see ENDLESS). */
   private mode: GameMode = 'normal';
   /** Endless mode: the boss wave the team is on (0 before the first), and when the next one comes. */
@@ -923,11 +921,9 @@ export class Game {
   private splashNear: Enemy[] = [];
 
   constructor(private readonly options: GameOptions) {
-    this.unlocked = clamp(options.unlocked, 1, CAMPAIGN);
-    this.hardUnlocked = clamp(options.hardUnlocked ?? 0, 0, CAMPAIGN);
     this.bossTime = options.bossTime ?? BOSS_TIME;
     this.profiles = options.profiles ?? {};
-    this.loadMap(this.unlocked - 1); // Start on the newest unlocked map.
+    this.loadMap(this.unlocked - 1); // Start on the newest unlocked map (the host's, once someone's here).
   }
 
   /** The prestige saved under this name, created on first sight. */
@@ -988,14 +984,34 @@ export class Game {
     return this.humans().every((p) => p === host || this.lobbyReady.has(p.id));
   }
 
-  /** Another room won a map: this one can play it too (unlocks are shared by everyone on the server). */
-  setUnlocked(unlocked: number): void {
-    this.unlocked = Math.max(this.unlocked, clamp(unlocked, 1, CAMPAIGN));
+  /** How many maps the lobby can pick from: the host's unlocks (each account has its own). */
+  private get unlocked(): number {
+    if (this.options.unlockAll) return CAMPAIGN;
+    return clamp(this.host()?.profile.maps ?? 1, 1, CAMPAIGN);
   }
 
-  /** Another room won a map on hard mode (or unlocked it): this one can play it too. */
-  setHardUnlocked(unlocked: number): void {
-    this.hardUnlocked = Math.max(this.hardUnlocked, clamp(unlocked, 0, CAMPAIGN));
+  /** How many maps the host has unlocked on hard mode (0: hard mode is still locked for them). */
+  private get hardUnlocked(): number {
+    if (this.options.unlockAll) return CAMPAIGN;
+    return clamp(this.host()?.profile.hardMaps ?? 0, 0, CAMPAIGN);
+  }
+
+  /**
+   * The lobby follows its host. Someone new runs it (the first to arrive, or the next in line when the host leaves): the
+   * room goes to their newest map if it just opened, or if they haven't unlocked the map (or mode) picked.
+   */
+  private fitHostMaps(): void {
+    const host = this.host();
+    if (this.phase !== 'lobby' || !host || this.lobbyHost === host.id) return;
+    const first = this.lobbyHost === null;
+    this.lobbyHost = host.id;
+    const allowed = this.endless || this.mapIndex < (this.hard ? this.hardUnlocked : this.unlocked);
+    if (!first && allowed) return;
+    this.mode = 'normal';
+    this.loadMap(this.unlocked - 1);
+    this.lobbyReady.clear();
+    let slot = 0;
+    for (const other of this.players.values()) this.resetPlayer(other, slot++);
   }
 
   /** How tough enemies are on this map (and mode): their health, and (less steeply) how hard they hit. */
@@ -1070,6 +1086,8 @@ export class Game {
       pings: [],
       artifact: null,
       loot: [],
+      goldEarned: 0,
+      unlockedMap: null,
       found: [],
       secondWindUsed: false,
       relicCd: 0,
@@ -1083,6 +1101,7 @@ export class Game {
     if (this.pause?.kind === 'choose') player.options = this.rollOptions(player, this.pause.reason);
     this.players.set(player.id, player);
     this.log(`${name} joined`);
+    this.fitHostMaps();
     return player.id;
   }
 
@@ -1117,7 +1136,9 @@ export class Game {
     if (this.players.size === 0) {
       this.phase = 'lobby';
       this.clearWorld();
+      this.lobbyHost = null;
     }
+    this.fitHostMaps();
   }
 
   handleMessage(id: number, msg: ClientMessage): void {
@@ -1246,6 +1267,8 @@ export class Game {
     this.clearWorld();
     let slot = 0;
     for (const other of this.players.values()) this.resetPlayer(other, slot++);
+    // The host may have changed during the run.
+    this.fitHostMaps();
   }
 
   // --- God-mode cheats (player named "dev") ---
@@ -1537,6 +1560,8 @@ export class Game {
     p.upgrades = { [hero.startWeapon]: 1, [hero.ability]: 1 };
     p.artifact = p.bot ? null : equippedArtifact(p.profile);
     p.loot = [];
+    p.goldEarned = 0;
+    p.unlockedMap = null;
     p.found = [];
     p.secondWindUsed = false;
     p.relicCd = 0;
@@ -1571,7 +1596,7 @@ export class Game {
     p.inArena = false;
   }
 
-  private endGame(victory: boolean, unlockedMap: string | null = null): void {
+  private endGame(victory: boolean): void {
     if (this.phase !== 'playing') return;
     const beaten = this.victor ?? mapBossName(this.map);
     this.log(victory ? `Victory over ${beaten}!` : 'The team was overrun', victory ? 'good' : 'danger');
@@ -1599,11 +1624,19 @@ export class Game {
       gold: this.runGold,
       boss: victory ? beaten : null,
       feats: victory ? [...this.feats] : [],
-      unlockedMap,
       endless: this.endless ? { waves: Math.max(0, this.wave - (this.bossPhase === 'fight' ? 1 : 0)), record } : null,
       time: this.time,
       level: this.level,
-      players: [...this.players.values()].map((p) => ({ name: p.name, color: p.color, character: p.character, kills: p.kills, artifact: p.artifact, loot: [...p.loot] })),
+      players: [...this.players.values()].map((p) => ({
+        name: p.name,
+        color: p.color,
+        character: p.character,
+        kills: p.kills,
+        artifact: p.artifact,
+        loot: [...p.loot],
+        gold: p.goldEarned,
+        unlockedMap: p.unlockedMap,
+      })),
     };
   }
 
@@ -1632,32 +1665,37 @@ export class Game {
       this.grantArtifacts(TIER_IDS[c.value]);
     }
     this.grantArtifacts(rollTier('boss', this.lootIndex()));
-    let unlockedMap: string | null = null;
-    if (this.hard) {
-      if (this.mapIndex + 1 < CAMPAIGN && this.hardUnlocked < this.mapIndex + 2) {
-        this.hardUnlocked = this.mapIndex + 2;
-        this.options.onHardUnlock?.(this.hardUnlocked);
-        unlockedMap = `${MAPS[this.mapIndex + 1].name} (Hard)`;
+    // Everyone who won it unlocks the next map on their own account (whoever hosted).
+    const next = this.mapIndex + 1 < CAMPAIGN ? this.mapIndex + 2 : 0;
+    for (const p of this.humans()) {
+      const profile = p.profile;
+      if (this.hard) {
+        if (next && (profile.hardMaps ?? 0) < next) {
+          profile.hardMaps = next;
+          p.unlockedMap = `${MAPS[next - 1].name} (Hard)`;
+        }
+        continue;
       }
-    } else {
-      if (this.mapIndex + 1 < CAMPAIGN && this.unlocked < this.mapIndex + 2) {
-        this.unlocked = this.mapIndex + 2;
-        this.options.onUnlock(this.unlocked);
-        unlockedMap = MAPS[this.mapIndex + 1].name;
+      if (next && (profile.maps ?? 1) < next) {
+        profile.maps = next;
+        p.unlockedMap = MAPS[next - 1].name;
       }
       // Slaying Mordak opens hard mode, from the first map.
-      if (slain !== undefined && slain === this.map.finale?.boss && this.hardUnlocked < 1) {
-        this.hardUnlocked = 1;
-        this.options.onHardUnlock?.(1);
-        this.feats.push(HARD_FEAT);
+      if (slain !== undefined && slain === this.map.finale?.boss && (profile.hardMaps ?? 0) < 1) {
+        profile.hardMaps = 1;
+        if (!this.feats.includes(HARD_FEAT)) this.feats.push(HARD_FEAT);
       }
     }
-    this.endGame(true, unlockedMap);
+    this.endGame(true);
   }
 
-  /** Artifact drops roll as if on this map (on hard mode, as if a few maps further along). */
+  /**
+   * How good artifact drops are: this map's step on the LOOT ladder (hard mode's steps come after the whole campaign).
+   * Endless climbs it a step per boss wave, from the Desecrated Ruins' odds.
+   */
   private lootIndex(): number {
-    return this.mapIndex + (this.hard ? HARD.luck : 0);
+    if (this.endless) return 1 + this.wave;
+    return lootStep(this.mapIndex, this.hard, CAMPAIGN);
   }
 
   private alivePlayers(): Player[] {
@@ -1849,6 +1887,7 @@ export class Game {
         p.sounds.push('heal');
       } else {
         p.profile.gold = (p.profile.gold ?? 0) + BONUS.gold;
+        p.goldEarned += BONUS.gold;
         p.sounds.push('coin');
       }
       p.options = null;
@@ -5708,7 +5747,9 @@ export class Game {
         this.runGold += c.value;
         for (const q of this.players.values()) {
           const gold = c.value * this.stats(q).goldMult;
-          q.profile.gold = (q.profile.gold ?? 0) + Math.floor(gold) + (Math.random() < gold % 1 ? 1 : 0);
+          const banked = Math.floor(gold) + (Math.random() < gold % 1 ? 1 : 0);
+          q.profile.gold = (q.profile.gold ?? 0) + banked;
+          q.goldEarned += banked;
         }
         p.sounds.push('coin');
         continue;

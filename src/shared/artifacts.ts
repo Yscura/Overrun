@@ -1,7 +1,7 @@
 // Artifacts: relics that drop from elites, warlords and final bosses and are kept between runs. Before a run you can
 // equip one (in the lobby) for its bonus. Duplicates stack in your inventory, and FORGE.count of one tier combine into
 // a random one of the next tier; the wheel (WHEEL) sells random ones for gold. Everything about them lives in this file: add, rename or rebalance an
-// artifact by editing its entry in ARTIFACTS; its description is written from its effects. Drop rates are in DROPS.
+// artifact by editing its entry in ARTIFACTS; its description is written from its effects. Drop rates are in DROPS and LOOT.
 // Profiles save artifacts by their key (e.g. `glassEdge`), so rename one by changing its `name`, not its key.
 
 import type { ChoiceId } from './upgrades';
@@ -260,19 +260,44 @@ export function artifact(id: ArtifactId): ArtifactDef {
 /** Omnivamp also raises how much Vampirism can heal per second (as a share of max HP), by this many times itself. */
 export const OMNIVAMP_CAP = 2;
 
-/** Where artifacts come from, how often, and how good. Weights are relative, per tier. */
+/** Relative odds of each tier: [common, rare, epic, legendary]. */
+type Odds = [number, number, number, number];
+
+/**
+ * Where artifacts come from, how often, and how good. How good depends on how far along the run is: its step on the
+ * LOOT ladder (see lootStep). Each step has odds per source; weights are relative.
+ */
 export const DROPS = {
-  /** Champions (elites with an affix): a small chance each (a run kills around 500), mostly common. */
-  champion: { chance: 0.004, weights: { common: 70, rare: 25, epic: 5, legendary: 0 } },
-  /** Warlords (three or four a run): often, usually rare. */
-  warlord: { chance: 0.5, weights: { common: 25, rare: 50, epic: 22, legendary: 3 } },
-  /** Beating the final boss: one for everyone, rare or better. */
-  boss: { chance: 1, weights: { common: 0, rare: 50, epic: 38, legendary: 12 } },
-  /** Each map after the first makes better tiers likelier: tier i's weight is multiplied by (1 + mapLuck * map)^i. */
-  mapLuck: 0.25,
+  /** Champions (elites with an affix): a small chance each (a run kills around 500). */
+  champion: { chance: 0.004 },
+  /** Warlords (three or four a run): often. */
+  warlord: { chance: 0.5 },
+  /** Beating the final boss: one for everyone. */
+  boss: { chance: 1 },
   /** Artifacts you don't own yet are this many times likelier to be picked within a tier. */
   newBias: 3,
 };
+
+/**
+ * The tier odds at each step of a run's progression: the campaign's maps on normal mode (Emerald Woods to the Ashen
+ * Caldera), then on hard mode. The Emerald Woods only ever gives commons; each map after it opens the next tier, with a
+ * rare outlier one tier further. The first legendaries come from the Ashen Caldera's bosses; hard mode is where epics
+ * and legendaries are common. Endless mode climbs the ladder a step per boss wave.
+ */
+export const LOOT: { champion: Odds; warlord: Odds; boss: Odds }[] = [
+  // Normal: Emerald Woods, Desecrated Ruins, Frozen Fortress, Sunscar Canyon, Ashen Caldera.
+  { champion: [100, 0, 0, 0], warlord: [100, 0, 0, 0], boss: [100, 0, 0, 0] },
+  { champion: [85, 15, 0, 0], warlord: [60, 38, 2, 0], boss: [35, 62, 3, 0] },
+  { champion: [65, 33, 2, 0], warlord: [35, 58, 7, 0], boss: [10, 75, 15, 0] },
+  { champion: [50, 44, 6, 0], warlord: [20, 62, 18, 0], boss: [0, 62, 38, 0] },
+  { champion: [40, 48, 12, 0], warlord: [10, 58, 32, 0], boss: [0, 35, 50, 15] },
+  // Hard mode, the same maps again.
+  { champion: [35, 48, 16, 1], warlord: [5, 50, 40, 5], boss: [0, 25, 55, 20] },
+  { champion: [30, 48, 20, 2], warlord: [0, 45, 47, 8], boss: [0, 20, 55, 25] },
+  { champion: [25, 48, 24, 3], warlord: [0, 38, 52, 10], boss: [0, 15, 55, 30] },
+  { champion: [20, 46, 30, 4], warlord: [0, 30, 56, 14], boss: [0, 10, 55, 35] },
+  { champion: [15, 45, 34, 6], warlord: [0, 22, 58, 20], boss: [0, 5, 50, 45] },
+];
 
 /** Combining: this many artifacts of one tier become one random artifact of the next tier up. */
 export const FORGE = { count: 5 };
@@ -296,10 +321,14 @@ export function rollWheel(random = Math.random): Tier {
 }
 export type DropSource = 'champion' | 'warlord' | 'boss';
 
-/** Rolls a tier for a drop from `source` on map `mapIndex`. */
-export function rollTier(source: DropSource, mapIndex: number, random = Math.random): Tier {
-  const luck = 1 + DROPS.mapLuck * mapIndex;
-  const weights = TIER_IDS.map((t, i) => DROPS[source].weights[t] * luck ** i);
+/** A run's step on the LOOT ladder: its map (0 for the first), plus the campaign's length on hard mode. */
+export function lootStep(mapIndex: number, hard: boolean, campaign: number): number {
+  return Math.max(0, Math.min(LOOT.length - 1, mapIndex + (hard ? campaign : 0)));
+}
+
+/** Rolls a tier for a drop from `source` at `step` of the LOOT ladder. */
+export function rollTier(source: DropSource, step: number, random = Math.random): Tier {
+  const weights = LOOT[Math.max(0, Math.min(LOOT.length - 1, Math.floor(step)))][source];
   let roll = random() * weights.reduce((a, b) => a + b, 0);
   for (let i = 0; i < TIER_IDS.length; i++) {
     roll -= weights[i];

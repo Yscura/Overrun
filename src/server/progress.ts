@@ -1,5 +1,5 @@
-// What the group has achieved, saved next to the server so it survives restarts:
-// which maps are unlocked, and everyone's prestige (by player name).
+// Everyone's progress, saved next to the server so it survives restarts: each account's prestige, gold, artifacts and
+// unlocked maps (by player name).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,10 +16,6 @@ const MAPS_VERSION = 2;
 const FROM_V1 = [1, 2, 3, 5];
 
 export interface Progress {
-  /** Number of maps unlocked (at least 1). */
-  unlocked: number;
-  /** Number of maps unlocked on hard mode (0 until Mordak is slain). */
-  hardUnlocked: number;
   mapsVersion: number;
   /** Prestige by lowercased player name. */
   profiles: Record<string, Profile>;
@@ -28,16 +24,20 @@ export interface Progress {
 export function loadProgress(): Progress {
   try {
     const data = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-    let unlocked = Math.max(1, Number(data.unlocked) || 1);
-    if ((Number(data.mapsVersion) || 1) < 2) unlocked = FROM_V1[Math.min(unlocked, 3)];
-    return {
-      unlocked,
-      hardUnlocked: Math.max(0, Number(data.hardUnlocked) || 0),
-      mapsVersion: MAPS_VERSION,
-      profiles: data.profiles && typeof data.profiles === 'object' ? data.profiles : {},
-    };
+    const profiles: Record<string, Profile> = data.profiles && typeof data.profiles === 'object' ? data.profiles : {};
+    // Unlocks used to be shared by the whole server: everyone already here keeps what the server had.
+    if (data.unlocked !== undefined) {
+      let unlocked = Math.max(1, Number(data.unlocked) || 1);
+      if ((Number(data.mapsVersion) || 1) < 2) unlocked = FROM_V1[Math.min(unlocked, 3)];
+      const hard = Math.max(0, Number(data.hardUnlocked) || 0);
+      for (const profile of Object.values(profiles)) {
+        profile.maps = Math.max(profile.maps ?? 1, unlocked);
+        profile.hardMaps = Math.max(profile.hardMaps ?? 0, hard);
+      }
+    }
+    return { mapsVersion: MAPS_VERSION, profiles };
   } catch {
-    return { unlocked: 1, hardUnlocked: 0, mapsVersion: MAPS_VERSION, profiles: {} };
+    return { mapsVersion: MAPS_VERSION, profiles: {} };
   }
 }
 

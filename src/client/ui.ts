@@ -271,6 +271,11 @@ export class UI {
   private splash = $('splash');
   /** You've pressed Continue on the DEFEAT / VICTORY splash (reset when the next run ends). */
   private splashDone = false;
+  /** The splash's rewards playing out (see playRewards): the result they're for, the frame, and how to skip to the end. */
+  private rewardsFor = '';
+  private rewardsFrame = 0;
+  private skipRewards: (() => void) | null = null;
+  private sound: Sound | null = null;
   private devPanel = $('dev-panel');
   private spectateBar = $('spectate');
   private spectateList = $('spectate-list');
@@ -307,6 +312,10 @@ export class UI {
     $('splash-continue').addEventListener('click', () => {
       this.splashDone = true;
       if (this.latest) this.update(this.latest.snap, this.latest.myId);
+    });
+    // A click anywhere else on the splash skips the counting to the end.
+    this.splash.addEventListener('click', (e) => {
+      if (e.target !== $('splash-continue')) this.skipRewards?.();
     });
     $('room-profile').addEventListener('click', () => this.onOpenProfile());
     $('room-leave').addEventListener('click', () => this.onLeave());
@@ -361,6 +370,7 @@ export class UI {
 
   /** The volume slider and mute button (also M). */
   bindSound(sound: Sound): void {
+    this.sound = sound;
     const mute = $<HTMLButtonElement>('mute');
     const volume = $<HTMLInputElement>('volume');
     const refresh = () => {
@@ -424,6 +434,8 @@ export class UI {
     if (!over) this.splashDone = false;
     this.splash.classList.toggle('hidden', !over || this.splashDone);
     this.gameover.classList.toggle('hidden', !over || !this.splashDone);
+    // The splash lists what you found: no toasts on top of it.
+    this.lootToasts.classList.toggle('hidden', over);
     this.hud.classList.toggle('hidden', snap.phase === 'lobby');
     // God mode: the testing cheats.
     this.devPanel.classList.toggle('hidden', snap.phase !== 'playing' || me?.name.toLowerCase() !== DEV_NAME);
@@ -533,8 +545,11 @@ export class UI {
         card.disabled = locked || !this.amHost;
         // The details (description, boss, kind of finale) are in the hover text, to keep the cards small.
         const kind = map.arena ? 'Boss arena' : map.lava ? 'Closing lava' : 'Open field';
+        // Maps are unlocked per account, and the room offers its host's.
         card.title = locked
-          ? `Beat ${MAPS[i - 1].name}${hard ? ' on hard mode' : ''} to unlock`
+          ? this.amHost
+            ? `Beat ${MAPS[i - 1].name}${hard ? ' on hard mode' : ''} to unlock`
+            : `${snap.players.find((p) => p.host)?.name ?? 'The host'} hasn't unlocked this map yet (the host's unlocks decide)`
           : `${map.subtitle}\nFinal ${map.twin !== undefined ? 'bosses' : 'boss'}: ${mapBossName(map)} (${kind})${this.amHost ? '' : '\nThe host picks the map'}`;
         const icon = el('div', 'map-card-icon');
         icon.innerHTML = mapIconSvg(map, 54); // Static SVG.
@@ -1331,6 +1346,87 @@ export class UI {
 
   // --- Game over ---
 
+  /**
+   * Under the VICTORY / DEFEAT: the prestige and gold you earned count up, then the artifacts you found appear one by
+   * one, in the order you found them. Then Continue (to the post-game screen) appears. Clicking skips to the end.
+   */
+  private playRewards(result: GameResult, mine: GameResult['players'][number] | undefined): void {
+    cancelAnimationFrame(this.rewardsFrame);
+    const box = $('splash-rewards');
+    const proceed = $('splash-continue');
+    proceed.classList.add('waiting');
+    proceed.classList.remove('shown');
+    const prestige = result.prestige;
+    const gold = mine?.gold ?? 0;
+    const loot = mine?.loot ?? [];
+    const counter = (label: string, cls: string) => {
+      const row = el('div', `splash-reward ${cls}`);
+      const value = el('span', 'splash-reward-value', '+0');
+      row.append(el('span', 'splash-reward-label', label), value);
+      return { row, value };
+    };
+    const p = counter('Prestige', 'prestige');
+    const g = counter('Gold', 'gold');
+    const list = el('div', 'splash-loot');
+    const cards = loot.map((find) => {
+      const def = ARTIFACTS[find.id];
+      const card = el('div', 'postgame-loot-card splash-loot-card pending');
+      card.style.setProperty('--tier', tierColor(def.tier));
+      const text = el('div', 'postgame-loot-text');
+      text.append(el('div', 'postgame-loot-name', def.name), el('div', 'postgame-loot-note', TIERS[def.tier].name));
+      card.append(artifactIcon(find.id, 34), text);
+      this.tip(card, () => this.artifactTip(find.id));
+      list.append(card);
+      return card;
+    });
+    if (loot.length > 0) box.replaceChildren(p.row, g.row, el('div', 'splash-loot-title', `Artifacts found · ${loot.length}`), list);
+    else box.replaceChildren(p.row, g.row);
+    // The timeline (ms): wait for the title and the line under it, count, then a card at a time, then Continue.
+    const START = 1300;
+    const COUNT = 1400;
+    const CARD = 320;
+    const total = COUNT + loot.length * CARD + 250;
+    const begin = performance.now() + START;
+    let revealed = 0;
+    let lastTick = 0;
+    const show = (t: number) => {
+      const k = Math.max(0, Math.min(1, t / COUNT));
+      const eased = 1 - (1 - k) ** 3;
+      p.value.textContent = `+${exact(Math.round(prestige * eased))}`;
+      g.value.textContent = `+${exact(Math.round(gold * eased))}`;
+      p.row.classList.toggle('counting', k > 0 && k < 1);
+      g.row.classList.toggle('counting', k > 0 && k < 1);
+      // Coins clink as it counts.
+      if (k > 0 && k < 1 && (prestige > 0 || gold > 0) && t - lastTick > 110) {
+        lastTick = t;
+        this.sound?.play('coin', undefined, undefined, 0.9 + k * 0.4);
+      }
+      const due = Math.min(cards.length, Math.max(0, Math.floor((t - COUNT) / CARD) + 1));
+      for (; revealed < due; revealed++) {
+        cards[revealed].classList.remove('pending');
+        this.sound?.play('relic');
+      }
+    };
+    const finish = () => {
+      cancelAnimationFrame(this.rewardsFrame);
+      this.skipRewards = null;
+      lastTick = Infinity; // (No more clinks.)
+      revealed = cards.length; // (Skipped: shown all at once, without a sound each.)
+      for (const card of cards) card.classList.remove('pending');
+      show(total);
+      proceed.classList.remove('waiting');
+      proceed.classList.add('shown');
+    };
+    const frame = (now: number) => {
+      const t = now - begin;
+      if (t >= total) return finish();
+      if (t >= 0) show(t);
+      this.rewardsFrame = requestAnimationFrame(frame);
+    };
+    this.skipRewards = finish;
+    this.rewardsFrame = requestAnimationFrame(frame);
+  }
+
   private renderResult(result: GameResult, snap: Snapshot, me: PlayerState | undefined): void {
     const amHost = !!me?.host;
     // Only the host takes everyone back to the lobby.
@@ -1342,6 +1438,8 @@ export class UI {
     if (key === this.shown.result) return;
     this.shown.result = key;
     const endless = result.endless;
+    // Yours: the gold you banked, what you found, what you unlocked.
+    const mine = result.players.find((r) => r.name === me?.name);
     const title = endless ? 'RUN OVER' : result.victory ? 'VICTORY' : 'DEFEAT';
     for (const node of [this.gameoverTitle, $('splash-title')]) {
       node.textContent = title;
@@ -1357,8 +1455,13 @@ export class UI {
     this.survived.textContent = endless
       ? `Your team lasted ${formatTime(result.time)}, reached level ${result.level} and beat ${waves.replace(' beaten', '')}.${endless.record ? ' A new record on this map!' : ''}`
       : result.victory
-      ? `You defeated ${result.boss} in ${formatTime(result.time)}!` + (result.unlockedMap ? ` ${result.unlockedMap} is now unlocked.` : '') + (result.feats.length ? ` ${result.feats.join(' ')}` : '')
+      ? `You defeated ${result.boss} in ${formatTime(result.time)}!` + (mine?.unlockedMap ? ` ${mine.unlockedMap} is now unlocked.` : '') + (result.feats.length ? ` ${result.feats.join(' ')}` : '')
       : `Your team survived ${formatTime(result.time)} and reached level ${result.level}.`;
+    const resultKey = JSON.stringify(result);
+    if (resultKey !== this.rewardsFor) {
+      this.rewardsFor = resultKey;
+      this.playRewards(result, mine);
+    }
 
     // The run in numbers, then what everyone takes home.
     const chip = (label: string, value: string, cls = '') => {
@@ -1372,10 +1475,9 @@ export class UI {
       chip('Team level', String(result.level)),
       chip('Kills', exact(kills)),
       chip('Prestige gained', `+${result.prestige}`, 'prestige'),
-      chip('Gold gained', `+${result.gold}`, 'gold'),
+      chip('Gold gained', `+${mine?.gold ?? result.gold}`, 'gold'),
     );
     // What you found this run (yours are the ones under your name).
-    const mine = result.players.find((r) => r.name === me?.name);
     const loot = mine?.loot ?? [];
     this.postgameLoot.classList.toggle('hidden', loot.length === 0);
     this.postgameLoot.replaceChildren();

@@ -979,7 +979,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   devotion: {
     name: 'Devotion',
     kind: 'passive',
-    describe: () => `+${Math.round(DEVOTION_PER_LEVEL * 100)}% healing you give (yourself included), and the shields you give last ${Math.round(DEVOTION_PER_LEVEL * 100)}% longer.`,
+    describe: () => `+${Math.round(DEVOTION_PER_LEVEL * 100)}% healing, and shields last ${Math.round(DEVOTION_PER_LEVEL * 100)}% longer.`,
   },
 };
 

@@ -3351,6 +3351,101 @@ body:has(#lobby:not(.hidden)) #sound-control {
   animation: splash-rise 0.6s ease-out 1.3s both;
 }
 
+/* Under the title: the prestige and gold counting up, then the artifacts found, one by one; then Continue appears. */
+.splash-rewards {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  max-width: min(900px, calc(100vw - 32px));
+  animation: splash-rise 0.6s ease-out 1.1s both;
+}
+
+.splash-reward {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 260px;
+  padding: 6px 16px;
+  font-size: 20px;
+  background: rgba(10, 12, 16, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.splash-reward-label {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9aa3b0;
+}
+
+.splash-reward-value {
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  transition: transform 0.1s;
+}
+
+.splash-reward.prestige .splash-reward-value {
+  color: #b388ff;
+}
+
+.splash-reward.gold .splash-reward-value {
+  color: #ffd54f;
+}
+
+.splash-reward.counting .splash-reward-value {
+  transform: scale(1.12);
+}
+
+.splash-loot-title {
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #9aa3b0;
+}
+
+.splash-loot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.splash-loot-card {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--tier) 35%, transparent);
+  animation: splash-pop 0.35s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+
+.splash-loot-card.pending {
+  visibility: hidden;
+  animation: none;
+}
+
+/* Continue waits until the rewards have played out. */
+.splash-continue.waiting {
+  visibility: hidden;
+  animation: none;
+}
+
+.splash-continue.shown {
+  animation: splash-rise 0.4s ease-out both;
+}
+
+@keyframes splash-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
 @keyframes splash-fade {
   from {
     opacity: 0;

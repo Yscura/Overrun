@@ -4,6 +4,7 @@
 import { ARTIFACT_IDS, FORGE, WHEEL, artifact, isArtifactId, nextTier, rollArtifact, rollWheel, type ArtifactId } from '../shared/artifacts';
 import { CHARACTERS, CHARACTER_IDS, heroAvailable, isCharacterId, type CharacterId } from '../shared/characters';
 import { ENEMY_TYPES, isBossType } from '../shared/enemies';
+import { CAMPAIGN } from '../shared/maps';
 import { PRESTIGE, isPrestigeId, prestigeCost, prestigeSpent, type PrestigeRanks } from '../shared/prestige';
 import { DEV_NAME, type ArtifactFind, type HeroRecord, type ProfileState } from '../shared/protocol';
 
@@ -23,6 +24,9 @@ export interface Profile {
   bosses?: string[];
   /** They've slain Mordak, the Earth Scourger: the Dragonmancer is theirs to unlock (once he's here). */
   dragonmancer?: boolean;
+  /** How many campaign maps they've unlocked (at least 1), and on hard mode (0 until they've slain Mordak). */
+  maps?: number;
+  hardMaps?: number;
   /** Their longest endless run on each map (seconds, by map name). */
   endless?: Record<string, number>;
   /** How each hero's finished runs went (runs started are in `played`). */
@@ -153,8 +157,11 @@ export function getProfile(store: Record<string, Profile>, name: string): Profil
   profile.points = Math.max(0, Number(profile.points) || 0);
   // Artifacts used to be a list of the ones found; now they're an inventory with counts.
   if (Array.isArray(profile.artifacts)) profile.artifacts = Object.fromEntries((profile.artifacts as string[]).map((id) => [id, 1]));
-  // The testing account always has at least one of every artifact (combining still uses them up, until next time).
+  // The testing account always has at least one of every artifact (combining still uses them up, until next time), and
+  // every map open.
   if (key === DEV_NAME) {
+    profile.maps = CAMPAIGN;
+    profile.hardMaps = CAMPAIGN;
     profile.artifacts ??= {};
     for (const id of ARTIFACT_IDS) profile.artifacts[id] = Math.max(1, profile.artifacts[id] ?? 0);
   }

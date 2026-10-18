@@ -6,7 +6,6 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { TICK_RATE } from '../shared/constants';
 import { MODES, isModeId } from '../shared/modes';
 import { DEV_NAME, type ClientMessage, type ServerMessage } from '../shared/protocol';
-import { CAMPAIGN, MAPS } from '../shared/maps';
 import { Game } from './game';
 import { buyHero, buyPrestige, combineArtifacts, equipArtifact, getProfile, profileState, refundPrestige, spinWheel } from './profiles';
 import { loadProgress, saveProgress } from './progress';
@@ -49,24 +48,11 @@ const progress = loadProgress();
 const unlockAll = Boolean(process.env.OVERRUN_UNLOCK_ALL);
 const save = () => saveProgress(progress);
 
-// Every lobby is a room with its own game. Map unlocks are shared by everyone on this server.
+// Every lobby is a room with its own game. Each account unlocks maps for itself; a room offers its host's.
 const rooms = new Rooms(
   (room) =>
     new Game({
-      unlocked: unlockAll ? CAMPAIGN : progress.unlocked,
-      onUnlock: (unlocked) => {
-        progress.unlocked = Math.max(progress.unlocked, unlocked);
-        save();
-        for (const other of rooms.all()) other.game.setUnlocked(progress.unlocked);
-        console.log(`Unlocked ${MAPS[unlocked - 1].name}`);
-      },
-      hardUnlocked: unlockAll ? CAMPAIGN : progress.hardUnlocked,
-      onHardUnlock: (unlocked) => {
-        progress.hardUnlocked = Math.max(progress.hardUnlocked, unlocked);
-        save();
-        for (const other of rooms.all()) other.game.setHardUnlocked(progress.hardUnlocked);
-        console.log(`Unlocked ${MAPS[unlocked - 1].name} on hard mode`);
-      },
+      unlockAll,
       bossTime,
       profiles: progress.profiles,
       onProfiles: save,
