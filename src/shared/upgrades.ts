@@ -585,6 +585,11 @@ interface UpgradeDef {
   /** A regular weapon only this hero (a CharacterId) can be offered. */
   exclusive?: string;
   /**
+   * Heroes (by CharacterId) outside its role who can still be offered it, and how likely: their offer weight for it
+   * (see OFFER_WEIGHT; 1 is an ordinary weapon, 3 one of the hero's own damage type).
+   */
+  alsoFor?: Record<string, number>;
+  /**
    * Passives that make this weapon better beyond Might (and Crit or Arcana, by its damage type): Expanse ('area'),
    * Multishot ('multishot'), Duration ('duration'). Keep it in step with how the server fires it.
    */
@@ -621,6 +626,8 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     scales: ['multishot'],
     damage: 'physical',
     role: 'ranged',
+    // The Assassin is a melee hero, but knives suit them: they come up for them more often than most weapons.
+    alsoFor: { assassin: 4 },
     describe: (level) => {
       const s = knivesStats(level);
       return `Throws a short-range fan of ${s.count} knives toward your cursor, ${s.damage} damage each${pierceText(s.pierce)}.`;

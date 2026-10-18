@@ -234,7 +234,8 @@ heroes) or Arcana (magic heroes) twice as often.
 You carry up to **4 weapons** (plus your E ability) and **5 passives**. Once a slot type is full, level-ups only offer
 upgrades for what you already have. Weapons: Arcane Bolt, Throwing Knives, Lightning Storm, Seeker Hex, Shuriken, Fireball and Longbow (ranged),
 Cleave, Ground Slam, Venom Trail and Shadow Daggers (melee), Spirit Blades, Radiant Field and Mine Layer (anyone), and
-Wolf Pack (druid only). Passives: Might,
+Wolf Pack (druid only). The Assassin also gets Throwing Knives, and more often than most weapons (`alsoFor` on a
+weapon in `src/shared/upgrades.ts` opens it to a hero outside its role, with its own odds). Passives: Might,
 Haste, Swiftness, Vitality, Magnet, Regeneration, Plating, Crit (physical only), Arcana (magic), Vampirism (lifesteal, capped per second), Expanse (area),
 Persistence (duration), Multishot, Evasion and Wisdom (XP).
 

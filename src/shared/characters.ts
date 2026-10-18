@@ -367,6 +367,7 @@ export function upgradesFor(character: CharacterId): UpgradeId[] {
   const role = CHARACTERS[character].role;
   return ALL_UPGRADES.filter((id) => {
     const def = UPGRADES[id];
+    if (def.alsoFor?.[character] !== undefined) return true;
     return (!def.role || def.role === role) && (!def.owner || def.owner === character) && (!def.exclusive || def.exclusive === character);
   });
 }
@@ -481,6 +482,8 @@ export const OFFER_WEIGHT = { ownType: 3, ownPassive: 2, otherPassive: 0.5 };
 export function offerWeight(id: UpgradeId, character: CharacterId): number {
   const own = heroDamageType(character);
   const def = UPGRADES[id];
+  const extra = def.alsoFor?.[character];
+  if (extra !== undefined) return extra;
   if (def.kind === 'weapon') return !def.owner && damageType(id as WeaponId) === own ? OFFER_WEIGHT.ownType : 1;
   if (id === 'crit') return own === 'physical' ? OFFER_WEIGHT.ownPassive : OFFER_WEIGHT.otherPassive;
   if (id === 'arcana') return own === 'magic' ? OFFER_WEIGHT.ownPassive : OFFER_WEIGHT.otherPassive;
