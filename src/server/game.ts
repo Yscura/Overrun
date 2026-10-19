@@ -275,7 +275,7 @@ const DRAGONMANCER_FEAT = 'Mordak is slain: Kaelor, the Dragonmancer, joins your
  */
 const RETREAT = { flee: 2.2, guards: 5, perPlayer: 2 };
 
-const FINALE = { crumble: 3.5, rockEvery: 1.25, rockAimed: 0.45, rockRadius: 80, rockDelay: 1.1, rockDamage: 40, stir: 2.5, wait: 6 };
+const FINALE = { crumble: 3.5, rockEvery: 1.25, rockAimed: 0.45, rockRadius: 80, rockDelay: 1.1, rockDamage: 1, stir: 2.5, wait: 6 };
 /** How fast Mordak turns to face his target, in radians per second. */
 const DRAGON_TURN = 2.4;
 /** Enemies' damage grows with the map's difficulty to this power (their health grows with it in full). */
@@ -486,6 +486,8 @@ interface Player {
   artifact: ArtifactId | null;
   /** Artifacts they found this run (for the post-game screen), and since the last snapshot (for their toast). */
   loot: ArtifactFind[];
+  /** Damage dealt this run by each weapon (and ability) they used, by its id. */
+  damageBy: Record<string, number>;
   /** Gold they've banked this run (their own share, after their gold bonus), and the map this victory unlocked for them. */
   goldEarned: number;
   unlockedMap: string | null;
@@ -500,6 +502,8 @@ interface Player {
 /** Venom puddles and mines on the ground. */
 interface Zone {
   id: number;
+  /** The weapon that made it (for the post-game damage tracker), if any. */
+  source?: string | null;
   kind: number;
   owner: number;
   x: number;
@@ -522,6 +526,8 @@ interface Zone {
 
 /** A delayed area hit from a player (Meteor, Inferno, Time Bomb). */
 interface Blast {
+  /** The weapon that made it (for the post-game damage tracker), if any. */
+  source?: string | null;
   x: number;
   y: number;
   r: number;
@@ -541,6 +547,8 @@ interface Blast {
 /** An ally a hero calls in: the druid's wolves and spirit bear. */
 interface Summon {
   id: number;
+  /** The weapon that made it (for the post-game damage tracker), if any. */
+  source?: string | null;
   kind: number;
   owner: number;
   x: number;
@@ -663,6 +671,8 @@ interface Mission {
 
 interface Projectile {
   id: number;
+  /** The weapon that made it (for the post-game damage tracker), if any. */
+  source?: string | null;
   kind: number;
   owner: number;
   x: number;
@@ -861,6 +871,11 @@ export class Game {
   private lobbyHost: number | null = null;
   /** Normal, hard (see HARD) or endless (see ENDLESS). */
   private mode: GameMode = 'normal';
+  /**
+   * Which weapon is dealing damage right now (set while it fires, and while what it left behind hits: projectiles,
+   * zones, blasts, wolves), for each player's damage by weapon. Null otherwise.
+   */
+  private dealing: string | null = null;
   /** Endless mode: the boss wave the team is on (0 before the first), and when the next one comes. */
   private wave = 0;
   private nextWaveAt = 0;
@@ -1099,6 +1114,7 @@ export class Game {
       pings: [],
       artifact: null,
       loot: [],
+      damageBy: {},
       goldEarned: 0,
       unlockedMap: null,
       found: [],
@@ -1515,8 +1531,8 @@ export class Game {
     // Count the run for each person's hero (their profile card shows the one they play most).
     for (const p of this.humans()) notePlayed(p.profile, p.character);
     this.options.onProfiles?.();
-    if (this.hard) this.banner('Hard mode: they hit harder, and the bosses are relentless', 'danger');
-    if (this.endless) this.banner('Endless: survive as long as you can. The boss comes back in waves', 'danger');
+    if (this.hard) this.banner('Hard mode', 'danger');
+    if (this.endless) this.banner('Survive as long as you can', 'danger');
   }
 
   private clearWorld(): void {
@@ -1585,6 +1601,7 @@ export class Game {
     p.upgrades = { [hero.startWeapon]: 1, [hero.ability]: 1 };
     p.artifact = p.bot ? null : equippedArtifact(p.profile);
     p.loot = [];
+    p.damageBy = {};
     p.goldEarned = 0;
     p.unlockedMap = null;
     p.found = [];
@@ -1659,6 +1676,7 @@ export class Game {
         kills: p.kills,
         artifact: p.artifact,
         loot: [...p.loot],
+        weapons: Object.fromEntries(Object.entries(p.damageBy).map(([id, d]) => [id, Math.round(d)])),
         gold: p.goldEarned,
         unlockedMap: p.unlockedMap,
       })),
@@ -2726,8 +2744,8 @@ export class Game {
         x = st.x;
         y = st.y;
       }
-      const damage = FINALE.rockDamage * this.difficulty() ** DIFFICULTY_DAMAGE;
-      this.addHazard(HazardKind.Circle, x, y, FINALE.rockRadius, 0, 0, FINALE.rockDelay, damage);
+      // (Just a scare: the rocks are for the drama, a point of damage each.)
+      this.addHazard(HazardKind.Circle, x, y, FINALE.rockRadius, 0, 0, FINALE.rockDelay, FINALE.rockDamage);
     }
     // In the den: the dragon comes once everyone's there, or a while after the first one is.
     const inDen = alive.filter((p) => dist2(p.x, p.y, f.den.x, f.den.y) < f.den.r ** 2);
@@ -4361,6 +4379,7 @@ export class Game {
 
   private fireWeapons(p: Player, stats: PlayerStats, dt: number): void {
     for (const id of WEAPON_IDS) {
+      this.dealing = id;
       const level = p.upgrades[id];
       if (!level) continue;
       if (id === 'orbit' || id === 'embers') {
@@ -4374,6 +4393,7 @@ export class Game {
       const cooldown = (p.cooldowns[id] ?? 0) - dt;
       p.cooldowns[id] = cooldown > 0 ? cooldown : this.fire(p, id, level, stats) * stats.cooldownMult;
     }
+    this.dealing = null;
   }
 
   /** Fires a weapon and returns its cooldown. */
@@ -4484,12 +4504,12 @@ export class Game {
   }
 
   private addZone(p: Player, kind: number, r: number, blast: number, damage: number, life: number, timer: number, type: DamageType): void {
-    this.zones.push({ id: this.nextId++, kind, owner: p.id, x: p.x, y: p.y, r, blast, damage, life, timer, type, dead: false });
+    this.zones.push({ source: this.dealing, id: this.nextId++, kind, owner: p.id, x: p.x, y: p.y, r, blast, damage, life, timer, type, dead: false });
   }
 
   /** Burning ground at (x, y). */
   private addZoneAt(p: Player, kind: number, x: number, y: number, r: number, damage: number, life: number, type: DamageType): void {
-    this.zones.push({ id: this.nextId++, kind, owner: p.id, x, y, r, blast: 0, damage, life, timer: 0, type, dead: false });
+    this.zones.push({ source: this.dealing, id: this.nextId++, kind, owner: p.id, x, y, r, blast: 0, damage, life, timer: 0, type, dead: false });
     const same = this.zones.filter((z) => z.kind === kind && !z.dead);
     if (same.length > MAX_VENOM) same[0].dead = true;
   }
@@ -4502,6 +4522,7 @@ export class Game {
   /** Venom puddles tick damage; mines arm, then blow up when an enemy comes close. */
   private updateZones(dt: number): void {
     for (const z of this.zones) {
+      this.dealing = z.source ?? null;
       if (z.dead) continue;
       z.life -= dt;
       z.timer -= dt;
@@ -4540,6 +4561,7 @@ export class Game {
         this.fx.push({ k: 'ring', x: Math.round(z.x), y: Math.round(z.y), r: z.blast, c: 0xffab40, snd: 'explode' });
       }
     }
+    this.dealing = null;
     this.zones = this.zones.filter((z) => !z.dead);
   }
 
@@ -4566,6 +4588,7 @@ export class Game {
       target: null,
       dead: false,
     };
+    pr.source = this.dealing;
     this.projectiles.push(pr);
     return pr;
   }
@@ -4586,6 +4609,7 @@ export class Game {
       const x = e.x + (Math.random() - 0.5) * 20;
       const y = e.y + (Math.random() - 0.5) * 20;
       this.blasts.push({
+        source: this.dealing,
         x,
         y,
         r,
@@ -4713,6 +4737,7 @@ export class Game {
       ordered: false,
       dead: false,
     };
+    m.source = this.dealing;
     this.summons.push(m);
     return m;
   }
@@ -4720,6 +4745,7 @@ export class Game {
   /** Wolves hunt enemies near their druid and bite; the bear does too, but slower and harder (or what it's sent at). */
   private updateSummons(dt: number): void {
     for (const m of this.summons) {
+      this.dealing = m.source ?? null;
       const owner = this.players.get(m.owner);
       m.life -= dt;
       if (!owner || m.life <= 0) m.dead = true;
@@ -4806,6 +4832,7 @@ export class Game {
         m.y = owner.y;
       }
     }
+    this.dealing = null;
     this.summons = this.summons.filter((m) => !m.dead);
   }
 
@@ -4888,6 +4915,7 @@ export class Game {
   private shoot(p: Player, kind: number, angle: number, s: FanStats, stats: PlayerStats, type: DamageType, homing = false): void {
     const damage = s.damage * stats.damageMult;
     this.projectiles.push({
+      source: this.dealing,
       id: this.nextId++,
       kind,
       owner: p.id,
@@ -5077,6 +5105,7 @@ export class Game {
       }
       const dealt = Math.min(amount, e.hp);
       by.damageDealt += dealt;
+      if (this.dealing) by.damageBy[this.dealing] = (by.damageBy[this.dealing] ?? 0) + dealt;
       by.damageByType[DAMAGE_TYPES.indexOf(type)] += dealt;
       if (stats.lifesteal > 0 && !by.downed) {
         // Capped per second, or it would scale with enemy health and outheal anything late in the run.
@@ -5117,6 +5146,7 @@ export class Game {
 
   private updateProjectiles(dt: number): void {
     for (const pr of this.projectiles) {
+      this.dealing = pr.source ?? null;
       const owner = this.players.get(pr.owner);
       if (pr.boomerang) this.steerBoomerang(pr, owner, dt);
       if (pr.homing) this.steerHex(pr, dt);
@@ -5155,6 +5185,7 @@ export class Game {
         }
       }
     }
+    this.dealing = null;
     this.projectiles = this.projectiles.filter((pr) => !pr.dead);
   }
 
@@ -5301,6 +5332,7 @@ export class Game {
     }
     if (a.sanctuary) {
       this.zones.push({
+        source: this.dealing,
         id: this.nextId++,
         kind: ZoneKind.Sanctuary,
         owner: p.id,
@@ -5362,6 +5394,7 @@ export class Game {
           const y = clamp(p.y + dirY * along, 0, this.map.height);
           if (blocksShot(this.walls, x, y)) break; // A wall stops the wave.
           this.blasts.push({
+            source: this.dealing,
             x,
             y,
             r,
@@ -5382,7 +5415,7 @@ export class Game {
         const x = clamp(p.x + dirX * d, 0, this.map.width);
         const y = clamp(p.y + dirY * d, 0, this.map.height);
         const r = s.radius * stats.area;
-        this.blasts.push({ x, y, r, damage: s.damage * stats.damageMult, owner: p.id, t: s.delay, type: 'magic' });
+        this.blasts.push({ source: this.dealing, x, y, r, damage: s.damage * stats.damageMult, owner: p.id, t: s.delay, type: 'magic' });
         this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0xff9100, t: s.delay });
         // Starfall: smaller meteors land around the first, one after another.
         for (let i = 0; i < s.shower; i++) {
@@ -5390,7 +5423,7 @@ export class Game {
           const sx = clamp(x + Math.cos(angle) * r * 1.3, 0, this.map.width);
           const sy = clamp(y + Math.sin(angle) * r * 1.3, 0, this.map.height);
           const t = s.delay + 0.15 * (i + 1);
-          this.blasts.push({ x: sx, y: sy, r: r * 0.6, damage: s.damage * s.showerDamage * stats.damageMult, owner: p.id, t, type: 'magic' });
+          this.blasts.push({ source: this.dealing, x: sx, y: sy, r: r * 0.6, damage: s.damage * s.showerDamage * stats.damageMult, owner: p.id, t, type: 'magic' });
           this.fx.push({ k: 'cast', x: Math.round(sx), y: Math.round(sy), r: r * 0.6, c: 0xff9100, t });
         }
         p.sounds.push('meteor');
@@ -5461,7 +5494,7 @@ export class Game {
         this.addZoneAt(p, ZoneKind.Fire, p.x, p.y, r * 0.8, s.burn.damage * stats.damageMult, s.burn.life * stats.duration, 'magic');
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0xff6d00, snd: 'explode' });
         // Supernova: more novas where you're standing now.
-        for (let i = 1; i <= s.echoes; i++) this.blasts.push({ x: p.x, y: p.y, r: r * (1 + 0.2 * i), damage, owner: p.id, t: 0.4 * i, color: 0xff6d00, type: 'magic' });
+        for (let i = 1; i <= s.echoes; i++) this.blasts.push({ source: this.dealing, x: p.x, y: p.y, r: r * (1 + 0.2 * i), damage, owner: p.id, t: 0.4 * i, color: 0xff6d00, type: 'magic' });
         p.sounds.push('nova');
         return s.cooldown;
       }
@@ -5508,6 +5541,7 @@ export class Game {
         const y = clamp(p.y + dirY * d, 0, this.map.height);
         const r = s.radius * stats.area;
         this.zones.push({
+          source: this.dealing,
           id: this.nextId++,
           kind: ZoneKind.Toxic,
           owner: p.id,
@@ -5530,6 +5564,7 @@ export class Game {
         const s = consecrateStats(level);
         const r = s.radius * stats.area;
         this.zones.push({
+          source: this.dealing,
           id: this.nextId++,
           kind: ZoneKind.Holy,
           owner: p.id,
@@ -5585,7 +5620,7 @@ export class Game {
         const r = s.radius * stats.area;
         for (let i = 0; i < s.repeats; i++) {
           const t = s.delay + i;
-          this.blasts.push({ x, y, r, damage: s.damage * stats.damageMult, owner: p.id, t, stun: s.stun * stats.duration, color: 0x80d8ff, type: 'true' });
+          this.blasts.push({ source: this.dealing, x, y, r, damage: s.damage * stats.damageMult, owner: p.id, t, stun: s.stun * stats.duration, color: 0x80d8ff, type: 'true' });
           this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0x80d8ff, t });
         }
         p.sounds.push('mine');
@@ -5819,7 +5854,7 @@ export class Game {
         const x = clamp(p.x + Math.cos(a) * d, 0, this.map.width);
         const y = clamp(p.y + Math.sin(a) * d, 0, this.map.height);
         const r = INFERNO.radius * stats.area;
-        this.blasts.push({ x, y, r, damage: (INFERNO.damage + INFERNO.perLevel * this.level) * stats.damageMult, owner: p.id, t: 0.5, color: 0xff6d00, type: 'magic' });
+        this.blasts.push({ source: this.dealing, x, y, r, damage: (INFERNO.damage + INFERNO.perLevel * this.level) * stats.damageMult, owner: p.id, t: 0.5, color: 0xff6d00, type: 'magic' });
         this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0xff6d00, t: 0.5 });
       }
     }
@@ -5832,7 +5867,7 @@ export class Game {
         if (near.length === 0) break;
         const e = near[Math.floor(Math.random() * near.length)];
         const r = WRATH.radius * stats.area;
-        this.blasts.push({ x: e.x, y: e.y, r, damage: (WRATH.damage + WRATH.perLevel * this.level) * stats.damageMult, owner: p.id, t: 0.25, color: HOLY, type: 'magic' });
+        this.blasts.push({ source: this.dealing, x: e.x, y: e.y, r, damage: (WRATH.damage + WRATH.perLevel * this.level) * stats.damageMult, owner: p.id, t: 0.25, color: HOLY, type: 'magic' });
         this.fx.push({ k: 'cast', x: Math.round(e.x), y: Math.round(e.y), r, c: HOLY, t: 0.25 });
       }
       if (p.ultTimer < 0) p.ultTimer = 0;
@@ -5851,6 +5886,7 @@ export class Game {
 
   private updateBlasts(dt: number): void {
     for (const b of this.blasts) {
+      this.dealing = b.source ?? null;
       b.t -= dt;
       if (b.t > 0) continue;
       this.splash(b.x, b.y, b.r, b.damage, this.players.get(b.owner), b.type);
@@ -5867,6 +5903,7 @@ export class Game {
       this.hitCratesAround(b.x, b.y, b.r, b.damage);
       this.fx.push({ k: 'ring', x: Math.round(b.x), y: Math.round(b.y), r: b.r, c: b.color ?? 0xff9100, snd: 'explode' });
     }
+    this.dealing = null;
     this.blasts = this.blasts.filter((b) => b.t > 0);
   }
 

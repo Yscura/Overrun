@@ -379,8 +379,9 @@ export interface GameResult {
   time: number;
   level: number;
   /**
-   * `artifact`: what they had equipped. `loot`: the artifacts they found this run, in order. `gold`: what they banked
-   * (after their own gold bonus). `unlockedMap`: a map this victory unlocked on their account.
+   * `artifact`: what they had equipped. `loot`: the artifacts they found this run, in order. `weapons`: the damage each
+   * of their weapons (and abilities) dealt, by id. `gold`: what they banked (after their own gold bonus).
+   * `unlockedMap`: a map this victory unlocked on their account.
    */
   players: {
     name: string;
@@ -389,6 +390,7 @@ export interface GameResult {
     kills: number;
     artifact: ArtifactId | null;
     loot: ArtifactFind[];
+    weapons: Partial<Record<string, number>>;
     gold: number;
     unlockedMap: string | null;
   }[];

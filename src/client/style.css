@@ -2241,6 +2241,22 @@ body.paused #hud > :not(#loadout) {
   font-weight: 700;
 }
 
+/* Post-game: what a weapon dealt this run. */
+.tip-damage {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #2b0a0a;
+  background: #ff8a65;
+  border-radius: 999px;
+}
+
+.tip-dealt {
+  font-weight: 700;
+  color: #ffab91;
+}
+
 .tip-ready {
   padding: 1px 6px;
   font-size: 10px;

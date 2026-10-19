@@ -580,7 +580,7 @@ export const MAPS: MapDef[] = [
     arena: { x: 3550, y: 1700, r: 430, zone: 640, gate: GLADE.gate, gateLook: 'vines' },
     sealed: { x: GLADE.front.x, hole: { x: 3550, y: 1700, r: GLADE.outer } },
     river: RIVER,
-    difficulty: 0.7,
+    difficulty: 1,
     prestigeReward: 0.75,
     // A gentle start: mostly the basic horde.
     enemyWeights: { [EnemyType.Wraith]: 0, [EnemyType.Bombardier]: 0.3, [EnemyType.Charger]: 0.5, [EnemyType.Spitter]: 0.7 },
@@ -632,7 +632,7 @@ export const MAPS: MapDef[] = [
     boss: EnemyType.Reaper,
     arena: { x: 4150, y: 1800, r: 470, zone: 640, gate: RUINS_ARENA.gate },
     sealed: { x: RUINS_ARENA.front.x, hole: { x: 4150, y: 1800, r: RUINS_ARENA.outer } },
-    difficulty: 1,
+    difficulty: 1.5,
     prestigeReward: 1,
     enemyWeights: { [EnemyType.Wraith]: 0 },
     theme: { background: 0x18201a, grid: 0x223024, wall: 0x5d6b5a, wallEdge: 0x3b4539, fence: 0x8d7b5a, outside: 0x070a07 },
@@ -688,7 +688,7 @@ export const MAPS: MapDef[] = [
       arena: { x: 6600, y: 1500, r: 450, zone: 600, gate: QUEEN_TOWER.gate, gateLook: 'door' },
       floor: QUEEN_TOWER.inner,
     },
-    difficulty: 1.4,
+    difficulty: 2,
     prestigeReward: 1.5,
     enemyWeights: { [EnemyType.Spitter]: 1.6, [EnemyType.Wraith]: 1, [EnemyType.Bombardier]: 0.5 },
     // Ice blues, frost whites and cold violets.
@@ -792,7 +792,7 @@ export const MAPS: MapDef[] = [
     boss: EnemyType.Kharzak,
     arena: { x: 4600, y: 1500, r: 440, zone: 680, gate: DEN.gate },
     sealed: { x: DEN.front.x, hole: { x: 4600, y: 1500, r: DEN.outer } },
-    difficulty: 1.5,
+    difficulty: 2.5,
     prestigeReward: 1.75,
     enemyWeights: { [EnemyType.Charger]: 1, [EnemyType.Spitter]: 1.1, [EnemyType.Runner]: 1.3, [EnemyType.Wraith]: 0.6 },
     // Dust: grays, browns, sand and rust.
@@ -864,7 +864,7 @@ export const MAPS: MapDef[] = [
       boss: EnemyType.Mordak,
       bossName: 'Mordak, the Earth Scourger',
     },
-    difficulty: 2,
+    difficulty: 3,
     prestigeReward: 2,
     enemyWeights: { [EnemyType.Charger]: 1.6, [EnemyType.Bombardier]: 1.6, [EnemyType.Wraith]: 1.2, [EnemyType.Spitter]: 0.8 },
     // Fire and ash.
@@ -920,7 +920,7 @@ export const MAPS: MapDef[] = [
       ],
     },
     difficulty: 1.2,
-    prestigeReward: 1.5,
+    prestigeReward: 0.2,
     enemyWeights: { [EnemyType.Wraith]: 1.8, [EnemyType.Brute]: 1.2, [EnemyType.Bombardier]: 0.7 },
     // The dead: bone-white skeletons, spectral runners and wraiths, purple ghouls. The bosses come back pale.
     enemyColors: {

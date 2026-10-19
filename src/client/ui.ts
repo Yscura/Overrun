@@ -145,7 +145,17 @@ function iconName(id: ChoiceId, text: string, size: number, className = 'slot-na
   return row;
 }
 
-const compact = (n: number) => (n >= 10000 ? `${(n / 1000).toFixed(0)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)));
+/** A big number, short: 950, 1.2k, 45k, 400k, 1.4M, 12M. */
+const compact = (n: number) =>
+  n >= 1e7
+    ? `${(n / 1e6).toFixed(0)}M`
+    : n >= 1e6
+      ? `${(n / 1e6).toFixed(1)}M`
+      : n >= 10000
+        ? `${(n / 1000).toFixed(0)}k`
+        : n >= 1000
+          ? `${(n / 1000).toFixed(1)}k`
+          : String(Math.round(n));
 const percent = (v: number) => `${Math.round(v * 100)}%`;
 
 function load(key: string): string | null {
@@ -1048,7 +1058,8 @@ export class UI {
     this.scoreboardRows.replaceChildren(...[...snap.players].sort((a, b) => b.damageDealt - a.damageDealt).map((p) => this.scoreRow(p, p.id === myId)));
   }
 
-  private scoreRow(p: PlayerState, isMe: boolean): HTMLElement {
+  /** A player's row: who, their numbers, their build. `dealtBy`: after a run, the damage each weapon dealt (shown when hovering it). */
+  private scoreRow(p: PlayerState, isMe: boolean, dealtBy?: Partial<Record<string, number>>): HTMLElement {
     const hero = CHARACTERS[p.character];
     const row = el('div', isMe ? 'score-row me' : 'score-row');
 
@@ -1102,7 +1113,18 @@ export class UI {
       const t = el('div', `score-tile ${kind} ${typeOf(id)}${evolved ? ' evolved shimmer' : ''}`);
       t.append(iconEl(id, kind === 'passive' ? 26 : 38), el('div', 'score-tile-name', upgradeName(id, level)));
       if (!evolved) t.append(el('span', 'score-tile-level', String(level)));
-      this.tip(t, () => (kind === 'passive' ? passiveTip(id, level) : weaponTip(id, level)));
+      this.tip(t, () => {
+        if (kind === 'passive') return passiveTip(id, level);
+        const tip = weaponTip(id, level);
+        // After a run: what it dealt, and its share of all their damage.
+        const dealt = dealtBy?.[id];
+        if (dealtBy) {
+          const share = p.damageDealt > 0 ? Math.round(((dealt ?? 0) / p.damageDealt) * 100) : 0;
+          tip.tags.unshift({ text: `${compact(dealt ?? 0)} damage`, cls: 'tip-damage' });
+          tip.lines.unshift({ text: `Dealt ${exact(Math.round(dealt ?? 0))} damage this run (${share}% of ${isMe ? 'yours' : 'theirs'})`, cls: 'tip-dealt' });
+        }
+        return tip;
+      });
       this.share(t, () => `(${p.name}) ${upgradeLine(id, level)}`);
       return t;
     };
@@ -1502,6 +1524,10 @@ export class UI {
       this.postgameLoot.append(row);
     }
     const myId = this.latest?.myId;
-    this.postgameRows.replaceChildren(...[...snap.players].sort((a, b) => b.damageDealt - a.damageDealt).map((p) => this.scoreRow(p, p.id === myId)));
+    this.postgameRows.replaceChildren(
+      ...[...snap.players]
+        .sort((a, b) => b.damageDealt - a.damageDealt)
+        .map((p) => this.scoreRow(p, p.id === myId, result.players.find((r) => r.name === p.name)?.weapons)),
+    );
   }
 }
