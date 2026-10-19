@@ -181,7 +181,7 @@ export function renderBestiary(seen: readonly string[], art: (type: number, colo
     const hidden = isHidden(type);
     const card = el('button', `beast${isBossType(type) ? ' boss' : ''}${hidden ? ' hidden-entry' : ''}`);
     // Parts of a bigger enemy (Mordak's wings) aren't creatures of their own.
-    if (def.behavior === 'part') card.style.display = 'none';
+    if (def.behavior === 'part' || def.pvp) card.style.display = 'none'; // (Nor are PvP's units.)
     const pic = el('div', 'beast-art');
     const img = document.createElement('img');
     img.src = art(type);

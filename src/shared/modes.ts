@@ -1,7 +1,7 @@
 // Ways to play. Each room on the server runs one mode. A new mode is a new entry here (plus whatever Game options
 // it needs); the main menu lists them.
 
-import { MAX_PLAYERS } from './constants';
+import { MAX_PVP_PLAYERS } from './pvp';
 
 export type ModeId = 'single' | 'multi';
 
@@ -25,7 +25,8 @@ export const MODES: Record<ModeId, ModeDef> = {
   multi: {
     name: 'Multiplayer',
     description: 'Create a lobby for your friends, or join one.',
-    maxHumans: MAX_PLAYERS,
+    // (A campaign game takes one team of four; PvP, every team.)
+    maxHumans: MAX_PVP_PLAYERS,
     joinable: true,
   },
 };

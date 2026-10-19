@@ -9,7 +9,8 @@ import { ARTIFACTS } from '../shared/artifacts';
 import { CHARACTERS, heroDamageType, ownedPassives, ownedWeapons, type CharacterId } from '../shared/characters';
 import { WallIndex, moveCircle, overlapsWall, type PassFlags } from '../shared/collision';
 import { DODGE_DURATION, DODGE_SPEED, PLAYER_RADIUS, REVIVE_RADIUS, TICK_DT } from '../shared/constants';
-import { ENEMY_TYPES } from '../shared/enemies';
+import { ENEMY_TYPES, EnemyType } from '../shared/enemies';
+import { PVP, distanceToPath } from '../shared/pvp';
 import { MAPS, activeArena, clampToArena, mapWalls } from '../shared/maps';
 import { ShrineKind } from '../shared/objectives';
 import {
@@ -22,6 +23,8 @@ import {
   PICKUP_STRIDE,
   PickupKind,
   SHRINE_STRIDE,
+  TEAM_SHIFT,
+  UnitFlag,
   type ClientMessage,
   type PlayerState,
   type Snapshot,
@@ -79,6 +82,8 @@ export class Bot {
   private den = false;
   /** The Frost Queen's retreat as last seen (its stage and gate), for rebuilding walls. */
   private towerKey = '';
+  /** PvP: heading home to heal (until nearly full). */
+  private retreating = false;
   /** How far along the finale's stepping stones it has got (an index into the route; -1: not on it yet). */
   private routeAt = -1;
   private nav: FlowField | null = null;
@@ -138,6 +143,10 @@ export class Bot {
       this.local = { x: me.x, y: me.y };
     }
 
+    // PvP: level-ups wait without pausing; take them as they come.
+    if (snap.pvp && snap.me.options && Math.random() < 0.05) {
+      this.send({ t: 'choose', index: this.pickUpgrade(snap.me.options, snap.me.upgrades, me.character, me.hp / me.maxHp) });
+    }
     if (snap.pause) {
       // At the Armory, bots keep the weapons they've built up (the "keep" choice is the last one).
       const armory = snap.pause.kind === 'choose' && snap.pause.reason === 'armory';
@@ -200,15 +209,93 @@ export class Bot {
   private enemiesAround(snap: Snapshot): EnemyView[] {
     const out: EnemyView[] = [];
     const list = snap.enemies;
+    const team = snap.pvp ? (snap.players.find((p) => p.id === this.id)?.team ?? -1) : -1;
+    if (snap.pvp) {
+      // PvP: the other teams' heroes are foes too.
+      for (const p of snap.players) {
+        if (p.team === team || p.downed || p.veiled) continue;
+        out.push({ x: p.x, y: p.y, type: EnemyType.Hero, radius: PLAYER_RADIUS, boss: false, marked: false, d: Math.hypot(p.x - this.local.x, p.y - this.local.y) });
+      }
+    }
     for (let i = 0; i < list.length; i += ENEMY_STRIDE) {
       const type = list[i + 1];
       const def = ENEMY_TYPES[type];
       const x = list[i + 2];
       const y = list[i + 3];
       const d = Math.hypot(x - this.local.x, y - this.local.y);
+      const flags = list[i + 4];
+      if (snap.pvp && flags & UnitFlag) {
+        const unitTeam = ((flags >> TEAM_SHIFT) & 3) - 1;
+        // Your own side's units aren't foes; the jungle's monsters only when they're close.
+        if (unitTeam === team || (unitTeam < 0 && d > 260)) continue;
+        // Keep out of a tower's (or crystal's) range, unless your minions are there taking its shots.
+        if (type === EnemyType.Tower || type === EnemyType.Crystal) {
+          const range = type === EnemyType.Tower ? PVP.tower.range : PVP.crystal.range;
+          if (!this.ownMinionsNear(snap, team, x, y, range)) {
+            out.push({ x, y, type, radius: range + 20, boss: false, marked: false, d });
+            continue;
+          }
+        }
+      }
       out.push({ x, y, type, radius: def.radius, boss: def.radius >= 50, marked: (list[i + 4] & EnemyFlag.Marked) !== 0, d });
     }
     return out.sort((a, b) => a.d - b.d);
+  }
+
+  /** PvP: are some of your team's minions within `r` of a point (taking a tower's shots)? */
+  private ownMinionsNear(snap: Snapshot, team: number, x: number, y: number, r: number): boolean {
+    const list = snap.enemies;
+    for (let i = 0; i < list.length; i += ENEMY_STRIDE) {
+      const type = list[i + 1];
+      const flags = list[i + 4];
+      if (!(flags & UnitFlag) || ((flags >> TEAM_SHIFT) & 3) - 1 !== team || (type !== EnemyType.Minion && type !== EnemyType.Archer)) continue;
+      if ((list[i + 2] - x) ** 2 + (list[i + 3] - y) ** 2 < r * r) return true;
+    }
+    return false;
+  }
+
+  /**
+   * PvP: where to be. Hurt: back to the fountain (until healed). Otherwise on your lane (one of your base's two, by the
+   * bot's id), with your side's minions furthest along it, or by your tower when there are none out.
+   */
+  private pvpGoal(snap: Snapshot, me: PlayerState): { point: Point; weight: number } | null {
+    const layout = MAPS[snap.map].pvp;
+    if (!layout || me.team < 0) return null;
+    const base = layout.bases[me.team];
+    const hp = me.hp / me.maxHp;
+    if (hp < 0.3) this.retreating = true;
+    if (this.retreating && hp > 0.9) this.retreating = false;
+    if (this.retreating) return { point: base, weight: 3 };
+    // A foe nearby who's worse off: go for them.
+    const prey = snap.players
+      .filter((p) => p.team !== me.team && p.team >= 0 && !p.downed && !p.veiled && Math.hypot(p.x - this.local.x, p.y - this.local.y) < 650)
+      .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+    if (prey && hp > 0.5 && prey.hp / prey.maxHp < hp) return { point: prey, weight: 1.6 };
+    const lanes = layout.lanes.map((l, i) => ({ l, i })).filter(({ l }) => l.from === me.team || l.to === me.team);
+    // Spread across the team's lanes: by the bot's place among its team's bots.
+    const mates = snap.players.filter((p) => p.bot && p.team === me.team).map((p) => p.id).sort((a, b) => a - b);
+    const { l, i } = lanes[Math.max(0, mates.indexOf(this.id)) % lanes.length];
+    const route = l.from === me.team ? l.points : [...l.points].reverse();
+    const end = route[route.length - 1];
+    let front: Point | null = null;
+    let best = Infinity;
+    const list = snap.enemies;
+    for (let k = 0; k < list.length; k += ENEMY_STRIDE) {
+      const type = list[k + 1];
+      const flags = list[k + 4];
+      if (!(flags & UnitFlag) || ((flags >> TEAM_SHIFT) & 3) - 1 !== me.team || (type !== EnemyType.Minion && type !== EnemyType.Archer)) continue;
+      const x = list[k + 2];
+      const y = list[k + 3];
+      if (distanceToPath(route, x, y) > 300) continue;
+      const toEnd = Math.hypot(end.x - x, end.y - y);
+      if (toEnd < best) {
+        best = toEnd;
+        front = { x, y };
+      }
+    }
+    const tower = layout.towers.find((t) => t.team === me.team && t.lane === i && t.tier === 'outer');
+    const point = front ?? tower ?? base;
+    return { point, weight: Math.hypot(point.x - this.local.x, point.y - this.local.y) > 120 ? 1.2 : 0 };
   }
 
   /** Enemies within `r` of a point. */
@@ -676,6 +763,7 @@ export class Bot {
 
   /** The most important place to be right now, and how strongly to head there. */
   private pickGoal(snap: Snapshot, me: PlayerState, enemies: EnemyView[]): { point: Point; weight: number } | null {
+    if (snap.pvp) return this.pvpGoal(snap, me);
     const dist = (p: Point) => Math.hypot(p.x - this.local.x, p.y - this.local.y);
     const crowd = this.countNear(enemies, this.local.x, this.local.y, 200);
     // Revive a downed teammate when it's not suicide.

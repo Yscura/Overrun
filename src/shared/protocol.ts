@@ -29,6 +29,8 @@ export type ClientMessage =
   | { t: 'pick'; character: CharacterId }
   /** Choose the map (in the lobby) and the mode. Must be unlocked (hard mode has its own unlocks). */
   | { t: 'map'; index: number; mode?: GameMode }
+  /** PvP lobby: join a team (by index into PVP_TEAMS), if it has room. */
+  | { t: 'team'; team: number }
   | { t: 'start' }
   /** Back to the lobby from the game-over screen, to change characters. */
   | { t: 'lobby' }
@@ -159,6 +161,10 @@ export interface ArtifactFind {
 }
 
 export interface PlayerState {
+  /** Their PvP team (index into PVP_TEAMS), or -1 outside PvP. */
+  team: number;
+  /** PvP: fallen, back in this many seconds. */
+  respawn?: number;
   id: number;
   name: string;
   color: number;
@@ -215,6 +221,18 @@ export interface AbilityState {
 }
 
 /** Private state only sent to the player it belongs to. */
+/** A PvP game, for the HUD. */
+export interface PvpState {
+  /**
+   * Each team: its level and XP (toward `xpNext`), hero kills, its crystal's health as a share (0: destroyed, out of
+   * the game), towers still standing, whether the crystal is still shielded, and seconds left on the Guardian's buff.
+   */
+  teams: { level: number; xp: number; xpNext: number; kills: number; crystal: number; towers: number; shielded: boolean; buff: number }[];
+  /** Seconds until the next minion wave. */
+  nextWave: number;
+  winner: number | null;
+}
+
 export interface MeState {
   /** Choices while a level-up waits on you: upgrades, or bonuses once there's nothing left to upgrade. */
   options: ChoiceId[] | null;
@@ -266,7 +284,8 @@ export type ChoiceReason = 'level' | 'forge' | 'armory';
  * Normal: the maps as they come. Hard: the same, far less forgiving (see HARD). Endless: no final victory, the boss
  * comes back in waves and the run lasts as long as the team does (see ENDLESS).
  */
-export type GameMode = 'normal' | 'hard' | 'endless';
+/** `pvp`: teams against each other (see pvp.ts), on its own maps, apart from the campaign. */
+export type GameMode = 'normal' | 'hard' | 'endless' | 'pvp';
 
 /** A timed effect from an Altar. */
 export interface ActiveEvent {
@@ -346,6 +365,8 @@ export type Fx =
   | { k: 'quake'; strength: number }
   /** A boss's voice during the fight: the Reaper's whisper, Sylvara's hiss. */
   | { k: 'voice'; snd: BossVoice; x: number; y: number }
+  /** A shot from a PvP tower, crystal or archer, from (x, y) to (tx, ty), in a team's color. */
+  | { k: 'beam'; x: number; y: number; tx: number; ty: number; c: number; heavy?: true }
   /** A friendly area that fills up over `t` seconds before it hits (Meteor). */
   | { k: 'cast'; x: number; y: number; r: number; c: number; t: number }
   /** Big announcement text (also goes in the event log). */
@@ -366,6 +387,8 @@ export type FinaleStage = 'crumble' | 'path' | 'den';
 
 export interface GameResult {
   victory: boolean;
+  /** A PvP game: the winning team (index into PVP_TEAMS), and each team's hero kills and level. */
+  pvp: { winner: number; teams: { kills: number; level: number }[] } | null;
   /** Something special this victory earned, shown on the results (e.g. a new hero to unlock). */
   feats: string[];
   /** The named boss that was beaten (victories only). */
@@ -390,6 +413,8 @@ export interface GameResult {
     kills: number;
     artifact: ArtifactId | null;
     loot: ArtifactFind[];
+    /** Their PvP team (-1 outside PvP). */
+    team: number;
     weapons: Partial<Record<string, number>>;
     gold: number;
     unlockedMap: string | null;
@@ -490,6 +515,14 @@ export const AFFIX_MASK = 7;
 export const BossFlag = { Dying: 1 << 12, Flying: 1 << 13, LeftWingGone: 1 << 14, RightWingGone: 1 << 15 } as const;
 export const FACING_SHIFT = 16;
 export const FACING_STEPS = 64;
+/**
+ * PvP units (see pvp.ts) carry UnitFlag, their team (0 for the jungle's neutral monsters, else the team's index + 1,
+ * 2 bits shifted up by TEAM_SHIFT) and their health as a share (0 to HP_STEPS, shifted up by HP_SHIFT).
+ */
+export const UnitFlag = 1 << 22;
+export const TEAM_SHIFT = 23;
+export const HP_SHIFT = 25;
+export const HP_STEPS = 63;
 
 // Entity lists are flat number arrays to keep snapshots small:
 // enemies:     [id, type, x, y, flags, ...]
@@ -536,6 +569,8 @@ export interface Snapshot {
   finale: { stage: FinaleStage; t: number } | null;
   /** The Frost Queen's retreat to her tower (see Tower in maps.ts), once it has begun. */
   tower: TowerState;
+  /** A PvP game (see pvp.ts): each team's state, when the next minion wave comes, and the winner once there is one. */
+  pvp: PvpState | null;
   bossFight: BossFight | null;
   /** A Warlord (the mini-boss) is out: its health, for the bar at the top of the screen. */
   warlord: { hp: number; maxHp: number } | null;

@@ -16,6 +16,7 @@ import { HARD, MAX_PLAYERS } from '../shared/constants';
 import { MODES } from '../shared/modes';
 import { ENEMY_TYPES, EnemyType, MISSIONS } from '../shared/enemies';
 import { ENDLESS_MAP, MAPS, inZone, mapBossName, onFinaleGround, waveBoss } from '../shared/maps';
+import { PVP_TEAMS, PVP_TEAM_SIZE } from '../shared/pvp';
 import { mapIconSvg } from './mapIcons';
 import { EVENTS, QUESTS } from '../shared/objectives';
 import { isDevName, type ArtifactFind, type DevAction, type GameResult, type Pause, type PlayerState, type Snapshot, type GameMode, type ProfileState } from '../shared/protocol';
@@ -204,6 +205,8 @@ export class UI {
   onSpectate: (id: number | null) => void = () => {};
   private spectating: number | null = null;
   onRemoveBot: (id: number) => void = () => {};
+  /** PvP lobby: join a team (index into PVP_TEAMS). */
+  onTeam: (team: number) => void = () => {};
   /** Take an artifact into the run (null: none). */
   onEquip: (artifact: ArtifactId | null) => void = () => {};
 
@@ -253,6 +256,8 @@ export class UI {
   /** One health bar per final boss. */
   private bossViews: { name: HTMLElement; fill: HTMLElement; hp: HTMLElement }[] = [];
   private bossChip = $('boss-chip');
+  /** PvP: each team's level, kills, towers and crystal (above the boss chip). */
+  private pvpBar = el('div', 'pvp-bar hidden');
   private gameoverTitle = $('gameover-title');
   private eventChip = $('event-chip');
   private questChip = $('quest-chip');
@@ -312,7 +317,7 @@ export class UI {
   private latest: { snap: Snapshot; myId: number | null } | null = null;
 
   // Only rebuild DOM when the content actually changed (snapshots arrive 30 times a second).
-  private shown = { spectate: '', pauseList: '', players: '', maps: '', characters: '', artifacts: '', heroDetail: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
+  private shown = { pvp: '', spectate: '', pauseList: '', players: '', maps: '', characters: '', artifacts: '', heroDetail: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
   private bannerTimer = 0;
 
   constructor() {
@@ -335,6 +340,7 @@ export class UI {
       if (window.confirm('Give up this run for everyone and go back to the lobby? Prestige and gold earned so far are kept.')) this.onGiveUp();
     });
     document.body.append(this.tooltip);
+    this.bossChip.before(this.pvpBar);
     document.addEventListener('pointerover', (e) => {
       // Element, not HTMLElement: the pointer is often over an icon, which is SVG.
       const target = e.target instanceof Element ? e.target.closest<HTMLElement>('.has-tip') : null;
@@ -461,19 +467,24 @@ export class UI {
       this.renderPlayerList(snap);
       if (me && snap.me) {
         this.renderCharacters(me, snap.me.heroes, snap.me.gold);
-        this.renderArtifactPicker(me, snap.me.artifacts);
+        this.renderArtifactPicker(me, snap.me.artifacts, snap.mode === 'pvp');
         this.renderHeroDetail(me, snap.me.heroes, snap.me.gold);
       }
     }
     this.renderBoss(snap, me);
-    this.xpFill.style.width = `${Math.min(100, (snap.xp / snap.xpNext) * 100)}%`;
-    this.level.textContent = `Lv ${snap.level}`;
+    // (PvP: your own team's level.)
+    const team = snap.pvp && me && me.team >= 0 ? snap.pvp.teams[me.team] : undefined;
+    this.xpFill.style.width = `${Math.min(100, ((team?.xp ?? snap.xp) / (team?.xpNext ?? snap.xpNext)) * 100)}%`;
+    this.level.textContent = `Lv ${team?.level ?? snap.level}`;
+    this.renderPvpBar(snap, me);
     this.timer.textContent = formatTime(snap.time);
     this.hardTag.classList.toggle('hidden', snap.mode === 'normal');
-    this.hardTag.classList.toggle('endless', snap.mode === 'endless');
-    this.hardTag.textContent = snap.mode === 'hard' ? 'HARD' : `ENDLESS · WAVE ${snap.wave}`;
-    this.kills.textContent = `${me?.kills ?? 0} kills`;
+    this.hardTag.classList.toggle('endless', snap.mode === 'endless' || snap.mode === 'pvp');
+    this.hardTag.textContent = snap.mode === 'hard' ? 'HARD' : snap.mode === 'pvp' ? 'PVP' : `ENDLESS · WAVE ${snap.wave}`;
+    // (PvP: hero kills; and no gold, it's apart from the campaign.)
+    this.kills.textContent = `${me?.kills ?? 0} ${snap.mode === 'pvp' ? 'slain' : 'kills'}`;
     this.gold.textContent = `${snap.me?.gold ?? 0} gold`;
+    this.gold.classList.toggle('hidden', snap.mode === 'pvp');
     this.eventChip.classList.toggle('hidden', !snap.event);
     if (snap.event) this.eventChip.textContent = `${EVENTS[snap.event.kind].name} · ${Math.ceil(snap.event.timeLeft)}s`;
     this.questChip.classList.toggle('hidden', !snap.quest);
@@ -489,7 +500,10 @@ export class UI {
 
     const anyPause = snap.phase === 'playing' ? snap.pause : null;
     const pause = anyPause?.kind === 'choose' ? anyPause : null;
-    this.levelup.classList.toggle('hidden', !pause);
+    // PvP: picks wait for you without pausing anything; they show at the bottom of the screen while you play.
+    const livePick = snap.phase === 'playing' && !!snap.pvp && !!snap.me?.options;
+    this.levelup.classList.toggle('hidden', !pause && !livePick);
+    this.levelup.classList.toggle('live', livePick && !pause);
     document.body.classList.toggle('paused', !!anyPause);
     this.renderPauseMenu(anyPause?.kind === 'menu' ? anyPause : null, snap, myId);
     this.renderSpectate(snap, me);
@@ -508,6 +522,11 @@ export class UI {
       if (pause.reason === 'armory') this.renderArmory(snap.me?.options ?? null, snap.me?.upgrades ?? {}, swap);
       else this.renderOptions(snap.me?.options ?? null, snap.me?.upgrades ?? {});
       this.renderWaiting(snap, myId);
+    } else if (livePick) {
+      this.chooseTitle.textContent = 'Level up! Pick with 1, 2, 3';
+      this.chooseTimer.textContent = '';
+      this.renderOptions(snap.me!.options, snap.me!.upgrades);
+      $('waiting').replaceChildren();
     } else {
       this.renderOptions(null, {});
     }
@@ -524,10 +543,11 @@ export class UI {
     // Normal, hard (once Mordak has fallen) or endless: switching keeps the map if it's open on the other mode too.
     const mode = snap.mode;
     const hard = mode === 'hard';
-    const modes: GameMode[] = snap.hardUnlocked > 0 ? ['normal', 'hard', 'endless'] : ['normal', 'endless'];
+    const modes: GameMode[] = [...(snap.hardUnlocked > 0 ? (['normal', 'hard', 'endless'] as const) : (['normal', 'endless'] as const)), 'pvp'];
     const MODE_INFO: Record<GameMode, [string, string]> = {
       normal: ['Normal', 'The maps as you first played them'],
       hard: ['Hard', 'Every map again: enemies hit harder, the horde is faster and bosses attack relentlessly, with new patterns. More prestige and better loot.'],
+      pvp: ['PvP', 'Teams against each other, apart from the campaign (its own balance; no prestige, artifacts or gold): defend your crystal and towers, push your lanes with your minions, clear the jungle for XP, and destroy every other crystal.'],
       endless: ['Endless', 'No final victory: survive as long as you can. The boss comes back in waves, stronger each time, and the horde never stops growing. Armories let you trade in weapons.'],
     };
     this.mapMode.classList.remove('hidden');
@@ -538,7 +558,8 @@ export class UI {
         button.title = MODE_INFO[m][1];
         button.addEventListener('click', () => {
           if (m === mode) return;
-          this.onPickMap(m === 'endless' ? ENDLESS_MAP : Math.min(snap.map, (m === 'hard' ? snap.hardUnlocked : snap.unlocked) - 1), m);
+          const campaign = Math.min(MAPS[snap.map].pvp || MAPS[snap.map].endless ? 0 : snap.map, (m === 'hard' ? snap.hardUnlocked : snap.unlocked) - 1);
+          this.onPickMap(m === 'endless' ? ENDLESS_MAP : m === 'pvp' ? MAPS.findIndex((map) => map.pvp) : campaign, m);
         });
         return button;
       }),
@@ -548,9 +569,9 @@ export class UI {
     this.maps.replaceChildren(
       // Endless has its own map; the other modes show the campaign.
       ...MAPS.map((map, i) => ({ map, i }))
-        .filter(({ map }) => (mode === 'endless') === !!map.endless)
+        .filter(({ map }) => (mode === 'endless' ? !!map.endless : mode === 'pvp' ? !!map.pvp : !map.endless && !map.pvp))
         .map(({ map, i }) => {
-        const locked = !map.endless && i >= (hard ? snap.hardUnlocked : snap.unlocked);
+        const locked = !map.endless && !map.pvp && i >= (hard ? snap.hardUnlocked : snap.unlocked);
         const card = el('button', `map-card${i === snap.map ? ' selected' : ''}${locked ? ' locked' : ''}${this.amHost ? '' : ' readonly'}`) as HTMLButtonElement;
         card.disabled = locked || !this.amHost;
         // The details (description, boss, kind of finale) are in the hover text, to keep the cards small.
@@ -560,15 +581,21 @@ export class UI {
           ? this.amHost
             ? `Beat ${MAPS[i - 1].name}${hard ? ' on hard mode' : ''} to unlock`
             : `${snap.players.find((p) => p.host)?.name ?? 'The host'} hasn't unlocked this map yet (the host's unlocks decide)`
-          : `${map.subtitle}\nFinal ${map.twin !== undefined ? 'bosses' : 'boss'}: ${mapBossName(map)} (${kind})${this.amHost ? '' : '\nThe host picks the map'}`;
+          : map.pvp
+            ? `${map.subtitle}${this.amHost ? '' : '\nThe host picks the map'}`
+            : `${map.subtitle}\nFinal ${map.twin !== undefined ? 'bosses' : 'boss'}: ${mapBossName(map)} (${kind})${this.amHost ? '' : '\nThe host picks the map'}`;
         const icon = el('div', 'map-card-icon');
         icon.innerHTML = mapIconSvg(map, 54); // Static SVG.
         if (locked) icon.append(el('span', 'map-card-lock', '🔒'));
         card.append(
           icon,
           el('div', 'map-card-name', map.name),
-          el('div', 'map-card-difficulty', `Enemies ×${+(map.difficulty * (hard ? HARD.difficulty : 1)).toFixed(2)}`),
-          el('div', 'map-card-difficulty', `Prestige ×${+(map.prestigeReward * (hard ? HARD.prestige : 1)).toFixed(2)}`),
+          ...(map.pvp
+            ? [el('div', 'map-card-difficulty', `${map.pvp.teams} teams`), el('div', 'map-card-difficulty', `Up to ${map.pvp.teams * PVP_TEAM_SIZE} heroes`)]
+            : [
+                el('div', 'map-card-difficulty', `Enemies ×${+(map.difficulty * (hard ? HARD.difficulty : 1)).toFixed(2)}`),
+                el('div', 'map-card-difficulty', `Prestige ×${+(map.prestigeReward * (hard ? HARD.prestige : 1)).toFixed(2)}`),
+              ]),
         );
         if (mode === 'endless' && !locked) {
           const best = this.profile?.endless[map.name];
@@ -633,12 +660,14 @@ export class UI {
   }
 
   /** Your artifacts: click one to take it into the run (or the empty slot for none). Locked in, you can only look. */
-  private renderArtifactPicker(me: PlayerState, owned: ArtifactId[]): void {
+  private renderArtifactPicker(me: PlayerState, owned: ArtifactId[], pvp = false): void {
     const lockedIn = !!me.ready && !me.host;
-    const key = `${me.artifact}|${lockedIn}|${owned.join(',')}`;
+    const key = `${me.artifact}|${lockedIn}|${pvp}|${owned.join(',')}`;
     if (key === this.shown.artifacts) return;
     this.shown.artifacts = key;
-    this.artifactCount.textContent = owned.length ? `${owned.length} owned` : '';
+    // (PvP leaves artifacts out: it's balanced on its own.)
+    this.artifactPicker.classList.toggle('pvp-off', pvp);
+    this.artifactCount.textContent = pvp ? 'Not used in PvP' : owned.length ? `${owned.length} owned` : '';
     this.artifactPicker.classList.toggle('locked-in', lockedIn);
     const tile = (id: ArtifactId | null) => {
       const t = el('button', `artifact-tile${id === me.artifact ? ' selected' : ''}`) as HTMLButtonElement;
@@ -736,13 +765,14 @@ export class UI {
   }
 
   private renderPlayerList(snap: Snapshot): void {
-    const key = `${this.amHost}|${snap.players.map((p) => `${p.id}:${p.name}:${p.character}:${p.artifact}:${p.bot}:${p.host}:${p.ready}`).join('|')}`;
+    const pvp = MAPS[snap.map].pvp && snap.mode === 'pvp' ? MAPS[snap.map].pvp : undefined;
+    const myId = this.latest?.myId;
+    const key = `${this.amHost}|${snap.mode}|${snap.map}|${myId}|${snap.players.map((p) => `${p.id}:${p.name}:${p.character}:${p.artifact}:${p.bot}:${p.host}:${p.ready}:${p.team}`).join('|')}`;
     if (key === this.shown.players) return;
     this.shown.players = key;
     this.addBot.classList.toggle('hidden', !this.amHost);
-    this.addBot.disabled = snap.players.length >= MAX_PLAYERS;
-    this.playerList.replaceChildren(
-      ...snap.players.map((p) => {
+    this.addBot.disabled = snap.players.length >= (pvp ? pvp.teams * PVP_TEAM_SIZE : MAX_PLAYERS);
+    const row = (p: PlayerState) => {
         const li = el('li', p.bot ? 'is-bot' : '');
         const who = el('div', 'player-who');
         const top = el('div', 'player-top');
@@ -764,11 +794,54 @@ export class UI {
           li.append(remove);
         }
         return li;
+    };
+    if (!pvp) {
+      this.playerList.replaceChildren(...snap.players.map(row));
+      return;
+    }
+    // PvP: a block per team, with a button to join it (while it has room).
+    const mine = snap.players.find((p) => p.id === myId)?.team;
+    this.playerList.replaceChildren(
+      ...PVP_TEAMS.slice(0, pvp.teams).flatMap((team, i) => {
+        const members = snap.players.filter((p) => p.team === i);
+        const head = el('li', 'team-head');
+        head.style.setProperty('--team', `#${team.color.toString(16).padStart(6, '0')}`);
+        head.append(el('span', 'team-name', team.name), el('span', 'team-count', `${members.length}/${PVP_TEAM_SIZE}`));
+        if (mine !== i && members.length < PVP_TEAM_SIZE) {
+          const join = el('button', 'link team-join', 'Join') as HTMLButtonElement;
+          join.addEventListener('click', () => this.onTeam(i));
+          head.append(join);
+        }
+        return [head, ...members.map(row)];
       }),
     );
   }
 
   // --- HUD ---
+
+  /** PvP: a chip per team: its level, hero kills, towers left and its crystal's health (shielded, or broken). */
+  private renderPvpBar(snap: Snapshot, me: PlayerState | undefined): void {
+    const pvp = snap.phase === 'playing' ? snap.pvp : null;
+    this.pvpBar.classList.toggle('hidden', !pvp);
+    if (!pvp) return;
+    const key = JSON.stringify(pvp.teams.map((t) => [t.level, t.kills, t.towers, Math.round(t.crystal * 100), t.shielded, t.buff > 0])) + (me?.team ?? -1);
+    if (key === this.shown.pvp) return;
+    this.shown.pvp = key;
+    this.pvpBar.replaceChildren(
+      ...pvp.teams.map((t, i) => {
+        const chip = el('div', `pvp-team${i === me?.team ? ' mine' : ''}${t.crystal <= 0 ? ' out' : ''}`);
+        chip.style.setProperty('--team', `#${PVP_TEAMS[i].color.toString(16).padStart(6, '0')}`);
+        const meter = el('div', `pvp-crystal${t.shielded ? ' shielded' : ''}`);
+        const fill = el('div', 'pvp-crystal-fill');
+        fill.style.width = `${Math.round(t.crystal * 100)}%`;
+        meter.append(fill);
+        meter.title = t.crystal <= 0 ? 'Crystal destroyed' : t.shielded ? 'Crystal shielded until one of its towers falls' : 'Crystal exposed!';
+        const stats = el('div', 'pvp-team-stats', `Lv ${t.level} · ${t.kills} ⚔ · ${t.towers} 🗼${t.buff > 0 ? ' · 💪' : ''}`);
+        chip.append(el('div', 'pvp-team-name', PVP_TEAMS[i].name + (i === me?.team ? ' (you)' : '')), meter, stats);
+        return chip;
+      }),
+    );
+  }
 
   /** The boss health bar during the fight, otherwise a countdown to the boss or a warning to get to the arena. */
   private renderBoss(snap: Snapshot, me: PlayerState | undefined): void {
@@ -829,7 +902,16 @@ export class UI {
     const sunk = snap.finale && snap.finale.stage !== 'crumble' ? MAPS[snap.map].finale : undefined;
     const outsideArena = arena && arena.state !== 'idle' && me && !me.inArena && !me.downed && !snap.tower;
     const tower = snap.tower;
-    if (tower && tower.stage !== 'flee' && me && !me.inArena && !me.downed) {
+    if (snap.pvp) {
+      // PvP: back in a moment, out of the game, or the next minion wave.
+      urgent = !!me?.downed;
+      text =
+        me?.downed && me.respawn !== undefined
+          ? me.respawn < 0
+            ? 'Your crystal has fallen: your team is out'
+            : `Respawning in ${Math.ceil(me.respawn)}s`
+          : `Minions in ${Math.ceil(snap.pvp.nextWave)}s`;
+    } else if (tower && tower.stage !== 'flee' && me && !me.inArena && !me.downed) {
       // The Frost Queen fled: after her, through the labyrinth.
       urgent = true;
       text = tower.stage === 'maze' ? 'Find your way through the labyrinth to her tower!' : 'She waits in her tower! Get inside.';
@@ -1308,16 +1390,18 @@ export class UI {
       this.shown.spectate = '';
       return;
     }
+    // PvP: only your own team's cameras.
+    const watchable = snap.players.filter((p) => !snap.pvp || p.team === me.team);
     // Stop following someone who left.
-    if (this.spectating !== null && !snap.players.some((p) => p.id === this.spectating)) {
+    if (this.spectating !== null && !watchable.some((p) => p.id === this.spectating)) {
       this.spectating = null;
       this.onSpectate(null);
     }
-    const key = `${this.spectating}|${snap.players.map((p) => `${p.id}:${p.downed}:${p.character}`).join(',')}`;
+    const key = `${this.spectating}|${watchable.map((p) => `${p.id}:${p.downed}:${p.character}`).join(',')}`;
     if (key === this.shown.spectate) return;
     this.shown.spectate = key;
     this.spectateList.replaceChildren(
-      ...snap.players.map((p) => {
+      ...watchable.map((p) => {
         const mine = p.id === me.id;
         const watching = mine ? this.spectating === null : this.spectating === p.id;
         const b = el('button', `spectate-card${watching ? ' watching' : ''}${p.downed ? ' down' : ''}`) as HTMLButtonElement;
@@ -1383,8 +1467,8 @@ export class UI {
     const proceed = $('splash-continue');
     proceed.classList.add('waiting');
     proceed.classList.remove('shown');
-    const prestige = result.prestige;
-    const gold = mine?.gold ?? 0;
+    const prestige = result.pvp ? (mine?.kills ?? 0) : result.prestige;
+    const gold = result.pvp ? Object.values(mine?.weapons ?? {}).reduce<number>((a, b) => a + (b ?? 0), 0) : (mine?.gold ?? 0);
     const loot = mine?.loot ?? [];
     const counter = (label: string, cls: string) => {
       const row = el('div', `splash-reward ${cls}`);
@@ -1392,8 +1476,9 @@ export class UI {
       row.append(el('span', 'splash-reward-label', label), value);
       return { row, value };
     };
-    const p = counter('Prestige', 'prestige');
-    const g = counter('Gold', 'gold');
+    const pvpGame = !!result.pvp;
+    const p = counter(pvpGame ? 'Hero kills' : 'Prestige', 'prestige');
+    const g = counter(pvpGame ? 'Damage dealt' : 'Gold', 'gold');
     const list = el('div', 'splash-loot');
     const cards = loot.map((find) => {
       const def = ARTIFACTS[find.id];
@@ -1467,19 +1552,27 @@ export class UI {
     const endless = result.endless;
     // Yours: the gold you banked, what you found, what you unlocked.
     const mine = result.players.find((r) => r.name === me?.name);
-    const title = endless ? 'RUN OVER' : result.victory ? 'VICTORY' : 'DEFEAT';
+    // PvP: victory is your team's (whoever won, it's over for everyone).
+    const pvpWon = result.pvp ? mine?.team === result.pvp.winner : null;
+    const won = pvpWon ?? result.victory;
+    const title = endless ? 'RUN OVER' : won ? 'VICTORY' : 'DEFEAT';
     for (const node of [this.gameoverTitle, $('splash-title')]) {
       node.textContent = title;
-      node.classList.toggle('victory', result.victory);
+      node.classList.toggle('victory', won);
       node.classList.toggle('endless', !!endless);
     }
     const waves = endless ? `${endless.waves} boss ${endless.waves === 1 ? 'wave' : 'waves'} beaten` : '';
-    $('splash-sub').textContent = endless
+    const winner = result.pvp ? PVP_TEAMS[result.pvp.winner] : undefined;
+    $('splash-sub').textContent = winner
+      ? `${winner.name} destroyed every other crystal in ${formatTime(result.time)}`
+      : endless
       ? `Survived ${formatTime(result.time)} · ${waves}${endless.record ? ' · New record!' : ''}`
       : result.victory
         ? `${result.boss} defeated in ${formatTime(result.time)}`
         : `Overrun at ${formatTime(result.time)}`;
-    this.survived.textContent = endless
+    this.survived.textContent = winner
+      ? `${winner.name} wins! ${result.pvp!.teams.map((t, i) => `${PVP_TEAMS[i].name}: level ${t.level}, ${t.kills} kills`).join(' · ')}.`
+      : endless
       ? `Your team lasted ${formatTime(result.time)}, reached level ${result.level} and beat ${waves.replace(' beaten', '')}.${endless.record ? ' A new record on this map!' : ''}`
       : result.victory
       ? `You defeated ${result.boss} in ${formatTime(result.time)}!` + (mine?.unlockedMap ? ` ${mine.unlockedMap} is now unlocked.` : '') + (result.feats.length ? ` ${result.feats.join(' ')}` : '')
@@ -1501,8 +1594,9 @@ export class UI {
       chip('Time', formatTime(result.time)),
       chip('Team level', String(result.level)),
       chip('Kills', exact(kills)),
-      chip('Prestige gained', `+${result.prestige}`, 'prestige'),
-      chip('Gold gained', `+${mine?.gold ?? result.gold}`, 'gold'),
+      ...(winner
+        ? [chip('Winner', winner.name, pvpWon ? 'gold' : '')]
+        : [chip('Prestige gained', `+${result.prestige}`, 'prestige'), chip('Gold gained', `+${mine?.gold ?? result.gold}`, 'gold')]),
     );
     // What you found this run (yours are the ones under your name).
     const loot = mine?.loot ?? [];

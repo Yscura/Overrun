@@ -116,6 +116,7 @@ async function main() {
   ui.onStart = () => net.send({ t: 'start' });
   ui.onLobby = () => net.send({ t: 'lobby' });
   ui.onChoose = (index) => net.send({ t: 'choose', index });
+  ui.onTeam = (team) => net.send({ t: 'team', team });
   ui.onOpenProfile = () => menu.show('profile', true);
   ui.onLeave = () => net.send({ t: 'leave' });
   ui.onShare = (text) => net.send({ t: 'chat', text });

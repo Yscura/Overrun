@@ -138,6 +138,9 @@ export class SoundCues {
     if (prev && snap.tower?.stage === 'maze' && prev.tower?.stage !== 'maze') sound.play('gate');
     if (prev && !!snap.tower?.shut !== !!prev.tower?.shut) sound.play('gate');
     if (snap.pause?.kind === 'choose' && !prev?.pause) sound.play('levelup');
+    // PvP: your team levels up (the pick waits for you without pausing).
+    const team = snap.players.find((p) => p.id === myId)?.team ?? -1;
+    if (snap.pvp && prev?.pvp && team >= 0 && snap.pvp.teams[team].level > prev.pvp.teams[team].level) sound.play('levelup');
     if (prev?.pause && !snap.pause && snap.phase === 'playing') sound.play('resume');
     if (snap.result && prev && !prev.result) sound.play(snap.result.victory ? 'victory' : 'defeat');
   }

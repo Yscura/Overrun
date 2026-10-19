@@ -2267,6 +2267,116 @@ body.paused #hud > :not(#loadout) {
   border-radius: 999px;
 }
 
+/* --- PvP --- */
+
+/* The lobby: a heading per team, with a button to join it. */
+#player-list .team-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-left: 4px solid var(--team);
+  background: color-mix(in srgb, var(--team) 14%, transparent);
+  border-radius: 6px;
+  font-weight: 800;
+}
+
+#player-list .team-head .team-name {
+  color: var(--team);
+}
+
+#player-list .team-head .team-count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#player-list .team-head .team-join {
+  margin-left: auto;
+}
+
+/* In the game: each team's state, above the boss chip. */
+.pvp-bar {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 6px;
+  pointer-events: none;
+}
+
+.pvp-team {
+  min-width: 150px;
+  padding: 5px 9px;
+  background: rgba(12, 14, 18, 0.78);
+  border: 1px solid color-mix(in srgb, var(--team) 55%, transparent);
+  border-top: 3px solid var(--team);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.pvp-team.mine {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--team) 45%, transparent);
+}
+
+.pvp-team.out {
+  opacity: 0.4;
+  filter: grayscale(0.7);
+}
+
+.pvp-team-name {
+  font-weight: 800;
+  color: var(--team);
+}
+
+.pvp-crystal {
+  height: 7px;
+  margin: 4px 0;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.pvp-crystal.shielded {
+  outline: 1px solid #ea80fc;
+}
+
+.pvp-crystal-fill {
+  height: 100%;
+  background: var(--team);
+}
+
+.pvp-team-stats {
+  color: #c5cad3;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Level-ups in PvP: no pause and no dimming; the cards wait, small, in the bottom right corner while you play. */
+#levelup.live {
+  background: none;
+}
+
+#levelup.live .levelup-box {
+  position: fixed;
+  right: 12px;
+  bottom: 118px;
+  gap: 4px;
+  padding: 8px 10px;
+  background: rgba(12, 14, 18, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  transform: scale(0.62);
+  transform-origin: bottom right;
+}
+
+#levelup.live .levelup-title {
+  font-size: 22px;
+}
+
+.artifact-picker.pvp-off {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 /* --- Main menu --- */
 
 #menu {

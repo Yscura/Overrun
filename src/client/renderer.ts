@@ -34,7 +34,12 @@ import {
   BossFlag,
   FACING_SHIFT,
   FACING_STEPS,
+  HP_SHIFT,
+  HP_STEPS,
+  TEAM_SHIFT,
+  UnitFlag,
 } from '../shared/protocol';
+import { PVP, PVP_TEAMS } from '../shared/pvp';
 import { dragonBody, fieldRadius, orbitLayout } from '../shared/characters';
 import type { Sample } from './snapshots';
 
@@ -1015,6 +1020,21 @@ export class GameRenderer {
             .fill({ color: fx.c, alpha: 0.25 }),
         );
         break;
+      case 'beam': {
+        // A tower's (or archer's) shot: a bright line that fades, and a flash where it hits.
+        const dx = fx.tx - fx.x;
+        const dy = fx.ty - fx.y;
+        const heavy = !!fx.heavy;
+        this.addEffect(fx.x, fx.y, heavy ? 0.28 : 0.18, (g, p) =>
+          g
+            .moveTo(0, 0)
+            .lineTo(dx, dy)
+            .stroke({ width: (heavy ? 6 : 2.5) * (1 - p) + 1, color: fx.c, alpha: 1 - p })
+            .circle(dx, dy, (heavy ? 8 : 4) + (heavy ? 18 : 8) * p)
+            .stroke({ width: 2, color: 0xffffff, alpha: 1 - p }),
+        );
+        break;
+      }
       case 'zap': {
         // A jagged bolt from the sky down to the target.
         const points: number[] = [];
@@ -1338,6 +1358,25 @@ export class GameRenderer {
         view.sprite.tint = 0xffccbc;
       }
       view.sprite.tint = (flags & EnemyFlag.Stunned) !== 0 ? STUNNED : 0xffffff;
+      // PvP's units: tinted in their team's color, with a health bar (always on towers, crystals and the Guardian), and
+      // a faint ring round the defenses showing how far they shoot.
+      if (flags & UnitFlag) {
+        const team = ((flags >> TEAM_SHIFT) & 3) - 1;
+        const teamColor = team >= 0 ? PVP_TEAMS[team].color : 0xffa726;
+        if (team >= 0 && !(flags & EnemyFlag.Stunned)) view.sprite.tint = teamColor;
+        const share = ((flags >> HP_SHIFT) & HP_STEPS) / HP_STEPS;
+        const ur = ENEMY_TYPES[type].radius;
+        const big = type === EnemyType.Tower || type === EnemyType.Crystal || type === EnemyType.Guardian;
+        if (big || share < 0.99) {
+          const w = big ? ur * 2.2 : Math.max(26, ur * 2);
+          const h = big ? 7 : 4;
+          const top = y - ur - (big ? 24 : 10);
+          marks.rect(x - w / 2 - 1, top - 1, w + 2, h + 2).fill({ color: 0x000000, alpha: 0.6 }).rect(x - w / 2, top, w * share, h).fill(teamColor);
+        }
+        if (type === EnemyType.Tower || type === EnemyType.Crystal) {
+          marks.circle(x, y, type === EnemyType.Tower ? PVP.tower.range : PVP.crystal.range).stroke({ width: 2, color: teamColor, alpha: 0.13 });
+        }
+      }
       const r = ENEMY_TYPES[type].radius;
       if (view.dragon) {
         // Mordak: his sprite is only a stand-in (for where he is); he's drawn as a dragon of parts.
@@ -2028,9 +2067,11 @@ export class GameRenderer {
     view.token.tint = p.downed ? DOWNED_TINT : 0xffffff;
     view.flash.alpha = p.hurt ? 0.55 : 0;
 
-    if (view.ringColor !== p.color) {
-      view.ringColor = p.color;
-      view.ring.clear().circle(0, 0, TOKEN_R).stroke({ width: 3.5, color: p.color }).circle(0, 0, TOKEN_R + 2).stroke({ width: 1.5, color: 0x000000, alpha: 0.6 });
+    // PvP: the ring shows your team.
+    const ringColor = p.team >= 0 ? PVP_TEAMS[p.team].color : p.color;
+    if (view.ringColor !== ringColor) {
+      view.ringColor = ringColor;
+      view.ring.clear().circle(0, 0, TOKEN_R).stroke({ width: 3.5, color: ringColor }).circle(0, 0, TOKEN_R + 2).stroke({ width: 1.5, color: 0x000000, alpha: 0.6 });
     }
 
     // Feet: step forward and back in turn, lifting a little mid-stride; tucked away while idle or down.

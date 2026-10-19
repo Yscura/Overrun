@@ -19,6 +19,7 @@ import {
   type CharacterId,
   type PlayerStats,
 } from '../shared/characters';
+import { PVP, PVP_TEAMS, PVP_TEAM_SIZE, pointAlong, pvpHeroDamage, pvpRespawn, pvpXpNext, type PvpPoint, type UnitKind } from '../shared/pvp';
 import { DROPS, TIERS, TIER_IDS, artifact as artifactDef, lootStep, rollArtifact, rollTier, type ArtifactId, type DropSource, type Tier } from '../shared/artifacts';
 import { WallIndex, blocksShot, moveCircle, overlapsWall, pushOut, type PassFlags } from '../shared/collision';
 import {
@@ -159,6 +160,10 @@ import {
   type GameMode,
   type DevAction,
   isDevName,
+  HP_SHIFT,
+  HP_STEPS,
+  TEAM_SHIFT,
+  UnitFlag,
   type Fx,
   type SoundId,
   SummonKind,
@@ -169,6 +174,7 @@ import {
   type PlayerState,
   type RoomRef,
   type Snapshot,
+  type PvpState,
   type LogTone,
   CHAT_MAX,
 } from '../shared/protocol';
@@ -491,6 +497,11 @@ interface Player {
   /** Gold they've banked this run (their own share, after their gold bonus), and the map this victory unlocked for them. */
   goldEarned: number;
   unlockedMap: string | null;
+  /** PvP: their team (index into PVP_TEAMS; -1 outside PvP), when they respawn once fallen, who hit them lately (by player id, when), and level-up picks still waiting (shown one at a time, without pausing). */
+  team: number;
+  respawnAt: number;
+  hitBy: Map<number, number>;
+  pvpPicks: number;
   found: ArtifactFind[];
   /** Their artifact's second wind has been used up this run. */
   secondWindUsed: boolean;
@@ -652,6 +663,36 @@ interface Enemy {
   /** Mordak sitting back to hurl meteors: until when, and when the next one goes. */
   roostUntil: number;
   roostLobAt: number;
+  /** PvP: its team (-1: the jungle's neutral monsters, and everything outside PvP), and what it is (see Unit). */
+  team: number;
+  unit: Unit | null;
+}
+
+/**
+ * A PvP unit (see pvp.ts). Minions walk their `route` (the lane from their base), `wp` being the next point on it.
+ * Camp monsters remember their `home` and `camp`, and who attacked them (`aggroBy`, a player id; -1: nobody). A hero's
+ * stand-in says whose (`heroOf`). `cooldown`: till its next attack.
+ */
+interface Unit {
+  kind: UnitKind;
+  /** Towers: their lane (index into the layout's lanes), and which of its two. */
+  lane: number;
+  tier: 'outer' | 'inner' | null;
+  route: PvpPoint[];
+  wp: number;
+  home: PvpPoint;
+  camp: number;
+  aggroBy: number;
+  heroOf: number;
+  cooldown: number;
+}
+
+/** A PvP game under way: each team's progress, the next minion wave, the jungle's camps, and the winner. */
+interface PvpGame {
+  teams: { xp: number; level: number; kills: number; out: boolean; buffUntil: number }[];
+  nextWaveAt: number;
+  camps: { ids: number[]; respawnAt: number }[];
+  winner: number | null;
 }
 
 /** Mordak's fire flight: along `path` (take-off, out over the lava, landing), dropping fire as he goes. */
@@ -944,6 +985,12 @@ export class Game {
   private lobbyReady = new Set<number>();
 
   private grid = new SpatialGrid<Enemy>(64);
+  /** Everything (the grid above, unless swapped); and in PvP, per team, everything hostile to it (see rebuildGrid). */
+  private gridAll = this.grid;
+  private teamGrids = PVP_TEAMS.map(() => new SpatialGrid<Enemy>(64));
+  /** A PvP game under way (see pvp.ts), and each hero's stand-in (by player id). */
+  private pvp: PvpGame | null = null;
+  private heroUnits = new Map<number, Enemy>();
   /** Reused query buffers; never nest two grid queries that share one. */
   private near: Enemy[] = [];
   private splashNear: Enemy[] = [];
@@ -1033,7 +1080,7 @@ export class Game {
     if (this.phase !== 'lobby' || !host || this.lobbyHost === host.id) return;
     const first = this.lobbyHost === null;
     this.lobbyHost = host.id;
-    const allowed = this.endless || this.mapIndex < (this.hard ? this.hardUnlocked : this.unlocked);
+    const allowed = this.endless || this.mode === 'pvp' || this.mapIndex < (this.hard ? this.hardUnlocked : this.unlocked);
     if (!first && allowed) return;
     this.mode = 'normal';
     this.loadMap(this.unlocked - 1);
@@ -1048,7 +1095,7 @@ export class Game {
   }
 
   addPlayer(name: string, character: unknown, send: (text: string) => void, isBot = false): number | null {
-    if (this.players.size >= MAX_PLAYERS) return null;
+    if (this.players.size >= this.capacity) return null;
     const used = new Set([...this.players.values()].map((p) => p.color));
     const player: Player = {
       id: this.nextId++,
@@ -1117,6 +1164,10 @@ export class Game {
       damageBy: {},
       goldEarned: 0,
       unlockedMap: null,
+      team: -1,
+      respawnAt: 0,
+      hitBy: new Map(),
+      pvpPicks: 0,
       found: [],
       secondWindUsed: false,
       relicCd: 0,
@@ -1130,13 +1181,18 @@ export class Game {
     if (this.pause?.kind === 'choose') player.options = this.rollOptions(player, this.pause.reason);
     this.players.set(player.id, player);
     this.log(`${name} joined`);
+    // PvP: onto the team with the fewest.
+    if (this.mode === 'pvp') {
+      player.team = this.smallestTeam();
+      this.resetPlayer(player, this.players.size - 1);
+    }
     this.fitHostMaps();
     return player.id;
   }
 
   /** Adds a bot teammate with a random hero not already in the team. Returns its id, or null if the team is full. */
   addBot(): number | null {
-    if (this.players.size >= MAX_PLAYERS) return null;
+    if (this.players.size >= this.capacity) return null;
     const names = new Set([...this.players.values()].map((p) => p.name));
     const name = BOT_NAMES.find((n) => !names.has(n)) ?? `Bot ${this.nextId}`;
     const taken = new Set([...this.players.values()].map((p) => p.character));
@@ -1173,6 +1229,8 @@ export class Game {
   handleMessage(id: number, msg: ClientMessage): void {
     const p = this.players.get(id);
     if (!p) return;
+    // PvP: what their casts can hit is what's hostile to their team (rebuildGrid swaps the full grid back).
+    if (this.pvp) this.grid = this.hostileGrid(p.team);
     switch (msg.t) {
       case 'pick':
         if (this.phase !== 'playing' && !this.lobbyReady.has(p.id) && isCharacterId(msg.character) && this.canPlay(p, msg.character)) {
@@ -1180,16 +1238,33 @@ export class Game {
           this.equip(p);
         }
         break;
-      case 'map':
-        const mode: GameMode = msg.mode === 'hard' || msg.mode === 'endless' ? msg.mode : 'normal';
-        // Endless mode has a map of its own; the others play the campaign's maps that are unlocked.
+      case 'map': {
+        const mode: GameMode = msg.mode === 'hard' || msg.mode === 'endless' || msg.mode === 'pvp' ? msg.mode : 'normal';
+        // Endless mode has a map of its own, PvP its own few; the others play the campaign's maps that are unlocked.
         const index = mode === 'endless' ? ENDLESS_MAP : msg.index;
-        if (this.phase === 'lobby' && this.canRunLobby(p) && Number.isInteger(index) && index >= 0 && (mode === 'endless' || index < (mode === 'hard' ? this.hardUnlocked : this.unlocked))) {
+        const target = Number.isInteger(index) && index >= 0 ? MAPS[index] : undefined;
+        const fits = (room: number) => this.players.size <= room;
+        const valid =
+          !!target &&
+          (mode === 'pvp'
+            ? !!target.pvp && fits(PVP_TEAM_SIZE * target.pvp.teams)
+            : fits(MAX_PLAYERS) && (mode === 'endless' || (!target.pvp && !target.endless && index < (mode === 'hard' ? this.hardUnlocked : this.unlocked))));
+        if (this.phase === 'lobby' && this.canRunLobby(p) && valid) {
           this.mode = mode;
           this.loadMap(index);
           this.lobbyReady.clear(); // A new map: everyone confirms again.
+          this.assignTeams();
           let slot = 0;
           for (const other of this.players.values()) this.resetPlayer(other, slot++);
+        }
+        break;
+      }
+      case 'team':
+        // PvP lobby: onto another team, if it has room.
+        if (this.phase === 'lobby' && this.mode === 'pvp' && Number.isInteger(msg.team) && msg.team >= 0 && msg.team < this.teamCount() && msg.team !== p.team && this.teamSizes()[msg.team] < PVP_TEAM_SIZE) {
+          p.team = msg.team;
+          this.lobbyReady.delete(p.id);
+          this.resetPlayer(p, 0);
         }
         break;
       case 'start':
@@ -1298,6 +1373,513 @@ export class Game {
     for (const other of this.players.values()) this.resetPlayer(other, slot++);
     // The host may have changed during the run.
     this.fitHostMaps();
+  }
+
+  // --- PvP (see pvp.ts) ---
+
+  /** Room for this many: one team in the campaign, every team's worth in PvP. */
+  get capacity(): number {
+    return this.mode === 'pvp' ? PVP_TEAM_SIZE * (this.map.pvp?.teams ?? PVP_TEAMS.length) : MAX_PLAYERS;
+  }
+
+  private teamCount(): number {
+    return this.map.pvp?.teams ?? 0;
+  }
+
+  /** How many heroes are on each team. */
+  private teamSizes(): number[] {
+    const sizes = new Array<number>(this.teamCount()).fill(0);
+    for (const p of this.players.values()) if (p.team >= 0 && p.team < sizes.length) sizes[p.team]++;
+    return sizes;
+  }
+
+  /** The team with the fewest heroes (the first of them, on a tie). */
+  private smallestTeam(): number {
+    const sizes = this.teamSizes();
+    return sizes.indexOf(Math.min(...sizes));
+  }
+
+  /** On a new map: PvP keeps everyone's team where it still fits (else the smallest); elsewhere there are none. */
+  private assignTeams(): void {
+    const keep = new Map<number, number>();
+    for (const p of this.players.values()) {
+      keep.set(p.id, p.team);
+      p.team = -1;
+    }
+    if (this.mode !== 'pvp') return;
+    for (const p of this.players.values()) {
+      const was = keep.get(p.id) ?? -1;
+      p.team = was >= 0 && was < this.teamCount() && this.teamSizes()[was] < PVP_TEAM_SIZE ? was : this.smallestTeam();
+    }
+  }
+
+  /** Where a hero (re)spawns: around their team's crystal, on the side away from the middle. */
+  private pvpSpawn(p: Player): { x: number; y: number } {
+    const base = this.map.pvp!.bases[p.team];
+    const cx = this.map.width / 2;
+    const cy = this.map.height / 2;
+    const d = Math.hypot(base.x - cx, base.y - cy) || 1;
+    return { x: base.x + ((base.x - cx) / d) * 150, y: base.y + ((base.y - cy) / d) * 150 };
+  }
+
+  /** Allies for heals, revives and shelters: everyone, except in PvP, where it's your own team. */
+  private sameSide(a: Player, b: Player | undefined): boolean {
+    return !this.pvp || (!!b && a.team === b.team);
+  }
+
+  /** The level that scales a hero's abilities: their own team's in PvP, the shared one otherwise. */
+  private levelOf(p: Player): number {
+    return this.pvp ? (this.pvp.teams[p.team]?.level ?? 1) : this.level;
+  }
+
+  /** Everything hostile to a team (the full grid outside PvP). */
+  private hostileGrid(team: number): SpatialGrid<Enemy> {
+    return this.pvp && team >= 0 ? this.teamGrids[team] : this.gridAll;
+  }
+
+  /** PvP: what a player's projectile, zone, summon or blast looks for is what's hostile to them. */
+  private ownerGrid(owner: number): void {
+    if (!this.pvp) return;
+    const o = this.players.get(owner);
+    this.grid = o ? this.hostileGrid(o.team) : this.gridAll;
+  }
+
+  /** How much of a hero's damage lands on another hero: less as their team levels, times PVP's per-weapon and per-hero tuning. */
+  private heroDamageShare(by: Player): number {
+    return pvpHeroDamage(this.levelOf(by)) * (PVP.weapons[this.dealing ?? ''] ?? 1) * (PVP.heroes[by.character]?.damage ?? 1);
+  }
+
+  /** A team's crystal is shielded while all of its inner towers still stand. */
+  private crystalShielded(team: number): boolean {
+    const inner = this.enemies.filter((e) => e.unit?.kind === 'tower' && e.unit.tier === 'inner' && e.team === team && !e.dead);
+    return inner.length > 0 && inner.length === this.map.pvp!.towers.filter((t) => t.team === team && t.tier === 'inner').length;
+  }
+
+  /** Is this unit shielded: a crystal behind its inner towers, or an inner tower behind its lane's outer one? */
+  private unitShielded(e: Enemy): boolean {
+    const u = e.unit;
+    if (u?.kind === 'crystal') return this.crystalShielded(e.team);
+    if (u?.kind !== 'tower' || u.tier !== 'inner') return false;
+    return this.enemies.some((o) => o.unit?.kind === 'tower' && o.unit.tier === 'outer' && o.unit.lane === u.lane && o.team === e.team && !o.dead);
+  }
+
+  /** Are some of a team's minions near a point (escorting a siege)? */
+  private escorted(team: number, x: number, y: number): boolean {
+    return this.enemies.some((m) => (m.unit?.kind === 'minion' || m.unit?.kind === 'archer') && m.team === team && !m.dead && dist2(m.x, m.y, x, y) < PVP.tower.escort ** 2);
+  }
+
+  private addUnit(type: number, kind: UnitKind, team: number, x: number, y: number, hp: number): Enemy {
+    const e = this.addEnemy(type, x, y, hp);
+    e.team = team;
+    e.unit = { kind, lane: -1, tier: null, route: [], wp: 0, home: { x, y }, camp: -1, aggroBy: -1, heroOf: -1, cooldown: Math.random() };
+    return e;
+  }
+
+  /** Late in a PvP game, towers and crystals take more and more damage (see PVP.escalation), so it ends. */
+  private escalation(): number {
+    return 1 + PVP.escalation.perMinute * Math.max(0, this.minutes() - PVP.escalation.after);
+  }
+
+  /** Minutes since the start: minions, defenses and monsters grow tougher with them. */
+  private minutes(): number {
+    return this.time / 60;
+  }
+
+  private startPvp(): void {
+    const layout = this.map.pvp!;
+    this.pvp = {
+      teams: layout.bases.map(() => ({ xp: 0, level: 1, kills: 0, out: false, buffUntil: 0 })),
+      nextWaveAt: PVP.waves.first,
+      // (The Guardian takes a while to show up.)
+      camps: layout.camps.map((c) => ({ ids: [], respawnAt: c.kind === 'guardian' ? PVP.camps.guardianRespawn / 2 : 0 })),
+      winner: null,
+    };
+    for (const t of layout.towers) {
+      const tower = this.addUnit(EnemyType.Tower, 'tower', t.team, t.x, t.y, PVP.tower.hp);
+      tower.unit!.lane = t.lane;
+      tower.unit!.tier = t.tier;
+    }
+    layout.bases.forEach((b, i) => this.addUnit(EnemyType.Crystal, 'crystal', i, b.x, b.y, PVP.crystal.hp));
+    const empty = PVP_TEAMS.slice(0, layout.teams).filter((_, i) => !this.teamSizes()[i]).length;
+    this.banner(`Defend your crystal, destroy theirs!${empty ? ' (Empty teams still have their towers and minions.)' : ''}`, 'good');
+  }
+
+  /** A PvP tick: XP, waves and camps, the units, the heroes (each seeing only their foes), and what they left behind. */
+  private updatePvp(dt: number): void {
+    const pvp = this.pvp!;
+    if (pvp.winner !== null) return;
+    pvp.teams.forEach((t, i) => {
+      if (!t.out) this.giveTeamXp(i, PVP.xp.trickle * dt);
+    });
+    this.pvpSpawns();
+    this.syncHeroUnits();
+    this.rebuildGrid();
+    this.updateUnits(dt);
+    const layout = this.map.pvp!;
+    for (const p of this.players.values()) {
+      this.grid = this.hostileGrid(p.team);
+      this.updatePlayer(p, dt);
+      // The fountain: heal up by your own crystal.
+      const base = layout.bases[p.team];
+      if (base && !p.downed && !pvp.teams[p.team].out && dist2(p.x, p.y, base.x, base.y) < PVP.fountain.radius ** 2) {
+        p.hp = Math.min(this.stats(p).maxHp, p.hp + this.stats(p).maxHp * PVP.fountain.heal * dt);
+      }
+    }
+    this.grid = this.gridAll;
+    this.updateSummons(dt);
+    this.updateProjectiles(dt);
+    this.updateBlasts(dt);
+    this.updateZones(dt);
+    this.enemies = this.enemies.filter((e) => !e.dead);
+  }
+
+  /** Each hero's stand-in follows them (and is out of reach while they're down). */
+  private syncHeroUnits(): void {
+    for (const p of this.players.values()) {
+      let e = this.heroUnits.get(p.id);
+      if (!e || e.dead) {
+        e = this.addUnit(EnemyType.Hero, 'hero', p.team, p.x, p.y, 1e12);
+        e.unit!.heroOf = p.id;
+        this.heroUnits.set(p.id, e);
+      }
+      e.x = p.x;
+      e.y = p.y;
+      e.team = p.team;
+      e.hp = e.maxHp;
+      e.burrowed = p.downed || p.veil > 0;
+    }
+    for (const [id, e] of this.heroUnits) {
+      if (this.players.has(id)) continue;
+      e.dead = true;
+      this.heroUnits.delete(id);
+    }
+  }
+
+  /** Minion waves down every lane, and the jungle's camps (back a while after they're cleared). */
+  private pvpSpawns(): void {
+    const pvp = this.pvp!;
+    const layout = this.map.pvp!;
+    const m = this.minutes();
+    if (this.time >= pvp.nextWaveAt) {
+      pvp.nextWaveAt += PVP.waves.every;
+      layout.lanes.forEach((lane) => {
+        for (const team of [lane.from, lane.to]) {
+          if (pvp.teams[team].out) continue;
+          const route = team === lane.from ? lane.points : [...lane.points].reverse();
+          const melee = PVP.waves.melee + Math.floor(m / PVP.waves.growEvery);
+          const count = melee + PVP.waves.ranged;
+          for (let k = 0; k < count; k++) {
+            const archer = k >= melee;
+            const def = archer ? PVP.archer : PVP.minion;
+            const at = pointAlong(route, 230 + (count - k) * PVP.waves.spacing);
+            const e = this.addUnit(archer ? EnemyType.Archer : EnemyType.Minion, archer ? 'archer' : 'minion', team, at.x, at.y, def.hp + def.perMinute * m);
+            e.unit!.route = route;
+            e.unit!.wp = 1;
+          }
+        }
+      });
+    }
+    layout.camps.forEach((c, i) => {
+      const camp = pvp.camps[i];
+      if (camp.ids.length > 0 || this.time < camp.respawnAt) return;
+      const def = PVP.camps[c.kind];
+      def.types.forEach((type, k) => {
+        const a = (k / def.types.length) * Math.PI * 2;
+        const spread = def.types.length > 1 ? 60 : 0;
+        const spot = pushOut(this.walls, c.x + Math.cos(a) * spread, c.y + Math.sin(a) * spread, ENEMY_TYPES[type].radius);
+        const e = this.addUnit(type, c.kind === 'guardian' ? 'guardian' : 'camp', -1, spot.x, spot.y, def.hp * (1 + PVP.camps.growth * m));
+        e.unit!.camp = i;
+        camp.ids.push(e.id);
+      });
+      if (c.kind === 'guardian') this.banner('The Guardian has woken in the heart of the jungle!', 'good');
+    });
+  }
+
+  /**
+   * PvP's units act: towers and crystals shoot the nearest foe in range (minions first, then heroes); minions walk
+   * their lane, fighting the first foe they come across; jungle monsters fight whoever attacked them, as far as their
+   * leash lets them, then go home and heal.
+   */
+  private updateUnits(dt: number): void {
+    const units = this.enemies.filter((e) => e.unit && !e.dead && e.unit.kind !== 'hero');
+    const heroes = [...this.players.values()].filter((p) => !p.downed && p.team >= 0 && p.veil <= 0);
+    const m = this.minutes();
+    for (const e of units) {
+      const u = e.unit!;
+      u.cooldown -= dt;
+      const def = ENEMY_TYPES[e.type];
+      if (u.kind === 'tower' || u.kind === 'crystal') {
+        if (u.cooldown > 0) continue;
+        const cfg = u.kind === 'tower' ? PVP.tower : PVP.crystal;
+        const foe = this.nearestFoe(e, cfg.range, units, heroes, true);
+        if (!foe) continue;
+        u.cooldown = cfg.cooldown;
+        const color = PVP_TEAMS[e.team].color;
+        const to = foe.unit ?? foe.hero!;
+        this.fx.push({ k: 'beam', x: Math.round(e.x), y: Math.round(e.y), tx: Math.round(to.x), ty: Math.round(to.y), c: color, heavy: true });
+        if (foe.unit) this.hurtUnit(foe.unit, cfg.unitDamage * (1 + m * 0.05), e.team);
+        else this.hurtPlayer(foe.hero!, this.stats(foe.hero!).maxHp * cfg.heroShare + cfg.heroFlat, false, e);
+        continue;
+      }
+      let goal: PvpPoint | null = null;
+      let range = 0;
+      let foe: { unit?: Enemy; hero?: Player } | null = null;
+      if (u.kind === 'minion' || u.kind === 'archer') {
+        const cfg = u.kind === 'archer' ? PVP.archer : PVP.minion;
+        foe = this.nearestFoe(e, cfg.aggro, units, heroes, false);
+        range = cfg.range;
+        if (foe) goal = foe.unit ?? foe.hero!;
+        else if (u.wp < u.route.length) {
+          goal = u.route[u.wp];
+          if (dist2(e.x, e.y, goal.x, goal.y) < 50 ** 2) u.wp++;
+        }
+        if (foe && u.cooldown <= 0 && this.inReach(e, foe, range)) {
+          u.cooldown = cfg.cooldown;
+          this.unitStrike(e, foe, cfg.damage + cfg.damagePerMinute * m, u.kind === 'archer');
+        }
+      } else {
+        // Jungle monsters: whoever attacked them, while they're near enough home.
+        const cfg = PVP.camps;
+        const home = u.home;
+        const attacker = u.aggroBy >= 0 ? this.players.get(u.aggroBy) : undefined;
+        const leashed = !attacker || attacker.downed || dist2(attacker.x, attacker.y, home.x, home.y) > (cfg.leash + 150) ** 2 || dist2(e.x, e.y, home.x, home.y) > cfg.leash ** 2;
+        if (leashed) {
+          u.aggroBy = -1;
+          goal = dist2(e.x, e.y, home.x, home.y) > 20 ** 2 ? home : null;
+          e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.25 * dt);
+        } else {
+          foe = { hero: attacker };
+          goal = attacker!;
+          const ranged = def.behavior === 'ranged';
+          range = ranged ? cfg.rangedRange : cfg.range;
+          if (u.cooldown <= 0 && this.inReach(e, foe, range)) {
+            u.cooldown = cfg.cooldown;
+            const camp = this.map.pvp!.camps[u.camp];
+            this.unitStrike(e, foe, PVP.camps[camp?.kind ?? 'small'].damage * (1 + cfg.growth * m), ranged);
+          }
+        }
+      }
+      // Walk toward the goal, stopping in reach of a foe; nudged apart from other units.
+      let vx = 0;
+      let vy = 0;
+      if (goal && !(foe && this.inReach(e, foe, range * 0.9))) {
+        const d = Math.hypot(goal.x - e.x, goal.y - e.y) || 1;
+        const speed = u.kind === 'camp' || u.kind === 'guardian' ? PVP.camps.speed * (u.kind === 'guardian' ? 0.8 : 1) : u.kind === 'archer' ? PVP.archer.speed : PVP.minion.speed;
+        vx = ((goal.x - e.x) / d) * speed;
+        vy = ((goal.y - e.y) / d) * speed;
+      }
+      for (const o of units) {
+        if (o === e || o.unit!.kind === 'tower' || o.unit!.kind === 'crystal') continue;
+        const min = def.radius + ENEMY_TYPES[o.type].radius;
+        const dx = e.x - o.x;
+        const dy = e.y - o.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= min * min || d2 === 0) continue;
+        const d = Math.sqrt(d2);
+        vx += (dx / d) * (min - d) * 6;
+        vy += (dy / d) * (min - d) * 6;
+      }
+      if (vx !== 0 || vy !== 0) {
+        ({ x: e.x, y: e.y } = moveCircle(this.walls, e.x, e.y, vx * dt, vy * dt, def.radius));
+        e.facing = Math.atan2(vy, vx);
+      }
+    }
+  }
+
+  /**
+   * The nearest foe of a unit within `range`: units of other teams (not the jungle's monsters, not a shielded crystal),
+   * then heroes of other teams. `unitsFirst`: a unit in range wins over any hero (towers).
+   */
+  private nearestFoe(e: Enemy, range: number, units: Enemy[], heroes: Player[], unitsFirst: boolean): { unit?: Enemy; hero?: Player } | null {
+    let best: { unit?: Enemy; hero?: Player } | null = null;
+    let bestD = Infinity;
+    for (const o of units) {
+      if (o.dead || o.team === e.team || o.team < 0) continue;
+      if (this.unitShielded(o)) continue;
+      const d = Math.hypot(o.x - e.x, o.y - e.y) - ENEMY_TYPES[o.type].radius;
+      if (d < range && d < bestD) {
+        bestD = d;
+        best = { unit: o };
+      }
+    }
+    if (best && unitsFirst) return best;
+    for (const h of heroes) {
+      if (h.team === e.team) continue;
+      const d = Math.hypot(h.x - e.x, h.y - e.y) - PLAYER_RADIUS;
+      if (d < range && d < bestD) {
+        bestD = d;
+        best = { hero: h };
+      }
+    }
+    return best;
+  }
+
+  /** Is a foe within `range` of a unit's edge? */
+  private inReach(e: Enemy, foe: { unit?: Enemy; hero?: Player }, range: number): boolean {
+    const t = foe.unit ?? foe.hero!;
+    const r = foe.unit ? ENEMY_TYPES[foe.unit.type].radius : PLAYER_RADIUS;
+    return Math.hypot(t.x - e.x, t.y - e.y) <= ENEMY_TYPES[e.type].radius + r + range;
+  }
+
+  /** A minion or monster lands a blow (or a shot, `ranged`). */
+  private unitStrike(e: Enemy, foe: { unit?: Enemy; hero?: Player }, damage: number, ranged: boolean): void {
+    const t = foe.unit ?? foe.hero!;
+    if (ranged) this.fx.push({ k: 'beam', x: Math.round(e.x), y: Math.round(e.y), tx: Math.round(t.x), ty: Math.round(t.y), c: e.team >= 0 ? PVP_TEAMS[e.team].color : 0x9ccc65 });
+    if (foe.unit) this.hurtUnit(foe.unit, damage, e.team);
+    else this.hurtPlayer(foe.hero!, damage, false, e);
+  }
+
+  /** A unit hurt by another unit (minions, towers): `team` gets the credit if it falls. */
+  private hurtUnit(t: Enemy, amount: number, team: number): void {
+    if (t.dead || this.unitShielded(t)) return;
+    if (t.unit?.kind === 'tower' || t.unit?.kind === 'crystal') amount *= this.escalation();
+    t.hp -= amount;
+    t.flashUntil = this.time + 0.1;
+    if (t.hp > 0) return;
+    t.dead = true;
+    this.unitDied(t, team);
+  }
+
+  /** A PvP unit fell, to `team` (-1: no one's): XP, cleared camps, the Guardian's might, fallen towers and crystals. */
+  private unitDied(e: Enemy, team: number): void {
+    const pvp = this.pvp;
+    const u = e.unit!;
+    if (!pvp) return;
+    const credit = (xp: number) => {
+      if (team >= 0) this.giveTeamXp(team, xp);
+    };
+    this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: ENEMY_TYPES[e.type].radius * 2, c: e.team >= 0 ? PVP_TEAMS[e.team].color : 0xbcaaa4 });
+    switch (u.kind) {
+      case 'minion':
+        credit(PVP.minion.xp);
+        break;
+      case 'archer':
+        credit(PVP.archer.xp);
+        break;
+      case 'camp':
+      case 'guardian': {
+        const campDef = this.map.pvp!.camps[u.camp];
+        const camp = pvp.camps[u.camp];
+        credit(PVP.camps[campDef.kind].xp / PVP.camps[campDef.kind].types.length);
+        camp.ids = camp.ids.filter((id) => id !== e.id);
+        if (camp.ids.length === 0) camp.respawnAt = this.time + (campDef.kind === 'guardian' ? PVP.camps.guardianRespawn : PVP.camps.respawn);
+        if (u.kind === 'guardian' && team >= 0) {
+          pvp.teams[team].buffUntil = this.time + PVP.guardianBuff.duration;
+          this.banner(`${PVP_TEAMS[team].name} slew the Guardian: +${Math.round(PVP.guardianBuff.damage * 100)}% damage for ${PVP.guardianBuff.duration / 60} minutes!`, 'good');
+        }
+        break;
+      }
+      case 'tower':
+        credit(PVP.tower.xp);
+        this.fx.push({ k: 'ring', x: Math.round(e.x), y: Math.round(e.y), r: 220, c: PVP_TEAMS[e.team].color, snd: 'bigSlam' });
+        this.banner(`${PVP_TEAMS[e.team].name}'s ${e.unit!.tier} tower has fallen${e.unit!.tier === 'inner' ? ': their crystal is open' : ''}!`, 'danger');
+        break;
+      case 'crystal':
+        this.teamOut(e.team, team);
+        break;
+    }
+  }
+
+  /** A team's crystal is destroyed: it's out (its towers and minions crumble, its heroes stay down). The last team standing wins. */
+  private teamOut(team: number, by: number): void {
+    const pvp = this.pvp!;
+    pvp.teams[team].out = true;
+    this.fx.push({ k: 'quake', strength: 1 });
+    this.banner(`${PVP_TEAMS[team].name}'s crystal is destroyed${by >= 0 ? ` by ${PVP_TEAMS[by].name}` : ''}!`, 'danger');
+    for (const e of this.enemies) if (e.unit && e.team === team && e.unit.kind !== 'hero') e.dead = true;
+    for (const p of this.players.values()) {
+      if (p.team !== team) continue;
+      p.downed = true;
+      p.hp = 0;
+      p.respawnAt = Infinity;
+    }
+    const standing = pvp.teams.map((t, i) => (t.out ? -1 : i)).filter((i) => i >= 0);
+    if (standing.length === 1) {
+      pvp.winner = standing[0];
+      this.banner(`${PVP_TEAMS[standing[0]].name} wins!`, 'good');
+      this.endGame(true);
+    }
+  }
+
+  /** XP for a team: every level brings each of its heroes an upgrade pick (taken while playing). */
+  private giveTeamXp(team: number, amount: number): void {
+    const t = this.pvp?.teams[team];
+    if (!t || t.out) return;
+    // Catching up: teams behind the leader learn faster.
+    const leader = Math.max(...this.pvp!.teams.filter((o) => !o.out).map((o) => o.level));
+    t.xp += amount * (1 + PVP.xp.catchUp * Math.max(0, leader - t.level));
+    while (t.xp >= pvpXpNext(t.level)) {
+      t.xp -= pvpXpNext(t.level);
+      t.level++;
+      for (const p of this.players.values()) {
+        if (p.team !== team) continue;
+        p.pvpPicks++;
+        this.nextPick(p);
+      }
+    }
+  }
+
+  /** The next waiting pick, if they're not already deciding one (nothing left to upgrade: no more picks). */
+  private nextPick(p: Player): void {
+    while (!p.options && p.pvpPicks > 0) {
+      p.pvpPicks--;
+      p.options = this.rollOptions(p, 'level');
+    }
+  }
+
+  /** A hero falls: the kill (and XP) goes to whoever hit them last, lately; they respawn at their base after a while. */
+  private heroSlain(p: Player, attacker?: Player): void {
+    const pvp = this.pvp!;
+    p.hp = 0;
+    p.downed = true;
+    p.revive = 0;
+    p.respawnAt = this.time + pvpRespawn(this.levelOf(p));
+    p.epoch++;
+    const recent = [...p.hitBy.entries()].filter(([, at]) => this.time - at <= PVP.kill.assistWindow).sort((a, b) => b[1] - a[1]);
+    const killer = attacker ?? (recent.length > 0 ? this.players.get(recent[0][0]) : undefined);
+    if (killer && killer.team !== p.team) {
+      pvp.teams[killer.team].kills++;
+      killer.kills++;
+      this.giveTeamXp(killer.team, PVP.kill.xp + PVP.kill.perLevel * this.levelOf(p));
+      const assists = recent.map(([id]) => this.players.get(id)).filter((o): o is Player => !!o && o !== killer && o.team === killer.team);
+      this.log(`${killer.name} slew ${p.name}${assists.length ? ` (with ${assists.map((o) => o.name).join(', ')})` : ''}`, 'info');
+      this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 120, c: PVP_TEAMS[killer.team].color, snd: 'pop' });
+    } else {
+      this.log(`${p.name} fell`, 'danger');
+    }
+    p.hitBy.clear();
+  }
+
+  /** Back at their base, healed up, untouchable for a moment. */
+  private respawnHero(p: Player): void {
+    p.downed = false;
+    p.hp = this.stats(p).maxHp;
+    p.invuln = PVP.respawn.shield;
+    ({ x: p.x, y: p.y } = pushOut(this.walls, this.pvpSpawn(p).x, this.pvpSpawn(p).y, PLAYER_RADIUS));
+    p.epoch++;
+  }
+
+  /** The PvP HUD's view of the game. */
+  private pvpState(): PvpState | null {
+    const pvp = this.pvp;
+    if (!pvp) return null;
+    return {
+      teams: pvp.teams.map((t, i) => {
+        const crystal = this.enemies.find((e) => e.unit?.kind === 'crystal' && e.team === i && !e.dead);
+        return {
+          level: t.level,
+          xp: Math.floor(t.xp),
+          xpNext: pvpXpNext(t.level),
+          kills: t.kills,
+          crystal: crystal ? round2(Math.max(0.01, crystal.hp / crystal.maxHp)) : 0,
+          towers: this.enemies.filter((e) => e.unit?.kind === 'tower' && e.team === i && !e.dead).length,
+          shielded: this.crystalShielded(i),
+          buff: round1(Math.max(0, t.buffUntil - this.time)),
+        };
+      }),
+      nextWave: round1(Math.max(0, pvp.nextWaveAt - this.time)),
+      winner: pvp.winner,
+    };
   }
 
   // --- God-mode cheats (player named "dev") ---
@@ -1528,6 +2110,10 @@ export class Game {
     this.clearWorld();
     let slot = 0;
     for (const p of this.players.values()) this.resetPlayer(p, slot++);
+    if (this.mode === 'pvp') {
+      this.startPvp();
+      return;
+    }
     // Count the run for each person's hero (their profile card shows the one they play most).
     for (const p of this.humans()) notePlayed(p.profile, p.character);
     this.options.onProfiles?.();
@@ -1561,6 +2147,8 @@ export class Game {
     this.bossPhase = 'waiting';
     this.dying = null;
     this.finale = null;
+    this.pvp = null;
+    this.heroUnits.clear();
     const hadTower = this.tower !== null;
     this.tower = null;
     this.victor = null;
@@ -1589,7 +2177,8 @@ export class Game {
 
   private resetPlayer(p: Player, slot: number): void {
     const angle = (slot / MAX_PLAYERS) * Math.PI * 2;
-    const { spawn } = this.map;
+    // PvP: at your team's base.
+    const spawn = this.map.pvp && p.team >= 0 ? this.pvpSpawn(p) : this.map.spawn;
     ({ x: p.x, y: p.y } = pushOut(this.walls, spawn.x + Math.cos(angle) * 60, spawn.y + Math.sin(angle) * 60, PLAYER_RADIUS));
     p.epoch++;
     this.equip(p);
@@ -1599,7 +2188,8 @@ export class Game {
   private equip(p: Player): void {
     const hero = CHARACTERS[p.character];
     p.upgrades = { [hero.startWeapon]: 1, [hero.ability]: 1 };
-    p.artifact = p.bot ? null : equippedArtifact(p.profile);
+    // (PvP leaves artifacts out: it's balanced on its own.)
+    p.artifact = p.bot || this.mode === 'pvp' ? null : equippedArtifact(p.profile);
     p.loot = [];
     p.damageBy = {};
     p.goldEarned = 0;
@@ -1641,10 +2231,11 @@ export class Game {
   private endGame(victory: boolean): void {
     if (this.phase !== 'playing') return;
     const beaten = this.victor ?? mapBossName(this.map);
-    this.log(victory ? `Victory over ${beaten}!` : 'The team was overrun', victory ? 'good' : 'danger');
+    if (!this.pvp) this.log(victory ? `Victory over ${beaten}!` : 'The team was overrun', victory ? 'good' : 'danger');
     this.phase = 'gameover';
     this.pause = null;
-    const prestige = prestigeReward(this.level, this.map.prestigeReward * (this.hard ? HARD.prestige : 1));
+    // (PvP earns no prestige: it's apart from the campaign.)
+    const prestige = this.pvp ? 0 : prestigeReward(this.level, this.map.prestigeReward * (this.hard ? HARD.prestige : 1));
     for (const p of this.players.values()) p.profile.points += prestige;
     // Endless: everyone's longest run on this map.
     let record = false;
@@ -1658,13 +2249,14 @@ export class Game {
       }
     }
     // Each person's hero record: wins, kills, best damage, longest run.
-    for (const p of this.humans()) noteRun(p.profile, p.character, { victory, damage: p.damageDealt, kills: p.kills, time: this.time });
+    if (!this.pvp) for (const p of this.humans()) noteRun(p.profile, p.character, { victory, damage: p.damageDealt, kills: p.kills, time: this.time });
     this.options.onProfiles?.();
     this.result = {
       victory,
       prestige,
       gold: this.runGold,
-      boss: victory ? beaten : null,
+      boss: victory && !this.pvp ? beaten : null,
+      pvp: this.pvp && { winner: this.pvp.winner ?? -1, teams: this.pvp.teams.map((t) => ({ kills: t.kills, level: t.level })) },
       feats: victory ? [...this.feats] : [],
       endless: this.endless ? { waves: Math.max(0, this.wave - (this.bossPhase === 'fight' ? 1 : 0)), record } : null,
       time: this.time,
@@ -1676,6 +2268,7 @@ export class Game {
         kills: p.kills,
         artifact: p.artifact,
         loot: [...p.loot],
+        team: p.team,
         weapons: Object.fromEntries(Object.entries(p.damageBy).map(([id, d]) => [id, Math.round(d)])),
         gold: p.goldEarned,
         unlockedMap: p.unlockedMap,
@@ -1747,7 +2340,12 @@ export class Game {
 
   /** A player's stats, including their buffs and the active Altar event. */
   private stats(p: Player): PlayerStats {
-    const stats = playerStats(p.upgrades, p.character, p.profile.ranks, p.artifact);
+    // PvP is balanced on its own: no prestige ranks or artifacts, its own health (and the Guardian's might).
+    const stats = this.pvp ? playerStats(p.upgrades, p.character, {}, null) : playerStats(p.upgrades, p.character, p.profile.ranks, p.artifact);
+    if (this.pvp) {
+      stats.maxHp = Math.round(stats.maxHp * PVP.heroHp * (PVP.heroes[p.character]?.hp ?? 1));
+      if ((this.pvp.teams[p.team]?.buffUntil ?? 0) > this.time) stats.damageMult *= 1 + PVP.guardianBuff.damage;
+    }
     if (p.rage > 0) {
       stats.damageMult *= RAGE.damage;
       stats.cooldownMult *= RAGE.cooldown;
@@ -1876,6 +2474,14 @@ export class Game {
   }
 
   private choose(p: Player, index: number): void {
+    // PvP: picks don't pause the game; the next one waiting comes right up.
+    if (this.pvp) {
+      const id = Number.isInteger(index) ? p.options?.[index] : undefined;
+      if (!id) return;
+      this.applyUpgrade(p, id);
+      this.nextPick(p);
+      return;
+    }
     if (this.pause?.kind !== 'choose' || !p.options || !Number.isInteger(index)) return;
     const id = p.options[index];
     if (!id) return;
@@ -1925,7 +2531,8 @@ export class Game {
 
   private applyUpgrade(p: Player, id: ChoiceId): void {
     if (isBonus(id)) {
-      if (id === 'bonusHeal') {
+      // (PvP pays out no gold: always the heal.)
+      if (id === 'bonusHeal' || this.pvp) {
         this.heal(p, this.stats(p).maxHp * BONUS.heal);
         p.sounds.push('heal');
       } else {
@@ -1945,6 +2552,10 @@ export class Game {
 
   private update(dt: number): void {
     this.time += dt;
+    if (this.pvp) {
+      this.updatePvp(dt);
+      return;
+    }
     if (this.event) {
       this.event.timeLeft -= dt;
       if (this.event.timeLeft <= 0) this.event = null;
@@ -2012,6 +2623,19 @@ export class Game {
   }
 
   private rebuildGrid(): void {
+    if (this.pvp) {
+      // PvP: everything, and per team everything hostile to it, so a hero's weapons only ever look for foes.
+      this.grid = this.gridAll;
+      this.gridAll.clear();
+      const teams = this.teamCount();
+      for (let t = 0; t < teams; t++) this.teamGrids[t].clear();
+      for (const e of this.enemies) {
+        if (e.burrowed || e.corpse || e.dead) continue;
+        this.gridAll.insert(e);
+        for (let t = 0; t < teams; t++) if (e.team !== t) this.teamGrids[t].insert(e);
+      }
+      return;
+    }
     this.grid.clear();
     // A burrowed (or flying) boss can't be hit or touched, and neither can one that's already dying.
     for (const e of this.enemies) if (!e.burrowed && !e.corpse) this.grid.insert(e);
@@ -2262,6 +2886,8 @@ export class Game {
       tailReadyAt: 0,
       roostUntil: 0,
       roostLobAt: 0,
+      team: -1,
+      unit: null,
     };
     this.enemies.push(enemy);
     return enemy;
@@ -4229,6 +4855,11 @@ export class Game {
     this.updateUltimates(p, dt);
     if (p.downed) {
       p.history = []; // Chronobreak can't take you back to before you went down.
+      // PvP: no reviving; back at your base after a while.
+      if (this.pvp) {
+        if (this.time >= p.respawnAt) this.respawnHero(p);
+        return;
+      }
       this.updateRevive(p, dt);
       return;
     }
@@ -4247,7 +4878,7 @@ export class Game {
     // Enemies can't touch what they can't see.
     for (const e of p.veil > 0 ? [] : this.grid.query(p.x, p.y, PLAYER_RADIUS + MAX_ENEMY_RADIUS, this.near)) {
       const def = ENEMY_TYPES[e.type];
-      if (e.dead || def.damage === 0 || this.isStunned(e)) continue;
+      if (e.dead || def.damage === 0 || this.isStunned(e) || e.unit) continue; // (PvP's units attack on their own: see updateUnits.)
       if (dist2(e.x, e.y, p.x, p.y) >= (PLAYER_RADIUS + def.radius) ** 2) continue;
       const amount = def.damage * this.damageScale(e) * dt;
       if (this.hurtPlayer(p, amount, true, e) && e.affix === Affix.Vampiric) e.hp = Math.min(e.maxHp, e.hp + amount * AFFIX_TUNING.vampHeal);
@@ -4286,8 +4917,10 @@ export class Game {
     }
   }
 
-  private hurtPlayer(p: Player, amount: number, continuous = false, from?: Enemy): boolean {
+  private hurtPlayer(p: Player, amount: number, continuous = false, from?: Enemy, attacker?: Player): boolean {
     if (p.downed || p.invuln > 0 || this.sheltered(p)) return false;
+    // PvP: remember who it was, for the kill (and assists).
+    if (attacker) p.hitBy.set(attacker.id, this.time);
     const stats = this.stats(p);
     if (!continuous && Math.random() < stats.evasion) {
       p.taken.push(0); // Shown as "EVADE".
@@ -4302,7 +4935,7 @@ export class Game {
     p.hurtUntil = this.time + 0.12;
     // God mode for testing: damage lands, but never below 1 HP.
     // God mode (testing) and Bloodrage: damage lands, but never below 1 HP.
-    if (p.god || p.rage > 0) p.hp = Math.max(1, p.hp);
+    if ((p.god && !this.pvp) || p.rage > 0) p.hp = Math.max(1, p.hp);
     if (p.hp <= 0 && stats.secondWind > 0 && !p.secondWindUsed) {
       // Their artifact catches them, once per run.
       p.secondWindUsed = true;
@@ -4311,6 +4944,10 @@ export class Game {
       this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 160, c: TIERS.legendary.color, snd: 'pop' });
       this.banner(`${p.name}'s ${p.artifact ? artifactDef(p.artifact).name : 'artifact'} flares: back from the brink!`, 'good');
       p.sounds.push('revived');
+    }
+    if (p.hp <= 0 && this.pvp) {
+      this.heroSlain(p, attacker);
+      return true;
     }
     if (p.hp <= 0) {
       p.hp = 0;
@@ -4516,13 +5153,14 @@ export class Game {
 
   /** Standing in an artifact's sanctuary dome: nothing can hurt you. */
   private sheltered(p: Player): boolean {
-    return this.zones.some((z) => z.kind === ZoneKind.Sanctuary && !z.dead && dist2(p.x, p.y, z.x, z.y) < z.r ** 2);
+    return this.zones.some((z) => z.kind === ZoneKind.Sanctuary && !z.dead && dist2(p.x, p.y, z.x, z.y) < z.r ** 2 && this.sameSide(p, this.players.get(z.owner)));
   }
 
   /** Venom puddles tick damage; mines arm, then blow up when an enemy comes close. */
   private updateZones(dt: number): void {
     for (const z of this.zones) {
       this.dealing = z.source ?? null;
+      this.ownerGrid(z.owner);
       if (z.dead) continue;
       z.life -= dt;
       z.timer -= dt;
@@ -4539,7 +5177,7 @@ export class Game {
         const hitsFlying = z.kind !== ZoneKind.Venom && z.kind !== ZoneKind.Toxic;
         if (z.heal) {
           for (const ally of this.players.values()) {
-            if (ally.downed || dist2(ally.x, ally.y, z.x, z.y) >= (z.r + PLAYER_RADIUS) ** 2) continue;
+            if (ally.downed || dist2(ally.x, ally.y, z.x, z.y) >= (z.r + PLAYER_RADIUS) ** 2 || !this.sameSide(ally, owner)) continue;
             this.heal(ally, z.heal, owner);
           }
         }
@@ -4678,7 +5316,7 @@ export class Game {
     let patient: Player | null = null;
     let worst = 1;
     for (const ally of this.players.values()) {
-      if (ally.downed || dist2(ally.x, ally.y, p.x, p.y) > s.healRange ** 2) continue;
+      if (ally.downed || dist2(ally.x, ally.y, p.x, p.y) > s.healRange ** 2 || !this.sameSide(ally, p)) continue;
       const share = ally.hp / this.stats(ally).maxHp;
       if (share < worst) {
         worst = share;
@@ -4746,6 +5384,7 @@ export class Game {
   private updateSummons(dt: number): void {
     for (const m of this.summons) {
       this.dealing = m.source ?? null;
+      this.ownerGrid(m.owner);
       const owner = this.players.get(m.owner);
       m.life -= dt;
       if (!owner || m.life <= 0) m.dead = true;
@@ -4866,7 +5505,7 @@ export class Game {
     }
     if (target && m.timer <= 0 && dist2(m.x, m.y, target.x, target.y) <= reach * reach) {
       m.timer = BEAR.swipe * stats.cooldownMult;
-      const damage = (BEAR.damage + BEAR.perLevel * this.level) * stats.damageMult;
+      const damage = (BEAR.damage + BEAR.perLevel * this.levelOf(owner)) * stats.damageMult;
       this.damageEnemy(target, damage, owner, 'physical');
       this.splash(target.x, target.y, BEAR.splash * stats.area, damage * BEAR.splashShare, owner, 'physical', target);
       const a = Math.atan2(target.y - m.y, target.x - m.x);
@@ -5078,6 +5717,13 @@ export class Game {
   /** Damage from a player rolls for a crit (physical only) and feeds their lifesteal and damage stats. */
   private damageEnemy(e: Enemy, amount: number, by: Player | undefined, type: DamageType): void {
     if (e.dead) return;
+    if (this.pvp) {
+      // No hurting your own team; a crystal can't be hurt while its towers all stand.
+      if (by && e.team === by.team) return;
+      if (this.unitShielded(e)) return;
+      // Jungle monsters turn on whoever attacks them.
+      if (by && (e.unit?.kind === 'camp' || e.unit?.kind === 'guardian')) e.unit.aggroBy = by.id;
+    }
     // Shielded during a side mission.
     if (this.mission && this.bosses.includes(e)) return;
     // Boss mechanics: dug in, shelled, cracked open, or shielded by its twin. Mordak: in the air, or roosting.
@@ -5091,6 +5737,11 @@ export class Game {
       amount *= stats.typeDamage[type];
       const crit = (CRIT_TYPES[type] || (type === 'magic' && stats.magicCrit)) && stats.critChance > 0 && Math.random() < stats.critChance;
       if (crit) amount *= CRIT_MULTIPLIER;
+      // PvP: heroes take a share of it (see PVP.heroDamage), and towers and crystals shrug off most of it.
+      if (e.unit?.kind === 'hero') amount *= this.heroDamageShare(by);
+      else if (e.unit?.kind === 'tower' || e.unit?.kind === 'crystal') {
+        amount *= (e.unit.kind === 'tower' ? PVP.tower.heroTaken : PVP.crystal.heroTaken) * (this.escorted(by.team, e.x, e.y) ? 1 : PVP.tower.unescorted) * this.escalation();
+      }
       // Add to this enemy's damage number for the tick (one number per damage type).
       const typeId = DAMAGE_TYPES.indexOf(type);
       const key = e.id * 4 + typeId;
@@ -5114,6 +5765,12 @@ export class Game {
         by.hp = Math.min(stats.maxHp, by.hp + heal * stats.support);
       }
     }
+    // A hero's stand-in: the hero takes it.
+    if (e.unit?.kind === 'hero') {
+      const victim = this.players.get(e.unit.heroOf);
+      if (victim && !victim.downed) this.hurtPlayer(victim, amount, false, undefined, by);
+      return;
+    }
     e.hp -= amount;
     // The Frost Queen doesn't fall in her hall: at her retreat threshold she flees to her tower (see startRetreat).
     const retreat = this.map.tower;
@@ -5122,6 +5779,10 @@ export class Game {
     if (e.hp > 0) return;
     e.dead = true;
     if (e.hazard) e.hazard.dead = true;
+    if (e.unit) {
+      this.unitDied(e, by?.team ?? -1);
+      return;
+    }
     if (by) by.kills++;
     if (e.type === EnemyType.Warlord) {
       this.dropArtifact('warlord', e.x, e.y);
@@ -5147,6 +5808,7 @@ export class Game {
   private updateProjectiles(dt: number): void {
     for (const pr of this.projectiles) {
       this.dealing = pr.source ?? null;
+      this.ownerGrid(pr.owner);
       const owner = this.players.get(pr.owner);
       if (pr.boomerang) this.steerBoomerang(pr, owner, dt);
       if (pr.homing) this.steerHex(pr, dt);
@@ -5194,8 +5856,9 @@ export class Game {
     if (!pr.target || pr.target.dead || pr.hit.has(pr.target.id)) {
       pr.target = null;
       let best = HEX_SEEK ** 2;
+      const team = this.players.get(pr.owner)?.team ?? -1;
       for (const e of this.enemies) {
-        if (e.dead || pr.hit.has(e.id)) continue;
+        if (e.dead || pr.hit.has(e.id) || (this.pvp && (e.team === team || e.burrowed))) continue;
         const d = dist2(e.x, e.y, pr.x, pr.y);
         if (d < best) {
           best = d;
@@ -5351,7 +6014,7 @@ export class Game {
     }
     if (a.rally) {
       for (const ally of this.players.values()) {
-        if (dist2(ally.x, ally.y, p.x, p.y) >= a.rally.radius ** 2) continue;
+        if (dist2(ally.x, ally.y, p.x, p.y) >= a.rally.radius ** 2 || !this.sameSide(ally, p)) continue;
         const maxHp = this.stats(ally).maxHp;
         if (ally.downed) {
           this.log(`${ally.name} was revived by ${p.name}'s ${artifactDef(p.artifact).name}`, 'good');
@@ -5592,7 +6255,7 @@ export class Game {
         const s = prayerStats(level);
         const r = s.radius * stats.area;
         for (const ally of this.players.values()) {
-          if (dist2(ally.x, ally.y, p.x, p.y) >= r ** 2) continue;
+          if (dist2(ally.x, ally.y, p.x, p.y) >= r ** 2 || !this.sameSide(ally, p)) continue;
           const maxHp = this.stats(ally).maxHp;
           if (ally.downed) {
             if (!s.revive) continue;
@@ -5681,7 +6344,7 @@ export class Game {
         p.epoch++;
         p.invuln = Math.max(p.invuln, 0.5);
         const r = REWIND.radius * stats.area;
-        const damage = (REWIND.damage + REWIND.perLevel * this.level) * stats.damageMult;
+        const damage = (REWIND.damage + REWIND.perLevel * this.levelOf(p)) * stats.damageMult;
         this.rebuildGrid();
         this.splash(p.x, p.y, r, damage, p, 'true');
         this.hitCratesAround(p.x, p.y, r, damage);
@@ -5715,6 +6378,7 @@ export class Game {
         break;
       case 'intervention':
         for (const ally of this.players.values()) {
+          if (!this.sameSide(ally, p)) continue;
           const maxHp = this.stats(ally).maxHp;
           if (ally.downed) {
             this.log(`${ally.name} was saved by ${p.name}'s Divine Intervention`, 'good');
@@ -5821,6 +6485,7 @@ export class Game {
         let target: Enemy | null = null;
         for (const e of this.enemies) {
           if (e.dead || p.struck.has(e.id) || dist2(e.x, e.y, p.x, p.y) > STRIKE.range ** 2) continue;
+          if (this.pvp && (e.team === p.team || e.burrowed)) continue;
           if (!target || e.hp > target.hp) target = e;
         }
         if (!target) {
@@ -5834,7 +6499,7 @@ export class Game {
           ({ x: p.x, y: p.y } = pushOut(this.walls, target.x + Math.cos(a) * r, target.y + Math.sin(a) * r, PLAYER_RADIUS));
           if (p.inArena) this.keepInArena(p, PLAYER_RADIUS);
           p.epoch++;
-          this.damageEnemy(target, (STRIKE.damage + STRIKE.perLevel * this.level) * stats.damageMult, p, 'physical');
+          this.damageEnemy(target, (STRIKE.damage + STRIKE.perLevel * this.levelOf(p)) * stats.damageMult, p, 'physical');
           this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: r + 20, a: round2(Math.atan2(target.y - p.y, target.x - p.x)), arc: 1.4, c: AURA.strike });
           p.sounds.push('stab');
         }
@@ -5854,7 +6519,7 @@ export class Game {
         const x = clamp(p.x + Math.cos(a) * d, 0, this.map.width);
         const y = clamp(p.y + Math.sin(a) * d, 0, this.map.height);
         const r = INFERNO.radius * stats.area;
-        this.blasts.push({ source: this.dealing, x, y, r, damage: (INFERNO.damage + INFERNO.perLevel * this.level) * stats.damageMult, owner: p.id, t: 0.5, color: 0xff6d00, type: 'magic' });
+        this.blasts.push({ source: this.dealing, x, y, r, damage: (INFERNO.damage + INFERNO.perLevel * this.levelOf(p)) * stats.damageMult, owner: p.id, t: 0.5, color: 0xff6d00, type: 'magic' });
         this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0xff6d00, t: 0.5 });
       }
     }
@@ -5867,7 +6532,7 @@ export class Game {
         if (near.length === 0) break;
         const e = near[Math.floor(Math.random() * near.length)];
         const r = WRATH.radius * stats.area;
-        this.blasts.push({ source: this.dealing, x: e.x, y: e.y, r, damage: (WRATH.damage + WRATH.perLevel * this.level) * stats.damageMult, owner: p.id, t: 0.25, color: HOLY, type: 'magic' });
+        this.blasts.push({ source: this.dealing, x: e.x, y: e.y, r, damage: (WRATH.damage + WRATH.perLevel * this.levelOf(p)) * stats.damageMult, owner: p.id, t: 0.25, color: HOLY, type: 'magic' });
         this.fx.push({ k: 'cast', x: Math.round(e.x), y: Math.round(e.y), r, c: HOLY, t: 0.25 });
       }
       if (p.ultTimer < 0) p.ultTimer = 0;
@@ -5877,7 +6542,7 @@ export class Game {
       while (p.ultTimer <= 0) {
         p.ultTimer += ARROW_STORM.interval;
         const angle = p.aim + (Math.random() - 0.5) * 2 * ARROW_STORM.jitter;
-        const pr = this.projectile(p, ProjectileKind.Arrow, angle, 900, (ARROW_STORM.damage + ARROW_STORM.perLevel * this.level) * stats.damageMult, 0.85, 'physical');
+        const pr = this.projectile(p, ProjectileKind.Arrow, angle, 900, (ARROW_STORM.damage + ARROW_STORM.perLevel * this.levelOf(p)) * stats.damageMult, 0.85, 'physical');
         pr.pierce = ARROW_STORM.pierce;
       }
       p.sounds.push('arrow');
@@ -5887,6 +6552,7 @@ export class Game {
   private updateBlasts(dt: number): void {
     for (const b of this.blasts) {
       this.dealing = b.source ?? null;
+      this.ownerGrid(b.owner);
       b.t -= dt;
       if (b.t > 0) continue;
       this.splash(b.x, b.y, b.r, b.damage, this.players.get(b.owner), b.type);
@@ -6193,6 +6859,8 @@ export class Game {
       damageDealt: Math.round(p.damageDealt),
       damageByType: p.damageByType.map(Math.round) as [number, number, number],
       damageTaken: Math.round(p.damageTaken),
+      team: p.team,
+      ...(this.pvp && p.downed && { respawn: Number.isFinite(p.respawnAt) ? round1(Math.max(0, p.respawnAt - this.time)) : -1 }),
       choosing: p.options !== null,
       invuln: p.invuln > 0,
       hurt: p.hurtUntil > this.time,
@@ -6226,7 +6894,10 @@ export class Game {
     }));
     const enemies: number[] = [];
     for (const e of this.enemies) {
+      if (e.unit?.kind === 'hero') continue; // (Heroes' stand-ins are never drawn.)
       const flags =
+        (e.unit ? UnitFlag | ((e.team + 1) << TEAM_SHIFT) | (Math.round(Math.max(0, Math.min(1, e.hp / e.maxHp)) * HP_STEPS) << HP_SHIFT) : 0) |
+        (e.unit && this.unitShielded(e) ? EnemyFlag.Shielded : 0) |
         (e.flashUntil > this.time ? EnemyFlag.Hit : 0) |
         (e.mode === Mode.Windup ? EnemyFlag.WindingUp : 0) |
         (this.isStunned(e) ? EnemyFlag.Stunned : 0) |
@@ -6287,6 +6958,7 @@ export class Game {
       dying: this.dying && { x: Math.round(this.dying.x), y: Math.round(this.dying.y), progress: round2(Math.min(1, this.dying.t / BOSS_DEATH.total)) },
       finale: this.finale && { stage: this.finale.stage, t: round1(this.finale.t) },
       tower: this.towerState(),
+      pvp: this.pvpState(),
       bossFight:
         this.bossPhase === 'fight' && this.bosses.length > 0
           ? {

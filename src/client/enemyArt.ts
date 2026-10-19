@@ -220,6 +220,8 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
       eyes(pen, r * 0.45, r * 0.32, r * 0.28);
       return r * 1.6;
     }
+    // The jungle's Guardian: a Brute of a beast, bigger and browner (its size and color come from its own entry).
+    case EnemyType.Guardian:
     case EnemyType.Brute: {
       // A bulky block with tusks and a scowl.
       solid(pen, (g) => g.roundRect(-r, -r * 0.95, r * 2, r * 1.9, r * 0.45));
@@ -499,6 +501,58 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
     case EnemyType.DragonWing:
       // Drawn as part of Mordak; on its own it's just its health bar.
       return r;
+    // PvP's units are drawn pale: the game tints them in their team's color.
+    case EnemyType.Minion: {
+      // A foot soldier: a round helmet with a crest, a shield on the left arm, a short sword out front.
+      solid(pen, (g) => g.ellipse(r * 0.1, -r * 0.95, r * 0.55, r * 0.32), shade(color, -0.2));
+      solid(pen, (g) => g.rect(r * 0.6, r * 0.35, r * 0.95, r * 0.22));
+      solid(pen, (g) => g.circle(0, 0, r));
+      detail(pen, (g) => g.rect(-r * 0.75, -r * 0.12, r * 1.5, r * 0.24).fill({ color: pen.dark, alpha: 0.5 }));
+      eyes(pen, r * 0.5, r * 0.3, r * 0.17, { angry: true });
+      return r * 1.7;
+    }
+    case EnemyType.Archer: {
+      // A hooded archer with a bow drawn out front.
+      detail(pen, (g) => g.arc(r * 0.55, 0, r * 0.95, -1.15, 1.15).stroke({ width: 3, color: 0x6d4c41, cap: 'round' }));
+      detail(pen, (g) => g.moveTo(r * 0.55 + Math.cos(-1.15) * r * 0.95, Math.sin(-1.15) * r * 0.95).lineTo(r * 0.55 + Math.cos(1.15) * r * 0.95, Math.sin(1.15) * r * 0.95).stroke({ width: 1, color: 0xeeeeee }));
+      solid(pen, (g) => g.poly([-r * 1.05, -r * 0.6, r * 0.8, 0, -r * 1.05, r * 0.6]), shade(color, -0.25));
+      solid(pen, (g) => g.circle(0, 0, r * 0.85));
+      eyes(pen, r * 0.42, r * 0.26, r * 0.15);
+      return r * 1.6;
+    }
+    case EnemyType.Tower: {
+      // From above: a round stone tower, battlements around its rim and a glowing crystal at its heart.
+      solid(pen, (g) => g.circle(0, 0, r));
+      detail(pen, (g) => {
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2;
+          g.rect(Math.cos(a) * r * 0.86 - r * 0.1, Math.sin(a) * r * 0.86 - r * 0.1, r * 0.2, r * 0.2);
+        }
+        g.fill({ color: pen.dark, alpha: 0.55 });
+        g.circle(0, 0, r * 0.62).fill({ color: pen.dark, alpha: 0.35 });
+      });
+      solid(pen, (g) => g.poly(ngon(6, r * 0.34, Math.PI / 6)), 0xffffff, pen.dark);
+      detail(pen, (g) => g.circle(0, 0, r * 0.5).fill({ color: 0xffffff, alpha: 0.18 }));
+      return r * 1.25;
+    }
+    case EnemyType.Crystal: {
+      // The team's crystal: a great faceted gem on a stone dais.
+      solid(pen, (g) => g.poly(ngon(8, r, Math.PI / 8)), shade(color, -0.35));
+      solid(pen, (g) => g.poly(star(6, r * 0.82, r * 0.5)), color);
+      detail(pen, (g) => {
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * Math.PI * 2;
+          g.moveTo(0, 0).lineTo(Math.cos(a) * r * 0.82, Math.sin(a) * r * 0.82);
+        }
+        g.stroke({ width: 2, color: 0xffffff, alpha: 0.45 });
+        g.circle(0, 0, r * 0.28).fill({ color: 0xffffff, alpha: 0.85 });
+        g.circle(0, 0, r * 1.15).stroke({ width: 3, color: 0xffffff, alpha: 0.25 });
+      });
+      return r * 1.3;
+    }
+    case EnemyType.Hero:
+      // A hero's stand-in: never drawn.
+      return r;
     case EnemyType.Sylvara: {
       // A coiled serpent: one smooth body spiraling out behind the head, thickening as it goes, with a pattern
       // down its back, a wedge-shaped head and a forked tongue.
@@ -596,4 +650,4 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
 }
 
 /** Enemies that never turn to face where they're going. */
-export const NO_ROTATE = new Set<number>([EnemyType.Ward, EnemyType.Egg]);
+export const NO_ROTATE = new Set<number>([EnemyType.Ward, EnemyType.Egg, EnemyType.Tower, EnemyType.Crystal]);

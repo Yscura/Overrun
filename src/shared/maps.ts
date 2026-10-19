@@ -1,5 +1,6 @@
 import type { Wall } from './collision';
 import { ENEMY_TYPES, EnemyType, bossDisplayName } from './enemies';
+import { distanceToPath, pvpLayout, type PvpLayout } from './pvp';
 
 /** The named boss arrives this many seconds in; with the fight that makes a run about 16 minutes. */
 export const BOSS_TIME = 15 * 60;
@@ -91,7 +92,7 @@ export interface MapDef {
   name: string;
   subtitle: string;
   /** Which look the client gives it: ground, props and landmarks. */
-  art: 'forest' | 'ruins' | 'frost' | 'canyon' | 'caldera' | 'underworld';
+  art: 'forest' | 'ruins' | 'frost' | 'canyon' | 'caldera' | 'underworld' | 'battlefield';
   width: number;
   height: number;
   /** Where the team starts. */
@@ -116,6 +117,8 @@ export interface MapDef {
   finale?: Finale;
   /** The boss retreats to a tower halfway through the fight (see Tower). */
   tower?: Tower;
+  /** A PvP map (played only in PvP, apart from the campaign): where its bases, lanes, towers and camps are. */
+  pvp?: PvpLayout;
   /**
    * Endless mode's own map (played only in endless mode, not part of the campaign): the bosses its waves bring, in
    * turn (see waveBoss).
@@ -969,10 +972,55 @@ export const MAPS: MapDef[] = [
       ...fenceV(4550, 2350, 3250, 200),
     ],
   },
+  // PvP's own maps (see pvp.ts).
+  pvpMap('Crossroads', 'Two teams, two lanes, and the Guardian in the jungle between them.', 2, 5600, 3200, 11),
+  pvpMap('Three Crowns', 'Three teams at the corners of a triangle: every base has two neighbors to fear.', 3, 5000, 4600, 23),
 ];
 
-/** The campaign: every map but endless mode's own, in order. Unlocks (normal and hard) count only these. */
-export const CAMPAIGN = MAPS.filter((m) => !m.endless).length;
+/**
+ * A PvP map of `teams` teams: its bases, lanes, towers and camps from pvpLayout, a wall of trees around the edge, and
+ * the jungle: groves and boulders scattered through it, kept off the lanes, the bases, the towers and the camps.
+ */
+function pvpMap(name: string, subtitle: string, teams: 2 | 3, width: number, height: number, seed: number): MapDef {
+  const layout = pvpLayout(teams, width, height);
+  const rand = seededRandom(seed);
+  const walls: Wall[] = [];
+  for (let x = 0; x <= width; x += 70) walls.push(tree(x, 25, 90), tree(x, height - 25, 90));
+  for (let y = 70; y < height; y += 70) walls.push(tree(25, y, 90), tree(width - 25, y, 90));
+  const near = (points: { x: number; y: number }[], x: number, y: number, r: number) => points.some((p) => Math.hypot(p.x - x, p.y - y) < r);
+  for (let y = 260; y < height - 260; y += 230) {
+    for (let x = 260; x < width - 260; x += 230) {
+      const jx = x + (rand() - 0.5) * 130;
+      const jy = y + (rand() - 0.5) * 130;
+      const roll = rand();
+      const size = 60 + rand() * 45;
+      if (roll < 0.42) continue;
+      if (layout.lanes.some((l) => distanceToPath(l.points, jx, jy) < 240)) continue;
+      if (near(layout.bases, jx, jy, 680) || near(layout.towers, jx, jy, 240)) continue;
+      if (layout.camps.some((c) => Math.hypot(c.x - jx, c.y - jy) < (c.kind === 'guardian' ? 460 : 300))) continue;
+      walls.push(roll < 0.82 ? tree(jx, jy, size) : boulder(jx, jy, size));
+    }
+  }
+  return {
+    name,
+    subtitle,
+    art: 'battlefield',
+    width,
+    height,
+    spawn: layout.bases[0],
+    walls,
+    boss: EnemyType.Guardian,
+    arena: null,
+    difficulty: 1,
+    prestigeReward: 0,
+    enemyWeights: {},
+    pvp: layout,
+    theme: { background: 0x1f2e1c, grid: 0x263823, wall: 0x6d8a5a, wallEdge: 0x3a5230, fence: 0x8d6e4a, outside: 0x0a0f08 },
+  };
+}
+
+/** The campaign: every map but endless mode's and PvP's own, in order. Unlocks (normal and hard) count only these. */
+export const CAMPAIGN = MAPS.filter((m) => !m.endless && !m.pvp).length;
 /** Endless mode's map. */
 export const ENDLESS_MAP = MAPS.findIndex((m) => m.endless);
 

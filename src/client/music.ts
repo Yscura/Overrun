@@ -74,6 +74,8 @@ const MAP_MUSIC: Partial<Record<MapDef['art'], MapMusic>> = {
     themes: [composed(calderaTheme, 135, false, 1.18)],
     boss: composed(calderaBoss, 165, true, 1.16),
   },
+  // PvP's battlefields borrow the woods' theme (and its boss theme, unused).
+  battlefield: { themes: [composed(woodsTheme, 120, false, 1.23)], boss: composed(woodsBoss, 150, true, 1.19) },
   // The Underworld borrows the Desecrated Ruins' haunted themes (the Reaper's own).
   underworld: { themes: [composed(ruinsTheme, 140, false, 1.62)], boss: composed(ruinsBoss, 160, true, 1.15) },
 };

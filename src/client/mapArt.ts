@@ -5,6 +5,7 @@
 import { Graphics } from 'pixi.js';
 import { WallIndex, overlapsWall, type Wall } from '../shared/collision';
 import { insideArena, type MapDef } from '../shared/maps';
+import { PVP_TEAMS, distanceToPath } from '../shared/pvp';
 import { shade } from './enemyArt';
 
 /** A small deterministic random generator, so a map always looks the same. */
@@ -22,7 +23,7 @@ function seeded(seed: number): () => number {
 export const TILE = 256;
 
 /** Random seeds per look, so each map always looks the same (and keeps its look if the map order changes). */
-const SEED: Record<MapDef['art'], number> = { ruins: 0, frost: 1, caldera: 2, forest: 3, canyon: 4, underworld: 5 };
+const SEED: Record<MapDef['art'], number> = { ruins: 0, frost: 1, caldera: 2, forest: 3, canyon: 4, underworld: 5, battlefield: 6 };
 
 /** The repeating floor texture: the base color with speckles, a faint grid, and a touch of the map's flavor. */
 export function groundTile(map: MapDef): Graphics {
@@ -46,7 +47,7 @@ export function groundTile(map: MapDef): Graphics {
     const size = 1 + rand() * 3;
     g.rect(Math.floor(rand() * TILE), Math.floor(rand() * TILE), size, size).fill({ color: shade(theme.background, rand() < 0.5 ? -0.35 : 0.18), alpha: 0.7 });
   }
-  if (map.art === 'forest') {
+  if (map.art === 'forest' || map.art === 'battlefield') {
     // Lush grass in two greens, and a few tiny flowers.
     // Kept dark and sparse so the horde stands out against it.
     for (let i = 0; i < 35; i++) {
@@ -117,7 +118,9 @@ export function decorations(map: MapDef): { still: Graphics; glow: Graphics; top
     if (map.arena && insideArena(map.arena, x, y, -30)) continue;
     // Not in the river either.
     if (map.river && nearRiver(map, x, y, 30)) continue;
-    if (map.art === 'forest') forestProp(still, x, y, roll, size, rand);
+    // PvP: the lanes and bases stay clear.
+    if (map.pvp && (map.pvp.lanes.some((l) => distanceToPath(l.points, x, y) < 130) || map.pvp.bases.some((b) => Math.hypot(b.x - x, b.y - y) < 470))) continue;
+    if (map.art === 'forest' || map.art === 'battlefield') forestProp(still, x, y, roll, size, rand);
     else if (map.art === 'ruins') ruinsProp(still, x, y, roll, size, rand);
     else if (map.art === 'frost') frostProp(still, x, y, roll, size, rand);
     else if (map.art === 'canyon') canyonProp(still, x, y, roll, size, rand);
@@ -150,6 +153,8 @@ function landmarks(map: MapDef, still: Graphics, glow: Graphics, top: Graphics, 
     castleArt(map, still, top, rand);
   } else if (map.art === 'underworld') {
     underworldArt(map, still, glow, top, rand);
+  } else if (map.art === 'battlefield') {
+    battlefieldArt(map, still, glow, rand);
   } else {
     calderaArt(map, still, glow, top, rand);
   }
@@ -233,6 +238,53 @@ export function drawSecretDoor(g: Graphics, w: Wall, map: MapDef): void {
   for (let d = 10; d + 18 <= w.h - 10; d += 34) g.rect(w.x + (w.w - across) / 2, w.y + d, across, 18);
   g.fill(shade(map.theme.wall, 0.12)).stroke({ width: 1.5, color: shade(map.theme.wall, -0.45) });
   g.moveTo(w.x + w.w * 0.3, w.y + 4).lineTo(w.x + w.w * 0.55, w.y + w.h * 0.45).lineTo(w.x + w.w * 0.35, w.y + w.h - 4).stroke({ width: 1, color: 0x0e131a, alpha: 0.7 });
+}
+
+/**
+ * A PvP battlefield: dirt roads down the lanes, a stone plaza under each team's crystal (ringed in its color, with the
+ * fountain's healing glow), trampled clearings for the jungle camps, and a ring of standing stones round the Guardian.
+ */
+function battlefieldArt(map: MapDef, still: Graphics, glow: Graphics, rand: () => number): void {
+  const layout = map.pvp!;
+  for (const lane of layout.lanes) {
+    for (const [width, color, alpha] of [
+      [200, 0x3d3020, 0.8],
+      [130, 0x52422a, 0.6],
+    ] as const) {
+      still.moveTo(lane.points[0].x, lane.points[0].y);
+      for (const p of lane.points.slice(1)) still.lineTo(p.x, p.y);
+      still.stroke({ width, color, alpha, cap: 'round', join: 'round' });
+    }
+    for (let i = 0; i < 70; i++) {
+      const a = lane.points[Math.floor(rand() * (lane.points.length - 1))];
+      const b = lane.points[lane.points.indexOf(a) + 1];
+      const t = rand();
+      still.circle(a.x + (b.x - a.x) * t + (rand() - 0.5) * 120, a.y + (b.y - a.y) * t + (rand() - 0.5) * 120, 2 + rand() * 3).fill({ color: 0x6d5a3a, alpha: 0.7 });
+    }
+  }
+  layout.bases.forEach((b, i) => {
+    const color = PVP_TEAMS[i].color;
+    still.circle(b.x, b.y, 430).fill({ color: 0x2f3330, alpha: 0.85 });
+    for (const r of [400, 300, 190]) still.circle(b.x, b.y, r).stroke({ width: 4, color: 0x4a504a, alpha: 0.7 });
+    for (let k = 0; k < 16; k++) {
+      const a = (k / 16) * Math.PI * 2;
+      still.moveTo(b.x + Math.cos(a) * 190, b.y + Math.sin(a) * 190).lineTo(b.x + Math.cos(a) * 400, b.y + Math.sin(a) * 400);
+    }
+    still.stroke({ width: 2, color: 0x4a504a, alpha: 0.5 });
+    still.circle(b.x, b.y, 430).stroke({ width: 8, color, alpha: 0.7 });
+    glow.circle(b.x, b.y, 420).fill({ color, alpha: 0.07 });
+  });
+  for (const c of layout.camps) {
+    const guardian = c.kind === 'guardian';
+    still.circle(c.x, c.y, guardian ? 320 : 170).fill({ color: 0x2a2418, alpha: 0.5 });
+    if (guardian) {
+      for (let k = 0; k < 10; k++) {
+        const a = (k / 10) * Math.PI * 2;
+        rock(still, c.x + Math.cos(a) * 340, c.y + Math.sin(a) * 340, 18 + rand() * 8, 0x8d8a80, rand);
+      }
+      still.circle(c.x, c.y, 120).stroke({ width: 4, color: 0x8d6e63, alpha: 0.6 });
+    }
+  }
 }
 
 /** Is (x, y) within `margin` of the river's water? */

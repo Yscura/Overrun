@@ -181,6 +181,28 @@ as long as it's needed: the songs loop exactly on the bar line (themes from bar 
 fades out when the run ends. Settings has a master volume plus separate sliders for music and sound effects. It's all set up in `MAP_MUSIC` in
 `src/client/music.ts`.
 
+## PvP
+
+Pick **PvP** in the lobby's mode buttons: two or three teams of up to four fight each other, on maps of their own
+(**Crossroads**: two teams, two lanes; **Three Crowns**: three teams on a triangle). Click **Join** on a team in the
+lobby to change sides; bots join the smallest team. PvP is kept apart from the campaign: prestige ranks and artifacts
+don't come into it, and it pays out no prestige, gold or artifacts.
+
+- Each team has a **crystal** at its base (heal up at its fountain, and respawn there after a while when you fall) and
+  two **towers** on each of its lanes. A lane's inner tower is shielded until its outer one falls, and the crystal
+  until an inner tower falls. Towers and crystals shoot at foes in range (the faint ring), and they take full damage
+  from heroes only with some of that hero's own minions beside them. Destroy every other crystal to win.
+- **Minion waves** march down every lane every 30 seconds and fight whatever they meet; the **jungle's camps** fight
+  back when attacked (and give up the chase past their leash), and the **Guardian** in the middle grants the team that
+  slays it more damage for two minutes.
+- **XP and levels are per team** (kills, minions, camps, towers, and a trickle; teams behind the leader catch up
+  faster). Level-ups don't pause the game: the picks wait in the bottom right corner (1, 2, 3).
+- Heals, revives and shelters (Smite, Prayer, Divine Intervention, Sanctuary) only help your own team.
+- Late in a game towers and crystals take more and more damage, so it ends.
+
+All of PvP's balance is in `src/shared/pvp.ts` (`PVP`): hero health and damage against heroes (with per-weapon and
+per-hero multipliers), respawns, XP, waves, minions, towers, crystals, camps and the Guardian. It only changes PvP.
+
 ## Controls
 
 Pick a hero in the lobby. Ranged and melee heroes are offered different weapons:
@@ -310,6 +332,7 @@ sent to the server (it only sanity-checks the distance), so moving always feels 
 - `upgrades.ts`: weapons and passives (per-level stats, evolutions, card text, which role can get them) and the XP curve.
 - `prestige.ts`: the permanent upgrades bought between runs, their costs and the points a run pays.
 - `artifacts.ts`: the artifacts (tier, icon, effects), their drop chances and tier odds.
+- `pvp.ts`: PvP's teams, map layouts (bases, lanes, towers, camps) and its own balance sheet.
 - `objectives.ts`: upgrade points, Altar events and Quest quests (timings, sizes, rewards).
 - `maps.ts`: the maps (size, walls, theme, enemy mix, boss, arena and its gate, lava) and the boss timing. Walls are
   built from small helpers like `room(...)` (a room with door gaps), `fenceH`/`fenceV`, `pillar`, `arc` (a stretch of

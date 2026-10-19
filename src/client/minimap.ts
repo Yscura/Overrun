@@ -3,7 +3,9 @@ import { TIERS, TIER_IDS } from '../shared/artifacts';
 import { ENEMY_TYPES } from '../shared/enemies';
 import { MAPS, enemyColor, zoneRect } from '../shared/maps';
 import { SHRINES, ShrineKind } from '../shared/objectives';
-import { AFFIX_MASK, AFFIX_SHIFT, ENEMY_STRIDE, PICKUP_STRIDE, PickupKind, SHRINE_STRIDE, type Snapshot } from '../shared/protocol';
+import { AFFIX_MASK, AFFIX_SHIFT, ENEMY_STRIDE, PICKUP_STRIDE, PickupKind, SHRINE_STRIDE, TEAM_SHIFT, UnitFlag, type Snapshot } from '../shared/protocol';
+import { PVP_TEAMS } from '../shared/pvp';
+import { EnemyType } from '../shared/enemies';
 
 const HEALTH_GREEN = 0x00e676;
 const DOWNED_RED = 0xff1744;
@@ -115,6 +117,12 @@ export class Minimap {
       if ('r' in hole) g.circle(hole.x * s, hole.y * s, hole.r * s).cut();
       else g.rect(hole.x * s, hole.y * s, hole.w * s, hole.h * s).cut();
     }
+    // PvP: the lanes.
+    for (const lane of map.pvp?.lanes ?? []) {
+      g.moveTo(lane.points[0].x * s, lane.points[0].y * s);
+      for (const p of lane.points.slice(1)) g.lineTo(p.x * s, p.y * s);
+      g.stroke({ width: 4, color: 0x8d6e4a, alpha: 0.55, cap: 'round', join: 'round' });
+    }
     for (const w of map.walls) {
       if (w.look === 'terrain') continue; // (Drawn as the sealed-off ground above.)
       const color = w.look === 'water' ? 0x4fc3f7 : w.look === 'tree' ? 0x66bb6a : w.look === 'rock' ? 0xbcaaa4 : 0xb0bec5;
@@ -152,6 +160,18 @@ export class Minimap {
     const elites: number[] = [];
     for (let i = 0; i < snap.enemies.length; i += ENEMY_STRIDE) {
       const type = snap.enemies[i + 1];
+      const flags = snap.enemies[i + 4];
+      // PvP's units, in their team's colors: crystals and towers as squares, minions and monsters as dots.
+      if (flags & UnitFlag) {
+        const team = ((flags >> TEAM_SHIFT) & 3) - 1;
+        const color = team >= 0 ? PVP_TEAMS[team].color : 0xffa726;
+        const x = snap.enemies[i + 2] * s;
+        const y = snap.enemies[i + 3] * s;
+        if (type === EnemyType.Crystal) g.rect(x - 5, y - 5, 10, 10).fill(color).stroke({ width: 1.5, color: 0xffffff });
+        else if (type === EnemyType.Tower) g.rect(x - 3, y - 3, 6, 6).fill(color).stroke({ width: 1, color: 0x000000 });
+        else g.circle(x, y, type === EnemyType.Guardian ? 4 : 1.6).fill(color);
+        continue;
+      }
       if (ENEMY_TYPES[type].elite || (snap.enemies[i + 4] >> AFFIX_SHIFT) & AFFIX_MASK) {
         elites.push(i);
         continue;
@@ -235,7 +255,7 @@ export class Minimap {
         continue;
       }
       if (p.id === myId) g.circle(x, y, 8).fill({ color: 0xffffff, alpha: 0.25 });
-      g.circle(x, y, p.id === myId ? 5 : 4).fill(p.color).stroke({ width: 1.5, color: 0xffffff });
+      g.circle(x, y, p.id === myId ? 5 : 4).fill(p.team >= 0 ? PVP_TEAMS[p.team].color : p.color).stroke({ width: 1.5, color: 0xffffff });
     }
   }
 }

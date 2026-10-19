@@ -1,6 +1,5 @@
 // Rooms: each lobby on the server is a room with its own Game and a short code friends can join with.
 
-import { MAX_PLAYERS } from '../shared/constants';
 import { MODES, type ModeId } from '../shared/modes';
 import type { RoomInfo, RoomRef } from '../shared/protocol';
 import { Game } from './game';
@@ -37,7 +36,8 @@ export class Rooms {
   joinProblem(room: Room | undefined): string | null {
     if (!room) return 'No lobby with that code.';
     if (!MODES[room.mode].joinable) return 'That game is private.';
-    if (room.game.humanCount >= MODES[room.mode].maxHumans || room.game.playerCount >= MAX_PLAYERS) return 'That lobby is full.';
+    // (A PvP lobby has room for every team; a campaign one for one team.)
+    if (room.game.humanCount >= Math.min(MODES[room.mode].maxHumans, room.game.capacity) || room.game.playerCount >= room.game.capacity) return 'That lobby is full.';
     return null;
   }
 
@@ -56,7 +56,7 @@ export class Rooms {
         host: r.game.hostName,
         players: r.game.playerCount,
         humans: r.game.humanCount,
-        maxHumans: MODES[r.mode].maxHumans,
+        maxHumans: Math.min(MODES[r.mode].maxHumans, r.game.capacity),
         phase: r.game.currentPhase,
         map: r.game.currentMap,
       }));

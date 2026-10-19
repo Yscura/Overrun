@@ -1,4 +1,5 @@
-export type Behavior = 'chase' | 'ranged' | 'lobber' | 'charger' | 'boss' | 'flee' | 'named' | 'ward' | 'egg' | 'part';
+/** `unit`: PvP's own units (minions, towers, crystals, the Guardian, heroes' stand-ins), driven by the PvP rules instead. */
+export type Behavior = 'chase' | 'ranged' | 'lobber' | 'charger' | 'boss' | 'flee' | 'named' | 'ward' | 'egg' | 'part' | 'unit';
 
 export interface EnemyDef {
   name: string;
@@ -22,6 +23,8 @@ export interface EnemyDef {
   armor?: number;
   /** Share of magic damage it shrugs off. */
   ward?: number;
+  /** Only found in PvP (left out of the bestiary). Its numbers are in PVP (pvp.ts), not here. */
+  pvp?: boolean;
 }
 
 /** Bosses (the Warlord and the named final bosses) stay hidden in the bestiary until you've reached them. */
@@ -61,6 +64,15 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Mordak', radius: 110, speed: 75, hp: 30000, damage: 55, xp: 0, color: 0x8e1414, behavior: 'named', spawnAfter: 0, weight: 0, elite: true, armor: 0.2 },
   // Mordak's wings: targets of their own, carried on his back. Tear both off and he can't fly.
   { name: 'Dragon Wing', radius: 46, speed: 0, hp: 1, damage: 0, xp: 0, color: 0x5a0e0e, behavior: 'part', spawnAfter: 0, weight: 0, elite: true },
+  
+  // PvP (see pvp.ts): lane minions, each team's towers and crystal (drawn pale, tinted in their team's color), the
+  // Guardian in the jungle's heart, and the stand-in every hero is hit through (never drawn).
+  { name: 'Minion', radius: 15, speed: 92, hp: 1, damage: 0, xp: 0, color: 0xe3e8ee, behavior: 'unit', spawnAfter: 0, weight: 0, pvp: true },
+  { name: 'Archer Minion', radius: 13, speed: 92, hp: 1, damage: 0, xp: 0, color: 0xe3e8ee, behavior: 'unit', spawnAfter: 0, weight: 0, pvp: true },
+  { name: 'Tower', radius: 44, speed: 0, hp: 1, damage: 0, xp: 0, color: 0xe3e8ee, behavior: 'unit', spawnAfter: 0, weight: 0, elite: true, pvp: true },
+  { name: 'Crystal', radius: 62, speed: 0, hp: 1, damage: 0, xp: 0, color: 0xe3e8ee, behavior: 'unit', spawnAfter: 0, weight: 0, elite: true, pvp: true },
+  { name: 'Guardian', radius: 40, speed: 70, hp: 1, damage: 0, xp: 0, color: 0x8d6e63, behavior: 'unit', spawnAfter: 0, weight: 0, elite: true, armor: 0.2, pvp: true },
+  { name: 'Hero', radius: 16, speed: 0, hp: 1, damage: 0, xp: 0, color: 0xffffff, behavior: 'unit', spawnAfter: 0, weight: 0, pvp: true },
 ];
 
 export const EnemyType = {
@@ -84,6 +96,12 @@ export const EnemyType = {
   Spirit: 17,
   Mordak: 18,
   DragonWing: 19,
+  Minion: 20,
+  Archer: 21,
+  Tower: 22,
+  Crystal: 23,
+  Guardian: 24,
+  Hero: 25,
 } as const;
 
 export const MAX_ENEMY_RADIUS = Math.max(...ENEMY_TYPES.map((e) => e.radius));
