@@ -75,7 +75,10 @@ async function main() {
     const saved = loadHero();
     return isCharacterId(saved) ? saved : DEFAULT_CHARACTER;
   };
-  menu.onName = (name) => net.send({ t: 'hello', name });
+  menu.onLogin = (name, password) => net.send({ t: 'login', name, password });
+  menu.onResume = (name, token) => net.send({ t: 'resume', name, token });
+  menu.onLogout = (token) => net.send({ t: 'logout', token });
+  net.onAuth = (result) => menu.authResult(result);
   menu.onPlay = (mode) => net.send({ t: 'create', mode, character: savedHero() });
   menu.onCreateLobby = () => net.send({ t: 'create', mode: 'multi', character: savedHero() });
   menu.onJoin = (code) => net.send({ t: 'join', code, character: savedHero() });
@@ -197,7 +200,7 @@ async function main() {
         ui.showBanner(fx.text, fx.tone);
         chat.add(stamp(), fx.text, fx.tone);
       } else if (fx.k === 'log') {
-        chat.add(stamp(), fx.text, fx.tone);
+        chat.add(stamp(), fx.text, fx.tone, undefined, fx.c);
       } else if (fx.k === 'chat') {
         chat.add(stamp(), fx.text, 'chat', fx);
       } else {

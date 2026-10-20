@@ -11,10 +11,17 @@ npm run dev
 
 Open http://localhost:5173. The main menu has **Singleplayer** (a private game, with bot teammates if you like),
 **Multiplayer** (create a lobby and share its 4-letter code, or join one from the list of open lobbies), the
-**Bestiary** (every enemy with its stats; bosses unlock once you've reached them in a run, win or lose) and **Settings**
-(volume). The card in the top right shows your name and most-played hero and opens your **Profile** (name, prestige
-shop, artifacts and hero unlocks, also reachable from the lobby). Every tab
-you open is another player, which is handy for testing co-op alone.
+**Shop** (buy new heroes and spin the artifact wheel with your gold), the **Bestiary** (every enemy with its stats;
+bosses unlock once you've reached them in a run, win or lose) and **Settings** (volume). The card in the top right
+shows your name and most-played hero and opens your **Profile** (your heroes and their records, your artifacts, the
+prestige shop, and **Log out**; also reachable from the lobby).
+
+**Accounts.** You log in with a name and password; a new name creates the account. Everything you earn is saved to
+it, and nobody else can play on it. Passwords are kept salted and hashed (never in plain text) in
+`data/progress.json`, and the browser stays logged in with a token until you log out. Profiles from before accounts
+have no password yet: the first login to one sets it and keeps its progress. After five wrong passwords a connection
+has to wait a minute. (See `src/server/accounts.ts`.) Tabs share a login; to test co-op alone, log out in one tab
+and log in as someone else.
 
 In a lobby the **host** (whoever created it, or the next player if they leave) picks the map, adds bots and starts the
 game, once everyone else has pressed **Ready**. The server can run any number of lobbies at once. Each account unlocks
@@ -26,6 +33,15 @@ any progress, the pause screen doesn't wait for them, and they leave when the la
 Code changes reload automatically (the client hot-reloads; the server restarts, which ends the current run).
 
 ## Play with friends
+
+**One click, same link every time:** double-click `host.cmd`. It builds the game, starts the server (on port 3300, so
+it doesn't clash with `npm run dev`) and shares it with [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) at your
+fixed link, `https://<your-pc>.<your-tailnet>.ts.net`, which it copies to your clipboard. Friends just open that link
+(they don't need Tailscale). Only you need Tailscale: install it, sign in, and allow Funnel for your computer once (the
+first run tells you how). Keep the window open while you play; Ctrl+C stops it and takes the link offline. Progress is
+saved in `data/progress.json` on your computer. (The script is `scripts/host.ps1`.)
+
+Or by hand:
 
 ```sh
 npm run build   # build the client into dist/
@@ -152,9 +168,10 @@ artifact, and pressing Q uses its active (Tower Plate braces you, Windstep Ankle
 Storm blast the horde, the Crown rallies the team, the Aegis of Dawn raises a dome that makes everyone inside
 untouchable...) on its own cooldown. The Jeweled Gauntlet lets magic damage crit.
 
-On the Artifacts tab you can also **combine** five artifacts of one tier (click them into the slots under the orb)
-into a random one of the next tier up, and spin the **artifact wheel** for 1000 gold: 52% common, 30% rare, 14% epic,
-4% legendary. A run kills about 500 champions and three or four warlords, so a winning run finds around four or five.
+On the Artifacts tab, click an artifact for its **Equip** and **Combine** buttons. Combine shows the combine slots
+(with that artifact in the first) and your other artifacts of its tier: click four more in, and the five become a
+random one of the next tier up (Cancel goes back). The **artifact wheel** is in the Shop, 1000 gold a spin: 52%
+common, 30% rare, 14% epic, 4% legendary. A run kills about 500 champions and three or four warlords, so a winning run finds around four or five.
 
 All of it is in `src/shared/artifacts.ts`: each artifact is one line in `ARTIFACTS` (name, tier, icon, flavor and
 `effects`, such as `{ damage: 0.22, damageTaken: 0.15 }`, plus an optional `active` for Q built from parts like

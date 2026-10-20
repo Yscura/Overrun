@@ -51,7 +51,7 @@ export class SoundCues {
           if (fx.snd) sound.play(fx.snd, ...near(fx.x, fx.y));
           break;
         case 'slash':
-          sound.play(fx.heavy ? 'heavySlash' : 'slash', ...near(fx.x, fx.y));
+          sound.play(fx.snd ?? (fx.heavy ? 'heavySlash' : 'slash'), ...near(fx.x, fx.y));
           break;
         case 'zap':
           sound.play('zap', ...near(fx.x, fx.y));

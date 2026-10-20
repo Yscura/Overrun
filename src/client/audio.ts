@@ -335,7 +335,7 @@ const RECIPES: Record<SoundName, Recipe> = {
   slash: { play: (v) => v.noise({ filter: 'bandpass', from: 1800, to: 500, duration: 0.14, volume: 0.17, q: 1.2 }), max: 3 },
   // A wide, heavy swing (the bear, a boss's sweep).
   heavySlash: { play: (v) => v.noise({ filter: 'bandpass', from: 900, to: 250, duration: 0.25, volume: 0.2, q: 1 }), max: 2, gap: 0.08 },
-  // Shadow Veil's eruption: a ring of blades.
+  // A ring of blades: Cleave connecting (once Shadow Veil's eruption).
   blades: { play: (v) => v.noise({ filter: 'bandpass', from: 4000, to: 1500, duration: 0.3, volume: 0.15, q: 1.5 }), max: 2 },
   // An ability that isn't ready yet: a short, muffled double knock.
   denied: {

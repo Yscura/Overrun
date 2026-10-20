@@ -1054,6 +1054,7 @@ button.secondary:hover {
 /* --- Scoreboard (hold Tab) --- */
 
 #scoreboard {
+  z-index: 30; /* Over the pause screen too, so Tab works while paused. */
   pointer-events: none; /* The game keeps going underneath. */
   background: rgba(8, 9, 12, 0.45);
 }
@@ -1453,6 +1454,41 @@ button.secondary:hover {
   padding: 8px;
 }
 
+/* Hold Alt: your stats, to the left of the player card (placed by the code), over the chat. */
+.stat-sheet {
+  position: fixed;
+  z-index: 36;
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 4px 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: rgba(12, 14, 18, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+/* One stat: its icon and value (its name on hover). */
+.stat-cell {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  cursor: help;
+}
+
+.stat-cell-value {
+  min-width: 42px;
+  font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Passive icons in a tooltip line (what boosts a weapon). */
+.tip-icon {
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
 #hero.down .portrait {
   filter: grayscale(1);
   opacity: 0.5;
@@ -1684,6 +1720,8 @@ button.secondary:hover {
 
 .pause-box h1 {
   margin-bottom: 4px;
+  cursor: move;
+  user-select: none;
 }
 
 .pause-by {
@@ -2267,6 +2305,20 @@ body.paused #hud > :not(#loadout) {
   border-radius: 999px;
 }
 
+/* --- Logging in --- */
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(320px, 100%);
+  margin: 0 auto;
+}
+
+#login-message.error {
+  color: #ff8a80;
+}
+
 /* --- PvP --- */
 
 /* The lobby: a heading per team, with a button to join it. */
@@ -2483,6 +2535,11 @@ body.paused #hud > :not(#loadout) {
   justify-content: center;
   gap: 10px;
   margin-top: 16px;
+}
+
+/* The profile's Back and Log out, right under its title. */
+.menu-row.profile-actions {
+  margin: 0 0 16px;
 }
 
 button.wide {
@@ -2867,8 +2924,14 @@ button.wide {
   color: var(--muted);
 }
 
-.hero-tile.locked .hero-tile-portrait {
+.hero-tile.locked .hero-tile-portrait,
+.hero-tile.owned .hero-tile-portrait {
   filter: grayscale(1) brightness(0.6);
+}
+
+/* The Shop: heroes you already own, grayed out. */
+.hero-tile.owned {
+  opacity: 0.6;
 }
 
 .hero-tile-lock {
@@ -3020,10 +3083,13 @@ button.wide {
 }
 
 .hero-unlock {
-  width: 100%;
   margin-top: 14px;
+  padding: 8px 10px;
+  font-size: 13px;
+  text-align: center;
   color: #ffd54f;
-  border-color: #ffd54f;
+  border: 1px solid color-mix(in srgb, #ffd54f 50%, transparent);
+  border-radius: 8px;
 }
 
 .lock-in {
@@ -3708,7 +3774,8 @@ body:has(#lobby:not(.hidden)) #sound-control {
   }
 }
 
-#hero-shop {
+#hero-shop,
+#shop-heroes {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   gap: 8px;
@@ -3995,6 +4062,58 @@ body:has(#lobby:not(.hidden)) #sound-control {
   margin: 0;
 }
 
+/* The artifacts tab: a clicked artifact shows its Equip and Combine buttons. */
+.artifact-card.selected {
+  border-color: #8ab4f8;
+}
+
+.artifact-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.artifact-actions button {
+  flex: 1;
+  padding: 6px 10px;
+}
+
+.artifact-equipped-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #0b1f14;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+/* Combining: the slots on their own, then the artifacts of that tier to add. */
+.combine-station {
+  max-width: 560px;
+  margin: 0 auto 18px;
+}
+
+.combine-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+/* The Shop: the wheel, then the heroes. */
+.shop-gold {
+  color: #ffd54f;
+}
+
+.shop-wheel {
+  max-width: 560px;
+  margin: 0 auto 20px;
+}
+
+.shop-section {
+  margin: 0 0 4px;
+}
+
 /* Combine and the wheel, side by side. */
 .artifact-stations {
   position: relative;
@@ -4166,11 +4285,11 @@ body:has(#lobby:not(.hidden)) #sound-control {
   color: var(--tier);
 }
 
-/* What you just got. */
+/* What you just got: over the whole menu. */
 .artifact-reveal {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 2;
+  z-index: 40;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -401,18 +401,18 @@ export function warcryStats(level: number) {
   };
 }
 
-/** Kael: vanish, faster and ignored by enemies; when it wears off, erupt from the shadows. */
+/** Kata's veil: vanish, faster and ignored by enemies; Shadow Strike cast from it hits harder. */
 export function veilStats(level: number) {
   const n = Math.min(level, MAX_LEVEL) - 1;
   const evolved = level >= EVOLVED_LEVEL;
   return {
     duration: 2 + 0.25 * n,
-    damage: (60 + 25 * n) * (evolved ? 1.5 : 1),
-    radius: 150 + 10 * n,
+    /** Shadow Strike cast from the veil deals this much more damage (a share). */
+    strike: (0.5 + 0.1 * n) * (evolved ? 1.5 : 1),
     /** Extra movement speed while hidden. */
     speed: 0.4,
     cooldown: Math.max(5, 10 - n),
-    /** Evolved: the eruption stuns. */
+    /** Evolved: Shadow Strike from the veil stuns each target this long. */
     stun: evolved ? 1 : 0,
   };
 }
@@ -590,8 +590,9 @@ interface UpgradeDef {
    */
   alsoFor?: Record<string, number>;
   /**
-   * Passives that make this weapon better beyond Might (and Crit or Arcana, by its damage type): Expanse ('area'),
-   * Multishot ('multishot'), Duration ('duration'). Keep it in step with how the server fires it.
+   * Passives that make this weapon (or hero ability) better beyond Might (and Crit or Arcana, by its damage type):
+   * Expanse ('area'), Multishot ('multishot'), Duration ('duration'). Shown as "Boosted by"; keep it in step with how
+   * the server fires it.
    */
   scales?: ('area' | 'multishot' | 'duration')[];
   /** Text shown on the level-up card for reaching `level`. */
@@ -841,6 +842,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'magic',
     owner: 'alchemist',
+    scales: ['area', 'duration'],
     describe: (level) => {
       const s = toxicpoolStats(level);
       return `[E] Spill a wide pool of poison at your cursor for ${s.life.toFixed(1)}s. Every enemy in it takes ${s.damage} damage every ${s.tick}s and is slowed by ${slowPct}. ${s.cooldown.toFixed(0)}s cooldown.`;
@@ -852,6 +854,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'magic',
     owner: 'paladin',
+    scales: ['area', 'duration'],
     describe: (level) => {
       const s = consecrateStats(level);
       return `[E] Hallow the ground around you for ${s.life}s: enemies in it take ${s.damage} damage and allies heal ${s.heal} HP every 0.5s. ${s.cooldown.toFixed(0)}s cooldown.`;
@@ -863,6 +866,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'magic',
     owner: 'cleric',
+    scales: ['area', 'duration'],
     describe: (level) => {
       const s = prayerStats(level);
       return `[E] Heal allies around you for ${Math.round(s.heal * 100)}% of their max HP and cut their damage taken by 30% for ${s.guard}s. Enemies in the light take ${s.damage} damage. ${s.cooldown.toFixed(1)}s cooldown.`;
@@ -874,17 +878,19 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'physical',
     owner: 'assassin',
+    scales: ['duration'],
     describe: (level) => {
       const s = veilStats(level);
-      return `[E] Vanish for ${s.duration.toFixed(2)}s: enemies lose track of you and can't touch you, and you move 40% faster. Then erupt for ${s.damage} damage around you. ${s.cooldown.toFixed(0)}s cooldown.`;
+      return `[E] Vanish for ${s.duration.toFixed(2)}s: enemies lose track of you and can't touch you, and you move 40% faster. Shadow Strike cast from the veil deals +${Math.round(s.strike * 100)}% damage. ${s.cooldown.toFixed(0)}s cooldown.`;
     },
-    evolution: { name: 'Shadow Dance', text: 'The eruption deals 50% more damage and stuns everything it hits for 1 second.' },
+    evolution: { name: 'Shadow Dance', text: "Shadow Strike from the veil gets half again its bonus damage, and stuns each target for 1 second." },
   },
   flamenova: {
     name: 'Flame Nova',
     kind: 'weapon',
     damage: 'magic',
     owner: 'pyro',
+    scales: ['area', 'duration'],
     describe: (level) => {
       const s = flamenovaStats(level);
       return `[E] A ring of fire bursts from you for ${s.damage} damage and leaves the ground burning for ${s.burn.life}s. ${s.cooldown.toFixed(1)}s cooldown.`;
@@ -896,6 +902,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'physical',
     owner: 'ranger',
+    scales: ['multishot'],
     describe: (level) => {
       const s = tumbleStats(level);
       return `[E] Roll toward your cursor, then loose a fan of ${s.arrows} arrows at the nearest enemy for ${s.damage} damage each. ${s.cooldown.toFixed(1)}s cooldown.`;
@@ -907,6 +914,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'physical',
     owner: 'druid',
+    scales: ['multishot', 'duration'],
     describe: (level) => {
       const s = wildcallStats(level);
       return `[E] ${s.count} more spirit wolves join the hunt for ${s.duration}s, biting for ${s.damage} damage. ${s.cooldown.toFixed(1)}s cooldown.`;
@@ -918,6 +926,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'magic',
     owner: 'dragonmancer',
+    scales: ['area', 'duration'],
     describe: (level) => {
       const s = firewaveStats(level);
       return `[E] A wave of fire bursts up in a row toward your cursor: ${s.count} blasts of ${s.damage} damage. In Dragon Form: breathe fire instead. ${s.cooldown.toFixed(1)}s cooldown.`;
@@ -929,6 +938,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'true',
     owner: 'chronobreaker',
+    scales: ['area', 'duration'],
     describe: (level) => {
       const s = timebombStats(level);
       return `[E] Plant a bomb at your cursor that goes off after ${s.delay}s for ${s.damage} damage, stunning enemies for ${s.stun.toFixed(1)}s. ${s.cooldown.toFixed(1)}s cooldown.`;
@@ -940,6 +950,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'magic',
     owner: 'mage',
+    scales: ['area'],
     describe: (level) => {
       const s = meteorStats(level);
       return `[E] Calls a meteor down at your cursor for ${s.damage} damage in a wide area. ${s.cooldown.toFixed(1)}s cooldown.`;
@@ -951,6 +962,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'physical',
     owner: 'bruiser',
+    scales: ['area', 'duration'],
     describe: (level) => {
       const s = leapStats(level);
       return `[E] Leaps toward your cursor, over walls, and smashes down for ${s.damage} damage. ${s.cooldown.toFixed(1)}s cooldown.`;
@@ -962,6 +974,7 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     kind: 'weapon',
     damage: 'physical',
     owner: 'tank',
+    scales: ['area', 'duration'],
     describe: (level) => {
       const s = warcryStats(level);
       return `[E] Taunts nearby enemies to attack you and takes ${Math.round(s.reduction * 100)}% less damage for ${s.duration.toFixed(1)}s. ${s.cooldown.toFixed(0)}s cooldown.`;
@@ -998,8 +1011,9 @@ export const ALL_UPGRADES = Object.keys(UPGRADES) as UpgradeId[];
  */
 export function boostedBy(id: UpgradeId): PassiveId[] {
   const def = UPGRADES[id];
-  if (def.kind !== 'weapon' || def.owner) return [];
-  const list: PassiveId[] = [def.damage === 'magic' ? 'arcana' : 'crit'];
+  if (def.kind !== 'weapon') return [];
+  // Crit for physical damage, Arcana for magic (true damage takes neither), then what it scales with.
+  const list: PassiveId[] = def.damage === 'magic' ? ['arcana'] : def.damage === 'true' ? [] : ['crit'];
   return [...list, ...(def.scales ?? [])];
 }
 

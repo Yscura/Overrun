@@ -8,7 +8,12 @@ import { CAMPAIGN } from '../shared/maps';
 import { PRESTIGE, isPrestigeId, prestigeCost, prestigeSpent, type PrestigeRanks } from '../shared/prestige';
 import { isDevName, type ArtifactFind, type HeroRecord, type ProfileState } from '../shared/protocol';
 
+import type { Auth } from './accounts';
+
 export interface Profile {
+  /** The account's name as it was first written (profiles are kept by lowercased name), and its password (see accounts.ts). */
+  display?: string;
+  auth?: Auth;
   /** Unspent prestige points. */
   points: number;
   ranks: PrestigeRanks;

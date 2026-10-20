@@ -295,7 +295,12 @@ const DESYNC_LIMIT = 120;
 
 // Ultimate effects.
 /** `after`: seconds you stay untouchable once it ends (you may land inside something big). */
-const STRIKE = { targets: 7, hop: 0.18, range: 650, damage: 120, perLevel: 8, after: 1 };
+/**
+ * Shadow Strike: `targets` hops (plus one per projectile, and one for every 1/`perCrit` crit chance), `hop` seconds
+ * apart, within `range`; each strike always crits. The last one goes for the enemy with the fewest others within
+ * `crowd` of it (so you end up out of the horde, not in it).
+ */
+const STRIKE = { targets: 7, hop: 0.18, range: 650, damage: 120, perLevel: 8, after: 1, perCrit: 10, crowd: 200 };
 const INFERNO = { duration: 3, fireballs: 16, spread: 380, radius: 110, damage: 80, perLevel: 5 };
 const ARROW_STORM = { duration: 4, interval: 0.06, damage: 26, perLevel: 3, pierce: 3, jitter: 0.12 };
 /**
@@ -497,6 +502,8 @@ interface Player {
   /** Gold they've banked this run (their own share, after their gold bonus), and the map this victory unlocked for them. */
   goldEarned: number;
   unlockedMap: string | null;
+  /** Shadow Strike was cast from Shadow Veil (its strikes hit harder). */
+  strikeVeiled: boolean;
   /** PvP: their team (index into PVP_TEAMS; -1 outside PvP), when they respawn once fallen, who hit them lately (by player id, when), and level-up picks still waiting (shown one at a time, without pausing). */
   team: number;
   respawnAt: number;
@@ -1164,6 +1171,7 @@ export class Game {
       damageBy: {},
       goldEarned: 0,
       unlockedMap: null,
+      strikeVeiled: false,
       team: -1,
       respawnAt: 0,
       hitBy: new Map(),
@@ -1306,11 +1314,9 @@ export class Game {
         break;
       }
       case 'giveup':
-        // From the pause screen: the run ends as a defeat (prestige and gold earned so far still count).
-        if (this.phase === 'playing' && this.pause?.kind === 'menu') {
-          this.endGame(false);
-          this.backToLobby();
-        }
+        // From the pause screen: the run ends as a defeat (prestige and gold earned so far still count), with the
+        // DEFEAT screen and the post-game screen like any other.
+        if (this.phase === 'playing' && this.pause?.kind === 'menu') this.endGame(false);
         break;
       case 'move':
         this.movePlayer(p, msg.x, msg.y, msg.aim, msg.epoch);
@@ -2286,7 +2292,7 @@ export class Game {
         p.loot.push(find);
         p.found.push(find);
         p.sounds.push('relic');
-        this.log(`${p.name} claimed the Dragonsheart`, 'good');
+        this.log(`${p.name} claimed the Dragonsheart`, 'good', TIERS.legendary.color);
         if (!p.profile.dragonmancer) {
           p.profile.dragonmancer = true;
           if (!this.feats.includes(DRAGONMANCER_FEAT)) this.feats.push(DRAGONMANCER_FEAT);
@@ -2393,8 +2399,9 @@ export class Game {
   }
 
   /** A line in everyone's event log (without a banner). */
-  private log(text: string, tone: LogTone = 'info'): void {
-    this.fx.push({ k: 'log', text, tone });
+  /** A line in the event log, optionally in a color of its own (artifacts: their tier's). */
+  private log(text: string, tone: LogTone = 'info', color?: number): void {
+    this.fx.push({ k: 'log', text, tone, ...(color !== undefined && { c: color }) });
   }
 
   // --- Level-up pause ---
@@ -5612,15 +5619,18 @@ export class Game {
     const base = cleaveStats(level);
     const s = { ...base, range: base.range * stats.area };
     const damage = s.damage * stats.damageMult;
+    let hit = false;
     for (const e of this.grid.query(p.x, p.y, s.range + MAX_ENEMY_RADIUS, this.near)) {
       if (e.dead || !this.inSwing(p, e.x, e.y, ENEMY_TYPES[e.type].radius, s.range, s.arc)) continue;
       this.damageEnemy(e, damage, p, 'physical');
       this.knockback(e, p.x, p.y, s.knockback);
+      hit = true;
     }
     for (const c of this.pickups) {
       if (this.breakable(c) && this.inSwing(p, c.x, c.y, CRATE_RADIUS, s.range, s.arc)) this.damageCrate(c, damage, p);
     }
-    this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: s.range, a: round2(p.aim), arc: s.arc, c: p.color });
+    // When it connects, the ring of steel (Shadow Veil's old eruption sound).
+    this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: s.range, a: round2(p.aim), arc: s.arc, c: p.color, ...(hit && { snd: 'blades' as const }) });
     return s.cooldown;
   }
 
@@ -5715,7 +5725,7 @@ export class Game {
   }
 
   /** Damage from a player rolls for a crit (physical only) and feeds their lifesteal and damage stats. */
-  private damageEnemy(e: Enemy, amount: number, by: Player | undefined, type: DamageType): void {
+  private damageEnemy(e: Enemy, amount: number, by: Player | undefined, type: DamageType, alwaysCrit = false): void {
     if (e.dead) return;
     if (this.pvp) {
       // No hurting your own team; a crystal can't be hurt while its towers all stand.
@@ -5735,7 +5745,7 @@ export class Game {
     if (by) {
       const stats = this.stats(by);
       amount *= stats.typeDamage[type];
-      const crit = (CRIT_TYPES[type] || (type === 'magic' && stats.magicCrit)) && stats.critChance > 0 && Math.random() < stats.critChance;
+      const crit = alwaysCrit || ((CRIT_TYPES[type] || (type === 'magic' && stats.magicCrit)) && stats.critChance > 0 && Math.random() < stats.critChance);
       if (crit) amount *= CRIT_MULTIPLIER;
       // PvP: heroes take a share of it (see PVP.heroDamage), and towers and crystals shrug off most of it.
       if (e.unit?.kind === 'hero') amount *= this.heroDamageShare(by);
@@ -6311,9 +6321,11 @@ export class Game {
         break;
       }
       case 'shadowstrike':
-        p.strikes = STRIKE.targets + stats.projectiles;
+        p.strikes = STRIKE.targets + stats.projectiles + Math.floor(stats.critChance * STRIKE.perCrit);
         p.strikeTimer = 0;
         p.struck.clear();
+        // From Shadow Veil: harder strikes (and stunning ones, evolved).
+        p.strikeVeiled = p.veil > 0;
         break;
       case 'inferno':
         p.inferno = INFERNO.duration * stats.duration;
@@ -6409,30 +6421,14 @@ export class Game {
     }
   }
 
-  /** Ultimates that play out over time: Shadow Strike, Inferno, Arrow Storm, and Shadow Veil's eruption. */
+  /** Ultimates (and abilities) that play out over time: Shadow Strike, Inferno, Arrow Storm, Shadow Veil. */
   private updateUltimates(p: Player, dt: number): void {
     if (p.downed) {
       p.veil = p.strikes = p.inferno = p.arrowStorm = p.wrath = p.dragonForm = p.breath = 0;
       return;
     }
     const stats = this.stats(p);
-    if (p.veil > 0) {
-      p.veil -= dt;
-      if (p.veil <= 0) {
-        // Erupt from the shadows.
-        p.veil = 0;
-        const s = veilStats(p.upgrades.veil ?? 1);
-        const r = s.radius * stats.area;
-        const damage = s.damage * stats.damageMult;
-        for (const e of this.grid.query(p.x, p.y, r + MAX_ENEMY_RADIUS, this.near)) {
-          if (e.dead || dist2(e.x, e.y, p.x, p.y) >= (r + ENEMY_TYPES[e.type].radius) ** 2) continue;
-          this.damageEnemy(e, damage, p, 'physical');
-          if (s.stun > 0) this.stun(e, s.stun * stats.duration);
-        }
-        this.hitCratesAround(p.x, p.y, r, damage);
-        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0x7e57c2, snd: 'blades' });
-      }
-    }
+    if (p.veil > 0) p.veil = Math.max(0, p.veil - dt);
     if (p.dragonForm > 0) {
       // The body turns toward where he's walking; a head turned past its reach swings the body round with it.
       const dx = p.x - p.bodyX;
@@ -6481,25 +6477,47 @@ export class Game {
       p.invuln = Math.max(p.invuln, 0.1);
       if (p.strikeTimer <= 0) {
         p.strikeTimer = STRIKE.hop;
-        // The toughest enemy nearby that hasn't been struck yet.
+        // The toughest enemy nearby that hasn't been struck yet; for the last strike, the one with the fewest others
+        // around it (toughest first among those), so it ends out of the crowd.
+        const last = p.strikes === 1;
+        const crowd = (e: Enemy) => this.grid.query(e.x, e.y, STRIKE.crowd, this.splashNear).filter((o) => o !== e && !o.dead && dist2(o.x, o.y, e.x, e.y) < STRIKE.crowd ** 2).length;
         let target: Enemy | null = null;
+        let targetCrowd = Infinity;
         for (const e of this.enemies) {
           if (e.dead || p.struck.has(e.id) || dist2(e.x, e.y, p.x, p.y) > STRIKE.range ** 2) continue;
           if (this.pvp && (e.team === p.team || e.burrowed)) continue;
-          if (!target || e.hp > target.hp) target = e;
+          if (last) {
+            const n = crowd(e);
+            if (n < targetCrowd || (n === targetCrowd && target && e.hp > target.hp)) {
+              target = e;
+              targetCrowd = n;
+            }
+          } else if (!target || e.hp > target.hp) target = e;
         }
         if (!target) {
           p.strikes = 0;
         } else {
           p.strikes--;
           p.struck.add(target.id);
-          const a = Math.random() * Math.PI * 2;
+          // Land beside it; the last time on its side away from the crowd.
+          let a = Math.random() * Math.PI * 2;
+          if (last) {
+            const near = this.grid.query(target.x, target.y, STRIKE.crowd * 2, this.splashNear).filter((o) => o !== target && !o.dead);
+            if (near.length > 0) {
+              const cx = near.reduce((s, o) => s + o.x, 0) / near.length;
+              const cy = near.reduce((s, o) => s + o.y, 0) / near.length;
+              a = Math.atan2(target.y - cy, target.x - cx);
+            }
+          }
           const r = ENEMY_TYPES[target.type].radius + PLAYER_RADIUS + 4;
           this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 30, c: AURA.strike });
           ({ x: p.x, y: p.y } = pushOut(this.walls, target.x + Math.cos(a) * r, target.y + Math.sin(a) * r, PLAYER_RADIUS));
           if (p.inArena) this.keepInArena(p, PLAYER_RADIUS);
           p.epoch++;
-          this.damageEnemy(target, (STRIKE.damage + STRIKE.perLevel * this.levelOf(p)) * stats.damageMult, p, 'physical');
+          // Every strike crits; from Shadow Veil they hit harder (and stun, evolved).
+          const veil = p.strikeVeiled ? veilStats(p.upgrades.veil ?? 1) : null;
+          this.damageEnemy(target, (STRIKE.damage + STRIKE.perLevel * this.levelOf(p)) * stats.damageMult * (1 + (veil?.strike ?? 0)), p, 'physical', true);
+          if (veil?.stun && !target.dead) this.stun(target, veil.stun * stats.duration);
           this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: r + 20, a: round2(Math.atan2(target.y - p.y, target.x - p.x)), arc: 1.4, c: AURA.strike });
           p.sounds.push('stab');
         }
@@ -6694,7 +6712,7 @@ export class Game {
     if (Math.random() >= DROPS[source].chance) return;
     const tier = rollTier(source, this.lootIndex());
     this.addPickup(PickupKind.Artifact, x, y, 0, TIER_IDS.indexOf(tier));
-    this.log(`${tier === 'epic' || tier === 'legendary' ? 'An' : 'A'} ${TIERS[tier].name.toLowerCase()} artifact dropped!`, 'good');
+    this.log(`${tier === 'epic' || tier === 'legendary' ? 'An' : 'A'} ${TIERS[tier].name.toLowerCase()} artifact dropped!`, 'good', TIERS[tier].color);
   }
 
   /** Artifacts on the ground: whoever touches one finds an artifact of its tier for every person in the team. */
@@ -6726,7 +6744,7 @@ export class Game {
       p.found.push(find);
       p.sounds.push('relic');
       const name = artifactDef(find.id).name;
-      this.log(`${p.name} found ${name} (${TIERS[tier].name})`, 'good');
+      this.log(`${p.name} found ${name} (${TIERS[tier].name})`, 'good', TIERS[tier].color);
     }
     if (people.length > 0) this.options.onProfiles?.();
   }
@@ -7049,6 +7067,7 @@ export class Game {
       prestigePoints: p.profile.points,
       god: p.god,
       gold: p.profile.gold ?? 0,
+      runGold: p.goldEarned,
       heroes: this.allHeroes(p) ? CHARACTER_IDS : (p.profile.heroes ?? []).filter(isCharacterId),
       artifacts: p.bot ? [] : ownedArtifacts(p.profile),
       found: p.found.splice(0),

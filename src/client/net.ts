@@ -10,6 +10,8 @@ export class Connection {
   onWelcome: (id: number, room: RoomRef) => void = () => {};
   onLeft: () => void = () => {};
   onProfile: (profile: ProfileState) => void = () => {};
+  /** How logging in went (see the 'auth' message). */
+  onAuth: (result: { ok: true; name: string; token: string; created: boolean } | { ok: false; message: string }) => void = () => {};
   onRooms: (rooms: RoomInfo[]) => void = () => {};
   onError: (message: string) => void = () => {};
   /** What combining or the wheel gave you. */
@@ -37,6 +39,9 @@ export class Connection {
           break;
         case 'profile':
           this.onProfile(msg.profile);
+          break;
+        case 'auth':
+          this.onAuth(msg);
           break;
         case 'rooms':
           this.onRooms(msg.rooms);

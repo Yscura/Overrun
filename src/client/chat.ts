@@ -67,10 +67,11 @@ export class Chat {
     this.wake();
   }
 
-  /** An event line (from the game) or a chat line (from a player). */
-  add(time: string, text: string, tone: LogTone | 'chat', who?: { name: string; color: number }): void {
+  /** An event line (from the game, in `color` if it has one) or a chat line (from a player). */
+  add(time: string, text: string, tone: LogTone | 'chat', who?: { name: string; color: number }, color?: number): void {
     const line = document.createElement('div');
     line.className = `chat-line ${tone}`;
+    if (color !== undefined) line.style.color = `#${color.toString(16).padStart(6, '0')}`;
     const stamp = document.createElement('span');
     stamp.className = 'chat-time';
     stamp.textContent = time;

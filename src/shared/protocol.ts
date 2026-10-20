@@ -14,7 +14,12 @@ export type Phase = 'lobby' | 'playing' | 'gameover';
 export type ClientMessage =
   // --- Outside a room (the main menu) ---
   /** First thing after connecting (and after a name change): who you are. Answered with your profile. */
-  | { t: 'hello'; name: string }
+  /** Log in (or create the account, if the name is new): see accounts.ts. */
+  | { t: 'login'; name: string; password: string }
+  /** Log back in with the token from an earlier login (staying logged in on this browser). */
+  | { t: 'resume'; name: string; token: string }
+  /** Log out on this browser (its token stops working). */
+  | { t: 'logout'; token: string }
   /** Start a new room in a mode and join it. */
   | { t: 'create'; mode: ModeId; character: CharacterId }
   /** Join a room by its code. */
@@ -92,6 +97,9 @@ export type ServerMessage =
   /** You left your room. */
   | { t: 'left' }
   | { t: 'profile'; profile: ProfileState }
+  /** How logging in went: the account's name and a token to stay logged in with (`created`: a new account), or why not. */
+  | { t: 'auth'; ok: true; name: string; token: string; created: boolean }
+  | { t: 'auth'; ok: false; message: string }
   | { t: 'rooms'; rooms: RoomInfo[] }
   | { t: 'error'; message: string }
   /** What combining or spinning the wheel gave you (your profile follows). */
@@ -262,6 +270,8 @@ export interface MeState {
   god: boolean;
   /** Gold, kept between runs (heroes are bought with it). */
   gold: number;
+  /** Gold you've earned this run (the in-game counter). */
+  runGold: number;
   /** Heroes this player has unlocked (beyond the starting four). */
   heroes: CharacterId[];
   /** Artifacts you own (to equip in the lobby). */
@@ -344,8 +354,8 @@ export type SoundId =
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
   | { k: 'ring'; x: number; y: number; r: number; c: number; snd?: 'slam' | 'bigSlam' | 'explode' | 'pop' | 'blades' }
-  /** A swing. `heavy`: a big one (a boss's sweep, the bear), which sounds like it. */
-  | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number; heavy?: true }
+  /** A swing. `heavy`: a big one (a boss's sweep, the bear), which sounds like it; `snd`: a sound of its own instead. */
+  | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number; heavy?: true; snd?: 'blades' }
   | { k: 'zap'; x: number; y: number }
   | { k: 'boom'; x: number; y: number; r: number }
   /**
@@ -371,8 +381,8 @@ export type Fx =
   | { k: 'cast'; x: number; y: number; r: number; c: number; t: number }
   /** Big announcement text (also goes in the event log). */
   | { k: 'banner'; text: string; tone: 'danger' | 'good' }
-  /** A line in the event log only. */
-  | { k: 'log'; text: string; tone: LogTone }
+  /** A line in the event log only (in color `c`, if it has one: an artifact's tier). */
+  | { k: 'log'; text: string; tone: LogTone; c?: number }
   /** A chat message. */
   | { k: 'chat'; name: string; color: number; text: string }
   /** Someone shift-clicked a spot: everyone sees and hears it. */

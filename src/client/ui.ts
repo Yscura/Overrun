@@ -38,6 +38,7 @@ import {
   type ChoiceId,
   ALL_UPGRADES,
   boostedBy,
+  CRIT_MULTIPLIER,
   type PassiveId,
 } from '../shared/upgrades';
 import { artifactIcon, sortArtifacts, tierColor } from './artifactView';
@@ -53,6 +54,8 @@ const SPEAKER_OFF = `<svg viewBox="0 0 24 24" aria-hidden="true">${SPEAKER}<path
 
 const NAME_KEY = 'overrun.name';
 const CHARACTER_KEY = 'overrun.character';
+/** Where you've dragged the pause box (an offset from the middle). */
+const PAUSE_KEY = 'overrun.pauseOffset';
 const CHOICE_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'];
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -107,7 +110,8 @@ interface Tip {
   /** Artifacts are drawn in their tier's frame. */
   artifact?: ArtifactId;
   tags: { text: string; cls: string }[];
-  lines: { text: string; cls?: string }[];
+  /** `icons`: shown after the text (the passives that boost a weapon). */
+  lines: { text: string; cls?: string; icons?: ChoiceId[] }[];
 }
 
 /** The damage type of a weapon or ability, for coloring (abilities without damage count as physical). */
@@ -123,7 +127,7 @@ function weaponTip(id: UpgradeId, level: number): Tip {
   if (def.owner) tags.push({ text: 'E ability', cls: 'tip-level' });
   const lines: Tip['lines'] = [{ text: strip(def.describe(Math.max(1, Math.min(level, MAX_LEVEL)))) }];
   const boosts = boostedBy(id);
-  if (boosts.length > 0) lines.push({ text: `Boosted by: ${boosts.map((b) => UPGRADES[b].name).join(', ')}`, cls: 'tip-boosts' });
+  if (boosts.length > 0) lines.push({ text: 'Boosted by', cls: 'tip-boosts', icons: boosts });
   if (evolved) lines.push({ text: `${def.evolution!.name}: ${def.evolution!.text}`, cls: 'tip-evo' });
   else if (level < upgradeMax(id)) lines.push({ text: `Next level: ${strip(def.describe(level + 1))}`, cls: 'tip-muted' });
   else if (def.evolution) lines.push({ text: `Evolves at a Forge into ${def.evolution.name}: ${def.evolution.text}`, cls: 'tip-muted' });
@@ -256,6 +260,9 @@ export class UI {
   /** One health bar per final boss. */
   private bossViews: { name: HTMLElement; fill: HTMLElement; hp: HTMLElement }[] = [];
   private bossChip = $('boss-chip');
+  /** Your stats, shown beside your player card while you hold Ctrl. */
+  private statSheet = el('div', 'stat-sheet hidden');
+  private ctrlHeld = false;
   /** PvP: each team's level, kills, towers and crystal (above the boss chip). */
   private pvpBar = el('div', 'pvp-bar hidden');
   private gameoverTitle = $('gameover-title');
@@ -317,7 +324,7 @@ export class UI {
   private latest: { snap: Snapshot; myId: number | null } | null = null;
 
   // Only rebuild DOM when the content actually changed (snapshots arrive 30 times a second).
-  private shown = { pvp: '', spectate: '', pauseList: '', players: '', maps: '', characters: '', artifacts: '', heroDetail: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
+  private shown = { stats: '', pvp: '', spectate: '', pauseList: '', players: '', maps: '', characters: '', artifacts: '', heroDetail: '', hero: '', abilities: '', options: '', waiting: '', loadout: '', result: '' };
   private bannerTimer = 0;
 
   constructor() {
@@ -336,11 +343,59 @@ export class UI {
     $('room-leave').addEventListener('click', () => this.onLeave());
     this.pauseReady.addEventListener('click', () => this.onReady());
     this.addBot.addEventListener('click', () => this.onAddBot());
+    // Drag the pause box by its title (so you can see past it); it stays where you leave it, and a double-click puts it
+    // back in the middle.
+    const pauseBox = this.pauseMenu.querySelector<HTMLElement>('.pause-box')!;
+    const pauseTitle = pauseBox.querySelector<HTMLElement>('h1')!;
+    pauseTitle.title = 'Drag to move · double-click to center';
+    const offset = { x: 0, y: 0 };
+    try {
+      Object.assign(offset, JSON.parse(load(PAUSE_KEY) ?? '{}'));
+    } catch {}
+    const place = () => (pauseBox.style.transform = `translate(${offset.x}px, ${offset.y}px)`);
+    place();
+    pauseTitle.addEventListener('pointerdown', (e) => {
+      const start = { x: e.clientX - offset.x, y: e.clientY - offset.y };
+      pauseTitle.setPointerCapture(e.pointerId);
+      const move = (m: PointerEvent) => {
+        // Kept on screen (at least part of it).
+        offset.x = Math.max(-window.innerWidth / 2 + 60, Math.min(window.innerWidth / 2 - 60, m.clientX - start.x));
+        offset.y = Math.max(-window.innerHeight / 2 + 40, Math.min(window.innerHeight / 2 - 40, m.clientY - start.y));
+        place();
+      };
+      const up = () => {
+        pauseTitle.removeEventListener('pointermove', move);
+        pauseTitle.removeEventListener('pointerup', up);
+        save(PAUSE_KEY, JSON.stringify(offset));
+      };
+      pauseTitle.addEventListener('pointermove', move);
+      pauseTitle.addEventListener('pointerup', up);
+    });
+    pauseTitle.addEventListener('dblclick', () => {
+      offset.x = offset.y = 0;
+      place();
+      save(PAUSE_KEY, JSON.stringify(offset));
+    });
     $('pause-giveup').addEventListener('click', () => {
-      if (window.confirm('Give up this run for everyone and go back to the lobby? Prestige and gold earned so far are kept.')) this.onGiveUp();
+      if (window.confirm('Give up this run for everyone? It ends as a defeat; prestige and gold earned so far are kept.')) this.onGiveUp();
     });
     document.body.append(this.tooltip);
     this.bossChip.before(this.pvpBar);
+    // Hold Ctrl for your stats. The sheet lives on the page itself, over the chat, and is placed beside the player card
+    // when it opens.
+    document.body.append(this.statSheet);
+    const setCtrl = (held: boolean) => {
+      if (held === this.ctrlHeld) return;
+      this.ctrlHeld = held;
+      if (this.latest) this.update(this.latest.snap, this.latest.myId);
+    };
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Control') setCtrl(true);
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.key === 'Control') setCtrl(false);
+    });
+    window.addEventListener('blur', () => setCtrl(false));
     document.addEventListener('pointerover', (e) => {
       // Element, not HTMLElement: the pointer is often over an icon, which is SVG.
       const target = e.target instanceof Element ? e.target.closest<HTMLElement>('.has-tip') : null;
@@ -483,7 +538,8 @@ export class UI {
     this.hardTag.textContent = snap.mode === 'hard' ? 'HARD' : snap.mode === 'pvp' ? 'PVP' : `ENDLESS · WAVE ${snap.wave}`;
     // (PvP: hero kills; and no gold, it's apart from the campaign.)
     this.kills.textContent = `${me?.kills ?? 0} ${snap.mode === 'pvp' ? 'slain' : 'kills'}`;
-    this.gold.textContent = `${snap.me?.gold ?? 0} gold`;
+    // (What you've earned this run; your total is in the lobby and the Shop.)
+    this.gold.textContent = `${snap.me?.runGold ?? 0} gold`;
     this.gold.classList.toggle('hidden', snap.mode === 'pvp');
     this.eventChip.classList.toggle('hidden', !snap.event);
     if (snap.event) this.eventChip.textContent = `${EVENTS[snap.event.kind].name} · ${Math.ceil(snap.event.timeLeft)}s`;
@@ -492,6 +548,7 @@ export class UI {
       const quest = QUESTS[snap.quest.kind];
       this.questChip.textContent = `${quest.name}: ${quest.goal} · ${Math.ceil(snap.quest.timeLeft)}s`;
     }
+    this.renderStatSheet(snap, me);
     if (me && snap.me) {
       this.renderHero(me);
       this.renderAbilities(me, snap);
@@ -728,9 +785,8 @@ export class UI {
     this.heroDetail.replaceChildren(...heroDetail(id, me.color));
     if (locked && c.secret) {
     } else if (locked) {
-      const unlock = el('button', 'secondary hero-unlock', `Unlock for ${c.unlockCost} gold${gold < c.unlockCost! ? ` (you have ${gold})` : ''}`) as HTMLButtonElement;
-      unlock.addEventListener('click', () => this.onOpenProfile());
-      this.heroDetail.append(unlock);
+      // (Heroes are bought in the Shop, from the main menu.)
+      this.heroDetail.append(el('p', 'hero-unlock', `Not yours yet: unlock ${c.name} for ${c.unlockCost} gold in the Shop.`));
     }
   }
 
@@ -951,6 +1007,63 @@ export class UI {
     this.hero.classList.toggle('down', me.downed);
   }
 
+  /**
+   * While Ctrl is held: every stat you have right now (your hero's base plus your passives, prestige and artifact; PvP
+   * without prestige and artifacts), as an icon and a value; the stat's name shows on hover. Health, speed and
+   * cooldowns come from the server, so buffs count there too.
+   */
+  private renderStatSheet(snap: Snapshot, me: PlayerState | undefined): void {
+    const show = this.ctrlHeld && snap.phase === 'playing' && !!me && !!snap.me;
+    this.statSheet.classList.toggle('hidden', !show);
+    if (!show) return;
+    const card = this.hero.getBoundingClientRect();
+    this.statSheet.style.right = `${Math.round(window.innerWidth - card.left + 10)}px`;
+    this.statSheet.style.bottom = `${Math.round(window.innerHeight - card.bottom)}px`;
+    const pvp = !!snap.pvp;
+    const s = playerStats(snap.me!.upgrades, me!.character, pvp ? {} : me!.prestige, pvp ? null : me!.artifact);
+    const signed = (v: number) => `${v >= 0 ? '+' : '-'}${percent(Math.abs(v))}`;
+    // Each stat: its icon (the passive that raises it; the hero's own ultimate for its cooldown), name and value.
+    const ult = CHARACTERS[me!.character].ultimate.id;
+    const TYPE_ICONS: Record<DamageType, ChoiceId> = { physical: 'cleave', magic: 'arcana', true: 'timebomb' };
+    const rows: [ChoiceId | { ult: UltimateId }, string, string][] = [
+      ['vitality', 'Health', `${me!.hp}/${me!.maxHp}`],
+      ['regen', 'Regeneration (HP per second)', s.regen.toFixed(1)],
+      ['armor', 'Armor (damage reduction)', percent(s.armor)],
+      ['evasion', 'Evasion (chance to avoid a hit)', percent(s.evasion)],
+    ];
+    if (s.damageTaken !== 1) rows.push(['armor', 'Damage taken', signed(s.damageTaken - 1)]);
+    rows.push(['might', 'Damage', signed(s.damageMult - 1)]);
+    for (const t of DAMAGE_TYPES) if (s.typeDamage[t] > 1.001) rows.push([TYPE_ICONS[t], `${DAMAGE_NAMES[t]} damage`, signed(s.typeDamage[t] - 1)]);
+    rows.push(
+      ['crit', `Crit chance (crits deal ×${CRIT_MULTIPLIER}${s.magicCrit ? '; magic crits too' : ''})`, percent(s.critChance)],
+      ['haste', 'Attack speed', signed(1 / s.cooldownMult - 1)],
+      ['area', 'Area', signed(s.area - 1)],
+      ['duration', 'Duration', signed(s.duration - 1)],
+      ['multishot', 'Extra projectiles', `+${s.projectiles}`],
+      ['lifesteal', `Lifesteal (share of damage healed, up to ${percent(s.lifestealCap)} of max HP a second)`, `${(s.lifesteal * 100).toFixed(1)}%`],
+    );
+    if (s.support > 1) rows.push(['devotion', 'Healing given', signed(s.support - 1)]);
+    rows.push(
+      ['swift', 'Move speed', String(Math.round(snap.me!.speed))],
+      ['tumble', 'Dodge cooldown', `${snap.me!.dodgeCooldown.toFixed(1)}s`],
+      [{ ult }, 'Ultimate cooldown', `${Math.round(snap.me!.ultimate.cooldown)}s`],
+      ['magnet', 'Pickup radius', String(Math.round(s.magnet))],
+      ['wisdom', 'XP gained', signed(s.xpMult - 1)],
+    );
+    if (s.goldMult !== 1 && !pvp) rows.push(['bonusGold', 'Gold gained', signed(s.goldMult - 1)]);
+    const key = JSON.stringify(rows);
+    if (key === this.shown.stats) return;
+    this.shown.stats = key;
+    this.statSheet.replaceChildren(
+      ...rows.map(([icon, label, value]) => {
+        const cell = el('div', 'stat-cell');
+        cell.title = label;
+        cell.append(typeof icon === 'string' ? iconEl(icon, 22) : ultIconEl(icon.ult, 22), el('span', 'stat-cell-value', value));
+        return cell;
+      }),
+    );
+  }
+
   /** The E and R slots: name, ability level, and a shade that drains as the cooldown runs out. */
   private renderAbilities(me: PlayerState, snap: Snapshot): void {
     const hero = CHARACTERS[me.character];
@@ -1110,7 +1223,20 @@ export class UI {
     }
     const tags = el('div', 'tip-tags');
     tags.append(...tip.tags.map((t) => el('span', t.cls, t.text)));
-    box.replaceChildren(title, tags, ...tip.lines.map((l) => el('p', l.cls ?? '', l.text)));
+    box.replaceChildren(
+      title,
+      tags,
+      ...tip.lines.map((l) => {
+        const line = el('p', l.cls ?? '', l.text);
+        for (const id of l.icons ?? []) {
+          const icon = iconEl(id, 18);
+          icon.classList.add('tip-icon');
+          icon.title = UPGRADES[id as UpgradeId]?.name ?? '';
+          line.append(icon);
+        }
+        return line;
+      }),
+    );
     if (this.shares.has(target)) box.append(el('p', 'tip-share', `${this.scoreboard.contains(target) ? 'Click' : 'Shift+click'} to share in chat`));
     box.classList.remove('hidden');
     // Above the element, centered, kept on screen.
@@ -1362,7 +1488,8 @@ export class UI {
       }
       return row;
     }
-    const mine = ownedWeapons(upgrades).filter((w) => boostedBy(w).includes(id as PassiveId));
+    // (Your weapons and your E ability.)
+    const mine = (Object.keys(upgrades) as UpgradeId[]).filter((w) => (upgrades[w] ?? 0) > 0 && UPGRADES[w].kind === 'weapon' && boostedBy(w).includes(id as PassiveId));
     const specific = ALL_UPGRADES.some((w) => boostedBy(w).includes(id as PassiveId));
     if (!specific) return row; // Might, Haste and the like help everything.
     if (mine.length === 0) {

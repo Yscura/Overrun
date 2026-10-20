@@ -8,6 +8,7 @@ import { MODES, isModeId } from '../shared/modes';
 import { isDevName, type ClientMessage, type ServerMessage } from '../shared/protocol';
 import { Game } from './game';
 import { buyHero, buyPrestige, combineArtifacts, equipArtifact, getProfile, profileState, refundPrestige, spinWheel } from './profiles';
+import { login, logout, resume } from './accounts';
 import { loadProgress, saveProgress } from './progress';
 import { Rooms, type Room } from './rooms';
 
@@ -68,10 +69,13 @@ interface Session {
   name: string | null;
   room: Room | null;
   playerId: number | null;
+  /** Wrong passwords in a row on this connection, and when it may try again after too many. */
+  failures: number;
+  lockedUntil: number;
 }
 
 wss.on('connection', (ws) => {
-  const session: Session = { name: null, room: null, playerId: null };
+  const session: Session = { name: null, room: null, playerId: null, failures: 0, lockedUntil: 0 };
   const send = (msg: ServerMessage) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   };
@@ -113,11 +117,36 @@ wss.on('connection', (ws) => {
       return;
     }
     switch (msg.t) {
-      case 'hello':
-        // Names can't change mid-game: your progress is saved under it.
+      case 'login':
+      case 'resume': {
+        // Accounts can't change mid-game: your progress is saved under yours.
         if (session.room) return;
-        session.name = String(msg.name ?? '').trim().slice(0, 16) || 'Player';
+        // A few wrong passwords, then this connection has to wait a while (no guessing in bulk).
+        if (session.failures >= 5 && Date.now() < session.lockedUntil) {
+          send({ t: 'auth', ok: false, message: 'Too many tries. Wait a minute and try again.' });
+          return;
+        }
+        const result = msg.t === 'login' ? login(progress.profiles, msg.name, msg.password) : resume(progress.profiles, msg.name, msg.token);
+        if (!result.ok) {
+          if (msg.t === 'login' && ++session.failures >= 5) session.lockedUntil = Date.now() + 60_000;
+          send({ t: 'auth', ok: false, message: result.message });
+          return;
+        }
+        session.failures = 0;
+        session.name = result.name;
+        if (msg.t === 'login') {
+          save();
+          console.log(result.created ? `New account: ${result.name}` : `${result.name} logged in`);
+        }
+        send({ t: 'auth', ok: true, name: result.name, token: result.token, created: result.created });
         sendProfile();
+        return;
+      }
+      case 'logout':
+        if (session.room) return;
+        logout(progress.profiles, session.name, msg.token);
+        save();
+        session.name = null;
         return;
       case 'profile':
         sendProfile();
@@ -142,9 +171,12 @@ wss.on('connection', (ws) => {
         send({ t: 'left' });
         sendProfile(); // A run may have earned gold and prestige.
         return;
+      case 'unlock':
+        // Heroes are bought in the Shop (the main menu), not in a lobby.
+        if (session.room) return;
+      // falls through
       case 'prestige':
       case 'respec':
-      case 'unlock':
       case 'equip':
         // In a room the game handles these (it also re-equips you); in the menu we do it here.
         if (session.room && session.playerId !== null) {

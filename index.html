@@ -125,15 +125,18 @@
           <span id="profile-card-wallet" class="profile-card-wallet"></span>
         </span>
       </button>
+      <!-- What combining or the wheel just gave you. -->
+      <div id="artifact-reveal" class="artifact-reveal hidden"></div>
       <div class="panel menu-panel">
         <section id="screen-name" class="screen hidden">
           <h1>OVERRUN</h1>
           <p class="menu-sub">Co-op horde survival</p>
-          <div class="name-row">
-            <input id="name" maxlength="16" placeholder="Your name" autocomplete="off" />
-            <button id="name-ok" class="primary">Continue</button>
-          </div>
-          <p class="hint">Your gold, prestige and heroes are saved under your name.</p>
+          <form id="login-form" class="login-form">
+            <input id="name" maxlength="16" placeholder="Name" autocomplete="username" />
+            <input id="password" type="password" maxlength="64" placeholder="Password" autocomplete="current-password" />
+            <button id="name-ok" class="primary" type="submit">Log in</button>
+          </form>
+          <p id="login-message" class="hint">New name? That creates your account, with this password. Your gold, prestige and heroes are saved to it.</p>
         </section>
 
         <section id="screen-home" class="screen hidden">
@@ -141,6 +144,10 @@
           <p class="menu-sub">Co-op horde survival</p>
           <div id="mode-list" class="menu-modes"></div>
           <div class="menu-modes">
+            <button id="open-shop" class="mode-button">
+              <span class="mode-name">Shop</span>
+              <span class="mode-desc">Buy new heroes, and spin the artifact wheel, with the gold from your runs.</span>
+            </button>
             <button id="open-bestiary" class="mode-button">
               <span class="mode-name">Bestiary</span>
               <span class="mode-desc">Every enemy and boss you'll face, and what they can do.</span>
@@ -172,13 +179,9 @@
 
         <section id="screen-profile" class="screen hidden">
           <h2 class="screen-title">Profile · <span id="profile-name"></span></h2>
-          <div class="setting">
-            <label for="settings-name">Name</label>
-            <div class="name-row">
-              <input id="settings-name" maxlength="16" autocomplete="off" />
-              <button id="settings-name-save" class="secondary">Change</button>
-            </div>
-            <p class="hint">Progress is saved per name: a new name starts a fresh profile, and switching back gets your old one back.</p>
+          <div class="menu-row profile-actions">
+            <button class="secondary" data-back>Back</button>
+            <button id="logout" class="secondary">Log out</button>
           </div>
           <div id="profile-totals" class="profile-totals"></div>
           <!-- Heroes, artifacts and prestige each get a tab. -->
@@ -188,40 +191,39 @@
             <button class="profile-tab" role="tab" data-tab="prestige">Prestige <span id="prestige-unspent" class="tab-count"></span></button>
           </div>
           <div class="profile-panel" data-panel="heroes">
-            <p class="prestige-hint">Pick a hero to see their kit and how they've done for you. New heroes are bought with gold from crates.</p>
+            <p class="prestige-hint">Your heroes: pick one to see their kit and how they've done for you. New heroes are bought in the Shop.</p>
             <div class="profile-heroes">
               <div id="hero-shop"></div>
               <div id="profile-hero" class="profile-hero"></div>
             </div>
           </div>
           <div class="profile-panel artifacts-panel" data-panel="artifacts">
-            <!-- Combine five of a tier into one of the next, or spin the wheel; your inventory underneath. -->
-            <div class="artifact-stations">
-              <section class="station">
+            <!-- Your inventory: click an artifact to equip it, or to combine it with others of its tier. -->
+            <div id="artifact-browse">
+              <div class="inventory-head">
+                <h3>Inventory</h3>
+                <p class="prestige-hint">Click an artifact to <b>Equip</b> it (it goes into your runs, one at a time) or <b>Combine</b> it with others of its tier. Elites, warlords and final bosses drop them; the wheel in the Shop sells them.</p>
+              </div>
+              <div id="artifact-inventory" class="artifact-inventory"></div>
+            </div>
+            <!-- Combining: five of a tier become one random artifact of the next tier. -->
+            <div id="artifact-combine" class="hidden">
+              <section class="station combine-station">
                 <h3 class="station-title">Combine</h3>
                 <button id="forge-orb" class="forge-orb" title="Combine">?</button>
                 <div id="forge-slots" class="forge-slots"></div>
-                <button id="forge-go" class="primary station-button">Combine</button>
+                <div class="combine-buttons">
+                  <button id="combine-cancel" class="secondary">Cancel</button>
+                  <button id="forge-go" class="primary station-button">Combine</button>
+                </div>
                 <p id="forge-hint" class="station-hint"></p>
               </section>
-              <section class="station">
-                <h3 class="station-title">Artifact wheel</h3>
-                <div class="wheel-wrap">
-                  <div id="wheel" class="wheel"></div>
-                  <div class="wheel-hub">?</div>
-                  <div class="wheel-pointer"></div>
-                </div>
-                <button id="wheel-spin" class="primary station-button">Spin</button>
-                <p id="wheel-odds" class="station-hint"></p>
-              </section>
-              <!-- What combining or the wheel just gave you. -->
-              <div id="artifact-reveal" class="artifact-reveal hidden"></div>
+              <div class="inventory-head">
+                <h3 id="combine-list-title">Add more</h3>
+                <p class="prestige-hint">Click one to put it in a slot; click a slot to take it out.</p>
+              </div>
+              <div id="combine-inventory" class="artifact-inventory"></div>
             </div>
-            <div class="inventory-head">
-              <h3>Inventory</h3>
-              <p class="prestige-hint">Click an artifact to put it in a combine slot. <b>Equip</b> takes it into your runs (one at a time). Elites, warlords and final bosses drop them.</p>
-            </div>
-            <div id="artifact-inventory" class="artifact-inventory"></div>
           </div>
           <div class="profile-panel" data-panel="prestige">
             <div class="prestige-head">
@@ -231,7 +233,37 @@
             <div id="prestige"></div>
           </div>
           <p id="profile-note" class="hint"></p>
-          <div class="menu-row"><button class="secondary" data-back>Back</button></div>
+        </section>
+
+        <section id="screen-shop" class="screen hidden">
+          <h2 class="screen-title">Shop · <span id="shop-gold" class="shop-gold"></span></h2>
+          <div class="menu-row profile-actions">
+            <button class="secondary" data-back>Back</button>
+          </div>
+          <!-- A tab per category: heroes, and the artifact wheel. -->
+          <div class="profile-tabs" role="tablist">
+            <button class="profile-tab" role="tab" data-tab="heroes">Heroes</button>
+            <button class="profile-tab" role="tab" data-tab="wheel">Artifact wheel</button>
+          </div>
+          <div class="profile-panel" data-panel="heroes">
+            <p class="prestige-hint">Pick a hero to see their kit, and unlock them with gold. Heroes you already own are grayed out.</p>
+            <div class="profile-heroes">
+              <div id="shop-heroes"></div>
+              <div id="shop-hero" class="profile-hero"></div>
+            </div>
+          </div>
+          <div class="profile-panel" data-panel="wheel">
+            <section class="station shop-wheel">
+              <h3 class="station-title">Artifact wheel</h3>
+              <div class="wheel-wrap">
+                <div id="wheel" class="wheel"></div>
+                <div class="wheel-hub">?</div>
+                <div class="wheel-pointer"></div>
+              </div>
+              <button id="wheel-spin" class="primary station-button">Spin</button>
+              <p id="wheel-odds" class="station-hint"></p>
+            </section>
+          </div>
         </section>
 
         <section id="screen-settings" class="screen hidden">
