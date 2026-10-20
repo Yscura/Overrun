@@ -357,7 +357,11 @@ export type SoundId =
   | 'frost'
   | 'glaive'
   | 'bash'
-  | 'axe';
+  | 'axe'
+  | 'aim';
+
+/** Sounds from somewhere in the world, heard by everyone nearby: the Frost Queen's frost breath and Glacial Wrath. */
+export type WorldSound = 'iceBreath' | 'freeze';
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
@@ -383,6 +387,7 @@ export type Fx =
   | { k: 'quake'; strength: number }
   /** A boss's voice during the fight: the Reaper's whisper, Sylvara's hiss. */
   | { k: 'voice'; snd: BossVoice; x: number; y: number }
+  | { k: 'sfx'; snd: WorldSound; x: number; y: number }
   /** A shot from a PvP tower, crystal or archer, from (x, y) to (tx, ty), in a team's color. */
   | { k: 'beam'; x: number; y: number; tx: number; ty: number; c: number; heavy?: true }
   /** A friendly area that fills up over `t` seconds before it hits (Meteor). */

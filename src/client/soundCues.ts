@@ -3,6 +3,7 @@
 import { DRAGON_INTRO } from '../shared/constants';
 import { HAZARD_STRIDE, HazardKind, type Snapshot } from '../shared/protocol';
 import { CHARACTERS } from '../shared/characters';
+import { DAMAGE_TYPES } from '../shared/upgrades';
 import { voiceSound, type Sound } from './audio';
 
 /** You cry out when the damage you take in one go is at least this share of your max HP. */
@@ -28,9 +29,16 @@ export class SoundCues {
       for (const id of snap.me.sounds) sound.play(id);
       const hits = snap.me.hits;
       if (hits.length > 0) {
-        let crit = false;
-        for (let i = 3; i < hits.length; i += 5) if (hits[i]) crit = true;
-        sound.play(crit ? 'crit' : 'hit');
+        // A crit's sound follows its damage type (hits are [x, y, amount, crit, type]): a blade for physical, a
+        // crack for magic and true damage. A physical crit wins if there are both.
+        let physical = false;
+        let other = false;
+        for (let i = 3; i < hits.length; i += 5) {
+          if (!hits[i]) continue;
+          if (DAMAGE_TYPES[hits[i + 1]] === 'physical') physical = true;
+          else other = true;
+        }
+        sound.play(physical ? 'crit' : other ? 'magicCrit' : 'hit');
       }
       const taken = snap.me.taken;
       if (taken.some((amount) => amount > 0)) {
@@ -84,6 +92,9 @@ export class SoundCues {
           break;
         case 'quake':
           sound.play('rumble');
+          break;
+        case 'sfx':
+          sound.play(fx.snd, ...near(fx.x, fx.y));
           break;
         case 'voice':
           // The whisper, the laugh and the demons' growls fill the arena; the hiss comes from the serpent.

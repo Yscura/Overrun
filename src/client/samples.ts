@@ -43,8 +43,6 @@ import boom from '../../sfx/effects/boom.wav?url';
 import bossintro from '../../sfx/effects/bossintro.wav?url';
 import brace from '../../sfx/effects/brace.wav?url';
 import clock from '../../sfx/effects/clock.wav?url';
-import crit1 from '../../sfx/effects/crit1.wav?url';
-import crit2 from '../../sfx/effects/crit2.wav?url';
 import death from '../../sfx/effects/death.wav?url';
 import demon1 from '../../sfx/effects/demon1.wav?url';
 import demon2 from '../../sfx/effects/demon2.wav?url';
@@ -62,6 +60,26 @@ import gate from '../../sfx/effects/gate.wav?url';
 import growl1 from '../../sfx/effects/growl1.wav?url';
 import growl2 from '../../sfx/effects/growl2.wav?url';
 import hammer from '../../sfx/effects/hammer.wav?url';
+import crit1 from '../../sfx/effects/crit1.wav?url';
+import crit2 from '../../sfx/effects/crit2.wav?url';
+import meleecrit from '../../sfx/effects/meleecrit.wav?url';
+import arrowaim from '../../sfx/effects/arrowaim.wav?url';
+import electric from '../../sfx/effects/electric.wav?url';
+import freezing from '../../sfx/effects/freezing.wav?url';
+import frostqueen from '../../sfx/effects/frostqueen.wav?url';
+import frozenshield from '../../sfx/effects/frozenshield.wav?url';
+import magic1 from '../../sfx/effects/magic1.wav?url';
+import magic2 from '../../sfx/effects/magic2.wav?url';
+import magic3 from '../../sfx/effects/magic3.wav?url';
+import magic4 from '../../sfx/effects/magic4.wav?url';
+import shuriken1 from '../../sfx/effects/shuriken1.wav?url';
+import shuriken2 from '../../sfx/effects/shuriken2.wav?url';
+import shuriken3 from '../../sfx/effects/shuriken3.wav?url';
+import shuriken4 from '../../sfx/effects/shuriken4.wav?url';
+import toss1 from '../../sfx/effects/toss1.wav?url';
+import toss2 from '../../sfx/effects/toss2.wav?url';
+import toss3 from '../../sfx/effects/toss3.wav?url';
+import arrowSound from '../../sfx/effects/arrow.wav?url';
 import heavyslash from '../../sfx/effects/heavyslash.wav?url';
 import hiss1 from '../../sfx/effects/hiss1.wav?url';
 import hiss2 from '../../sfx/effects/hiss2.wav?url';
@@ -114,8 +132,21 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   dagger: { files: [stab], volume: 0.2, max: 3, gap: 0.04 },
   stab: { files: [stab], volume: 0.4, rate: 0.85, max: 2, gap: 0.05 },
   knives: { files: [evade1, evade2], volume: 0.2, rate: 1.25 },
-  arrow: { files: [evade2], volume: 0.2, rate: 1.15, max: 3, gap: 0.03 },
-  shuriken: { files: [heavyslash], volume: 0.14, rate: 1.5 },
+  // The Ranger's arrows (and Tumble): a bowshot. Arrow Storm: drawing the bow.
+  arrow: { files: [arrowSound], volume: 0.18, max: 3, gap: 0.03 },
+  aim: { files: [arrowaim], volume: 0.35, max: 1 },
+  // Shuriken Storm: four whooshes, one at random. Axe Toss and Glaives: three throws (Glaives lighter and quicker).
+  shuriken: { files: [shuriken1, shuriken2, shuriken3, shuriken4], volume: 0.15, max: 3, gap: 0.04 },
+  axe: { files: [toss1, toss2, toss3], volume: 0.24, max: 2, gap: 0.08 },
+  glaive: { files: [toss1, toss2, toss3], volume: 0.16, rate: 1.25, max: 3, gap: 0.05 },
+  // Magic: Arcane Bolt (short, fires often), Seeker Hex, Holy Fire, and the holy abilities (Consecrate, Prayer,
+  // Sanctuary). Lightning (Storm, and the bolts of the Hammer and Holy Fire). The Frost Shield's pulse.
+  bolt: { files: [magic3], volume: 0.12, max: 3, gap: 0.05 },
+  hex: { files: [magic1], volume: 0.14, max: 2, gap: 0.08 },
+  smite: { files: [magic2], volume: 0.2, max: 2, gap: 0.1 },
+  holy: { files: [magic4], volume: 0.32, max: 1 },
+  zap: { files: [electric], volume: 0.15, max: 3, gap: 0.06 },
+  frost: { files: [frozenshield], volume: 0.15, max: 1, gap: 0.3 },
   bite: { files: [hit1, hit3], volume: 0.095, rate: 1.35, max: 2, gap: 0.08 },
   // Time bomb: the clock's tick, small and quick.
   mine: { files: [clock], volume: 0.19, rate: 1.8 },
@@ -145,7 +176,9 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   // Clicking a button in the menus.
   menuSelect: { files: [menuselect], volume: 0.22, max: 1, gap: 0.04 },
   hit: { files: [hit1, hit2, hit3], volume: 0.09, max: 2, gap: 0.06 },
-  crit: { files: [crit1, crit2], volume: 0.18, max: 2, gap: 0.07 },
+  // Crits: a blade for physical ones, the old cracks for magic (and true damage) ones.
+  crit: { files: [meleecrit], volume: 0.2, max: 2, gap: 0.07 },
+  magicCrit: { files: [crit1, crit2], volume: 0.18, max: 2, gap: 0.07 },
   // A blow to the body: the heavy impacts, pitched down.
   hurt: { files: [bigdeath, hit3], volume: 0.38, rate: 0.8, max: 1, gap: 0.25 },
   evade: { files: [evade1, evade2], volume: 0.3, max: 1, gap: 0.1 },
@@ -172,6 +205,9 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   // Mordak: his own roars and growls through the fight, and the biggest roar of all on his entrance.
   dragon: { files: [mordak2, mordak3], volume: 1.1, max: 1, gap: 2 },
   mordakRoar: { files: [mordak1], volume: 1.5, max: 1 },
+  // The Frost Queen: her frost breath, and Glacial Wrath freezing everyone it catches.
+  iceBreath: { files: [frostqueen], volume: 0.6, max: 1 },
+  freeze: { files: [freezing], volume: 0.7, max: 1 },
   // While the camera creeps over to Mordak: a swell that builds right up to his roar.
   reveal: { files: [reveal], volume: 0.7, max: 1 },
   // A final boss breaking apart: a crushing slam and a blast. The ground quaking: a slam slowed to a rumble.

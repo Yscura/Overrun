@@ -4079,6 +4079,7 @@ export class Game {
         return [0, 0];
       case 'breath':
         this.addCone(e, ux, uy, M.breath, scale, mods.area);
+        if (e.type === EnemyType.Rime) this.fx.push({ k: 'sfx', snd: 'iceBreath', x: Math.round(e.x), y: Math.round(e.y) });
         return [0, 0];
       case 'sweep':
         this.addCone(e, ux, uy, M.sweep, scale, mods.area);
@@ -4886,6 +4887,7 @@ export class Game {
           if (!this.lineBlocked(h.x, h.y, p.x, p.y)) this.hurtPlayer(p, this.stats(p).maxHp * h.damage, true);
         }
         this.fx.push({ k: 'ring', x: Math.round(h.x), y: Math.round(h.y), r: 900, c: 0x80deea, snd: 'bigSlam' });
+        this.fx.push({ k: 'sfx', snd: 'freeze', x: Math.round(h.x), y: Math.round(h.y) });
         return;
       }
     }
@@ -6540,6 +6542,7 @@ export class Game {
         p.ultTimer = 0;
         break;
       case 'arrowstorm':
+        p.sounds.push('aim');
         p.arrowStorm = ARROW_STORM.duration * stats.duration;
         p.ultTimer = 0;
         break;

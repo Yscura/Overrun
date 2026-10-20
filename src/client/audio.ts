@@ -4,11 +4,12 @@
 
 import type { Voice as HeroVoice } from '../shared/characters';
 import type { BossVoice } from '../shared/enemies';
-import type { SoundId } from '../shared/protocol';
+import type { SoundId, WorldSound } from '../shared/protocol';
 import { SAMPLES } from './samples';
 
 export type SoundName =
   | SoundId
+  | WorldSound
   | 'slam'
   | 'bigSlam'
   | 'explode'
@@ -38,6 +39,7 @@ export type SoundName =
   | 'denied'
   | 'warlord'
   | 'bossRoar'
+  | 'magicCrit'
   | 'reveal'
   | 'menuSelect'
   | 'shatter'
@@ -145,6 +147,10 @@ const RECIPES: Record<SoundName, Recipe> = {
   },
   // Glaives: a whirring throw.
   glaive: { play: (v) => v.noise({ filter: 'bandpass', from: 900, to: 2600, duration: 0.18, volume: 0.12, q: 2.5 }) },
+  // Arrow Storm: drawing a bow. The Frost Queen: her frost breath, and Glacial Wrath freezing everything it hits.
+  aim: { play: (v) => v.noise({ filter: 'bandpass', from: 1200, to: 2400, duration: 0.3, volume: 0.08, q: 3 }), max: 1 },
+  iceBreath: { play: (v) => v.noise({ filter: 'highpass', from: 3000, to: 1500, duration: 0.8, volume: 0.1 }), max: 1 },
+  freeze: { play: (v) => v.noise({ filter: 'highpass', from: 5000, to: 2000, duration: 1.2, volume: 0.12 }), max: 1 },
   // Bulwark's bash: a dull, heavy thud of a shield.
   bash: {
     play: (v) => {
@@ -407,6 +413,15 @@ const RECIPES: Record<SoundName, Recipe> = {
     play: (v) => {
       v.tone({ type: 'square', from: 520, to: 240, duration: 0.09, volume: 0.07, lowpass: 1800 });
       v.noise({ filter: 'bandpass', from: 1600, to: 600, duration: 0.07, volume: 0.07, q: 3 });
+    },
+    max: 2,
+    gap: 0.06,
+  },
+  // A magic (or true damage) crit: a brighter, glassier crack.
+  magicCrit: {
+    play: (v) => {
+      v.tone({ type: 'triangle', from: 1400, to: 700, duration: 0.1, volume: 0.07 });
+      v.noise({ filter: 'bandpass', from: 3000, to: 1200, duration: 0.07, volume: 0.05, q: 3 });
     },
     max: 2,
     gap: 0.06,
