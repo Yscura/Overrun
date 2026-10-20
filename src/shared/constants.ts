@@ -69,10 +69,10 @@ export const ARMORY_AT = 0.35;
 
 export const BOSS_INTRO = { speed: 0.12, hold: 2.3, ease: 1, panIn: 0.5, panOut: 0.6 };
 /**
- * Mordak's entrance is longer: everything stops dead (`speed` 0) while the camera creeps over to him, a moment of
- * silence, then he roars (`roarAt` seconds in) and the fight starts as the roar dies down.
+ * Mordak's entrance is longer: everything stops dead (`speed` 0) while the camera creeps over to him and the reveal
+ * swells, then he roars (`roarAt` seconds in, as the swell peaks) and the fight starts as the roar dies down.
  */
-export const DRAGON_INTRO = { speed: 0, hold: 5, ease: 0.8, panIn: 1.2, panOut: 0.7, roarAt: 1.6 };
+export const DRAGON_INTRO = { speed: 0, hold: 5, ease: 0.8, panIn: 1.2, panOut: 0.7, roarAt: 2.2 };
 
 // Health crates: shoot one to break it, then walk over the heart it drops.
 export const CRATE_RADIUS = 16;

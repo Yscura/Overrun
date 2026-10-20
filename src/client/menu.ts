@@ -182,6 +182,11 @@ export class Menu {
 
   bindSound(sound: Sound): void {
     this.sound = sound;
+    // Every button in the menus and the lobby clicks.
+    document.addEventListener('click', (e) => {
+      const button = (e.target as HTMLElement | null)?.closest('button');
+      if (button && !button.disabled && button.closest('#menu, #lobby')) sound.play('menuSelect');
+    });
   }
 
   /** A line under the login form (how it went, or what to do). */

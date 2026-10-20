@@ -38,6 +38,8 @@ export type SoundName =
   | 'denied'
   | 'warlord'
   | 'bossRoar'
+  | 'reveal'
+  | 'menuSelect'
   | 'shatter'
   | 'rumble'
   | BossVoice
@@ -541,6 +543,10 @@ const RECIPES: Record<SoundName, Recipe> = {
   dragon: ROAR,
   mordakRoar: ROAR,
   warlord: ROAR,
+  // Mordak's reveal: a long, rising swell (until its recording loads).
+  reveal: { play: (v) => v.tone({ type: 'sawtooth', from: 55, to: 110, duration: 2.2, volume: 0.08, attack: 1.8, lowpass: 900 }), max: 1 },
+  // A menu button: a soft, short click.
+  menuSelect: { play: (v) => v.tone({ type: 'triangle', from: 880, to: 660, duration: 0.06, volume: 0.06 }), max: 1, gap: 0.04 },
   transform: ROAR,
   // A roaring gout of flame.
   firebreath: {

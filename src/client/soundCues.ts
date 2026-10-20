@@ -61,8 +61,8 @@ export class SoundCues {
           break;
         case 'intro':
           if (fx.dragon) {
-            // Mordak: a low rumble in the stillness, then his roar.
-            sound.play('rumble');
+            // Mordak: a swell builds as the camera creeps over to him, and ends in his roar.
+            sound.play('reveal');
             setTimeout(() => {
               sound.play('mordakRoar');
               this.onDuck(4);

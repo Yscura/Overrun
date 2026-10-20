@@ -28,6 +28,9 @@ import male5 from '../../sfx/effects/male5.wav?url';
 import male6 from '../../sfx/effects/male6.wav?url';
 import maledown from '../../sfx/effects/maledown.wav?url';
 import bear from '../../sfx/effects/bear.wav?url';
+import blink from '../../sfx/effects/blink.wav?url';
+import menuselect from '../../sfx/effects/menuselect.wav?url';
+import reveal from '../../sfx/effects/reveal.wav?url';
 import firebreath from '../../sfx/effects/firebreath.wav?url';
 import mordak1 from '../../sfx/effects/mordak1.wav?url';
 import mordak2 from '../../sfx/effects/mordak2.wav?url';
@@ -103,7 +106,8 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   transform: { files: [transform], volume: 0.6, max: 1 },
   firebreath: { files: [firebreath], volume: 0.4, max: 1 },
   acid: { files: [acid], volume: 0.31, max: 1 },
-  leap: { files: [heavyslash], volume: 0.24, rate: 0.9 },
+  // Jumps and blinks (the Barbarian's Leap, Windstep Anklet's Gust): a quick blink.
+  leap: { files: [blink], volume: 0.32 },
   ult: { files: [ult], volume: 0.36, max: 1 },
   // Weapons made from the other recordings, sped up: lighter, sharper versions of the same sounds.
   // Shadow Daggers: a steel stab. Shadow Strike's hits: the same stab, heavier and louder.
@@ -138,6 +142,8 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   blades: { files: [blades], volume: 0.4, max: 2 },
 
   // --- Feedback for you ---
+  // Clicking a button in the menus.
+  menuSelect: { files: [menuselect], volume: 0.22, max: 1, gap: 0.04 },
   hit: { files: [hit1, hit2, hit3], volume: 0.09, max: 2, gap: 0.06 },
   crit: { files: [crit1, crit2], volume: 0.18, max: 2, gap: 0.07 },
   // A blow to the body: the heavy impacts, pitched down.
@@ -166,6 +172,8 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   // Mordak: his own roars and growls through the fight, and the biggest roar of all on his entrance.
   dragon: { files: [mordak2, mordak3], volume: 1.1, max: 1, gap: 2 },
   mordakRoar: { files: [mordak1], volume: 1.5, max: 1 },
+  // While the camera creeps over to Mordak: a swell that builds right up to his roar.
+  reveal: { files: [reveal], volume: 0.7, max: 1 },
   // A final boss breaking apart: a crushing slam and a blast. The ground quaking: a slam slowed to a rumble.
   shatter: { files: [bigslam], volume: 0.9, rate: 0.8, max: 1 },
   rumble: { files: [bigslam], volume: 0.35, rate: 0.55, max: 1, gap: 0.6 },
