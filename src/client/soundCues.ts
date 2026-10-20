@@ -128,7 +128,7 @@ export class SoundCues {
     }
 
     // Big moments.
-    if (snap.warlord && prev && !prev.warlord) {
+    if (snap.warlord && prev && snap.warlord.count > (prev.warlord?.count ?? 0)) {
       sound.play('warlord');
       this.onDuck(3);
     }

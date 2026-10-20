@@ -8,10 +8,11 @@ import {
   ownedWeapons,
   playerStats,
   typeCounts,
+  ultimateSource,
   type CharacterId,
   type UltimateId,
 } from '../shared/characters';
-import { ARTIFACTS, TIERS, artifact, artifactSummary, describeActive, describeArtifact, type ArtifactId } from '../shared/artifacts';
+import { ARTIFACTS, TIERS, artifact, artifactSummary, describeActive, describeArtifact, describeGrowth, type ArtifactId } from '../shared/artifacts';
 import { HARD, MAX_PLAYERS } from '../shared/constants';
 import { MODES } from '../shared/modes';
 import { ENEMY_TYPES, EnemyType, MISSIONS } from '../shared/enemies';
@@ -118,6 +119,14 @@ interface Tip {
 const typeOf = (id: UpgradeId): DamageType => UPGRADES[id].damage ?? 'physical';
 
 /** Tooltip for a weapon or E ability at a level: what it does, and what comes next. */
+/** Adds what a weapon or ability has dealt this run to its tooltip, and its share of `whose` total. */
+function addDealt(tip: Tip, dealt: number, total: number, whose: string): Tip {
+  const share = total > 0 ? Math.round((dealt / total) * 100) : 0;
+  tip.tags.unshift({ text: `${compact(dealt)} damage`, cls: 'tip-damage' });
+  tip.lines.unshift({ text: `Dealt ${exact(Math.round(dealt))} damage this run (${share}% of ${whose})`, cls: 'tip-dealt' });
+  return tip;
+}
+
 function weaponTip(id: UpgradeId, level: number): Tip {
   const def = UPGRADES[id];
   const evolved = level >= EVOLVED_LEVEL && def.evolution;
@@ -246,23 +255,14 @@ export class UI {
   private bossBars = $('boss-bars');
   private bossStatus = $('boss-status');
   private missionChip = $('mission-chip');
-  /** The Warlord's health bar (the mini-boss), built once. */
-  private warlordView = (() => {
-    const name = el('div', 'boss-name', ENEMY_TYPES[EnemyType.Warlord].name);
-    const meter = el('div', 'meter boss');
-    const fill = el('div', 'meter-fill');
-    const hp = el('span');
-    meter.append(fill, hp);
-    const wrap = el('div', 'boss-one');
-    wrap.append(name, meter);
-    return { fill, hp, wrap };
-  })();
   /** One health bar per final boss. */
   private bossViews: { name: HTMLElement; fill: HTMLElement; hp: HTMLElement }[] = [];
   private bossChip = $('boss-chip');
-  /** Your stats, shown beside your player card while you hold Ctrl. */
+  /** In a run: the damage each of your weapons and abilities has dealt so far, and all of yours. */
+  private dealt = { by: {} as Partial<Record<string, number>>, total: 0 };
+  /** Your stats, shown beside your player card while you hold C. */
   private statSheet = el('div', 'stat-sheet hidden');
-  private ctrlHeld = false;
+  private statsHeld = false;
   /** PvP: each team's level, kills, towers and crystal (above the boss chip). */
   private pvpBar = el('div', 'pvp-bar hidden');
   private gameoverTitle = $('gameover-title');
@@ -381,21 +381,21 @@ export class UI {
     });
     document.body.append(this.tooltip);
     this.bossChip.before(this.pvpBar);
-    // Hold Ctrl for your stats. The sheet lives on the page itself, over the chat, and is placed beside the player card
+    // Hold C for your stats (not Ctrl: Ctrl+W, to walk while looking, would close the tab). The sheet lives on the page itself, over the chat, and is placed beside the player card
     // when it opens.
     document.body.append(this.statSheet);
-    const setCtrl = (held: boolean) => {
-      if (held === this.ctrlHeld) return;
-      this.ctrlHeld = held;
+    const setStatsHeld = (held: boolean) => {
+      if (held === this.statsHeld) return;
+      this.statsHeld = held;
       if (this.latest) this.update(this.latest.snap, this.latest.myId);
     };
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Control') setCtrl(true);
+      if (e.code === 'KeyC' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) setStatsHeld(true);
     });
     window.addEventListener('keyup', (e) => {
-      if (e.key === 'Control') setCtrl(false);
+      if (e.code === 'KeyC') setStatsHeld(false);
     });
-    window.addEventListener('blur', () => setCtrl(false));
+    window.addEventListener('blur', () => setStatsHeld(false));
     document.addEventListener('pointerover', (e) => {
       // Element, not HTMLElement: the pointer is often over an icon, which is SVG.
       const target = e.target instanceof Element ? e.target.closest<HTMLElement>('.has-tip') : null;
@@ -550,9 +550,11 @@ export class UI {
     }
     this.renderStatSheet(snap, me);
     if (me && snap.me) {
+      this.dealt = { by: snap.me.dealtBy, total: me.damageDealt };
       this.renderHero(me);
       this.renderAbilities(me, snap);
       this.renderLoadout(snap.me.upgrades);
+      this.renderShares();
     }
 
     const anyPause = snap.phase === 'playing' ? snap.pause : null;
@@ -902,22 +904,9 @@ export class UI {
   /** The boss health bar during the fight, otherwise a countdown to the boss or a warning to get to the arena. */
   private renderBoss(snap: Snapshot, me: PlayerState | undefined): void {
     const fight = snap.bossFight;
-    // A Warlord out (and no final boss yet): the same bar, smaller, for a mini-boss fight.
-    const warlord = !fight && snap.phase === 'playing' ? snap.warlord : null;
-    this.bossBar.classList.toggle('hidden', !fight && !warlord);
-    this.bossBar.classList.toggle('mini', !!warlord);
+    // (Warlords have their health bars over their heads instead: see the renderer.)
+    this.bossBar.classList.toggle('hidden', !fight);
     this.missionChip.classList.toggle('hidden', !fight?.mission);
-    if (warlord) {
-      const v = this.warlordView;
-      if (this.bossBars.firstChild !== v.wrap) {
-        this.bossBars.replaceChildren(v.wrap);
-        this.bossViews = []; // The final boss's bars get rebuilt when it comes.
-      }
-      v.fill.style.width = `${(warlord.hp / warlord.maxHp) * 100}%`;
-      v.hp.textContent = `${warlord.hp.toLocaleString('en-US')} / ${warlord.maxHp.toLocaleString('en-US')}`;
-      this.bossStatus.classList.remove('urgent');
-      this.bossStatus.textContent = 'Mini-boss · the horde holds back while it lives';
-    }
     if (fight) {
       if (this.bossViews.length !== fight.bosses.length) {
         this.bossViews = fight.bosses.map(() => {
@@ -1008,19 +997,19 @@ export class UI {
   }
 
   /**
-   * While Ctrl is held: every stat you have right now (your hero's base plus your passives, prestige and artifact; PvP
+   * While C is held: every stat you have right now (your hero's base plus your passives, prestige and artifact; PvP
    * without prestige and artifacts), as an icon and a value; the stat's name shows on hover. Health, speed and
    * cooldowns come from the server, so buffs count there too.
    */
   private renderStatSheet(snap: Snapshot, me: PlayerState | undefined): void {
-    const show = this.ctrlHeld && snap.phase === 'playing' && !!me && !!snap.me;
+    const show = this.statsHeld && snap.phase === 'playing' && !!me && !!snap.me;
     this.statSheet.classList.toggle('hidden', !show);
     if (!show) return;
     const card = this.hero.getBoundingClientRect();
     this.statSheet.style.right = `${Math.round(window.innerWidth - card.left + 10)}px`;
     this.statSheet.style.bottom = `${Math.round(window.innerHeight - card.bottom)}px`;
     const pvp = !!snap.pvp;
-    const s = playerStats(snap.me!.upgrades, me!.character, pvp ? {} : me!.prestige, pvp ? null : me!.artifact);
+    const s = playerStats(snap.me!.upgrades, me!.character, pvp ? {} : me!.prestige, pvp ? null : me!.artifact, snap.me!.growth);
     const signed = (v: number) => `${v >= 0 ? '+' : '-'}${percent(Math.abs(v))}`;
     // Each stat: its icon (the passive that raises it; the hero's own ultimate for its cooldown), name and value.
     const ult = CHARACTERS[me!.character].ultimate.id;
@@ -1081,7 +1070,7 @@ export class UI {
         this.abilityR.classList.toggle(t, t === rType);
       }
       this.abilityE.classList.toggle('shimmer', level >= EVOLVED_LEVEL);
-      this.tip(this.abilityE, () => weaponTip(hero.ability, level));
+      this.tip(this.abilityE, () => this.withMyDealt(weaponTip(hero.ability, level), hero.ability));
       this.share(this.abilityE, () => {
         const cd = this.latest?.snap.me?.ability.cd ?? 0;
         return `${upgradeLine(hero.ability, level)} · ${cd > 0 ? `${Math.ceil(cd)}s cooldown` : 'ready'}`;
@@ -1092,16 +1081,21 @@ export class UI {
         return `${hero.ultimate.name} (ultimate) · ${state}`;
       });
       this.abilityR.querySelector('.ability-name')!.replaceChildren(ultIconEl(hero.ultimate.id, 34), el('span', 'icon-label', hero.ultimate.name));
-      this.tip(this.abilityR, () => ({
-        title: hero.ultimate.name,
-        ult: hero.ultimate.id,
-        tags: [
-          ...(rType ? [{ text: DAMAGE_NAMES[rType], cls: `damage-tag ${rType}` }] : []),
-          { text: 'R ultimate', cls: 'tip-level' },
-          { text: `${hero.ultimate.cooldown}s cooldown`, cls: 'tip-level' },
-        ],
-        lines: [{ text: hero.ultimate.text }],
-      }));
+      this.tip(this.abilityR, () =>
+        this.withMyDealt(
+          {
+            title: hero.ultimate.name,
+            ult: hero.ultimate.id,
+            tags: [
+              ...(rType ? [{ text: DAMAGE_NAMES[rType], cls: `damage-tag ${rType}` }] : []),
+              { text: 'R ultimate', cls: 'tip-level' },
+              { text: `${hero.ultimate.cooldown}s cooldown`, cls: 'tip-level' },
+            ],
+            lines: [{ text: hero.ultimate.text }],
+          },
+          ultimateSource(hero.ultimate.id),
+        ),
+      );
     }
     const show = (slot: HTMLElement, cd: number, cooldown: number, active = 0) => {
       // Gray while cooling down; color sweeps back in clockwise as the timer runs out.
@@ -1141,7 +1135,8 @@ export class UI {
     }
     name.replaceChildren(artifactIcon(id, 34), el('span', 'icon-label', active ? active.name : ARTIFACTS[id].name));
     slot.querySelector('.ability-level')!.replaceChildren(el('span', 'relic-note', active ? ARTIFACTS[id].name : 'Passive'));
-    this.tip(slot, () => this.artifactTip(id));
+    // (An artifact that grows says how far it has grown.)
+    this.tip(slot, () => this.artifactTip(id, describeGrowth(id, this.latest?.snap.me?.growth) || undefined));
     this.share(slot, () => {
       const relic = this.latest?.snap.me?.relic;
       const state = !relic ? '' : ` · ${relic.cd > 0 ? `${Math.ceil(relic.cd)}s cooldown` : 'ready'}`;
@@ -1187,12 +1182,34 @@ export class UI {
       const level = upgrades[id]!;
       const evolved = level >= EVOLVED_LEVEL && def.evolution;
       const card = el('div', `slot weapon ${typeOf(id)}${evolved ? ' evolved shimmer' : ''}`);
-      card.append(iconEl(id, 44), el('div', 'slot-name', upgradeName(id, level)), pips(level));
-      this.tip(card, () => weaponTip(id, level));
+      // Its share of your damage this run (see renderShares), to spot the weapon worth trading in.
+      const share = el('span', 'slot-share');
+      share.dataset.id = id;
+      card.append(iconEl(id, 44), el('div', 'slot-name', upgradeName(id, level)), pips(level), share);
+      this.tip(card, () => this.withMyDealt(weaponTip(id, level), id));
       this.share(card, () => upgradeLine(id, level));
       weapons.append(card);
     }
     this.slots.replaceChildren(passives, weapons);
+  }
+
+  /** Each weapon slot's share of your damage this run; the weakest (with two or more weapons) is marked. */
+  private renderShares(): void {
+    const badges = [...this.slots.querySelectorAll<HTMLElement>('.slot-share')];
+    const { by, total } = this.dealt;
+    const shares = badges.map((b) => (total > 0 ? ((by[b.dataset.id!] ?? 0) / total) * 100 : 0));
+    // (Only once they differ: early on they're all near 0.)
+    const lowest = badges.length >= 2 && total > 0 && Math.max(...shares) - Math.min(...shares) >= 1 ? Math.min(...shares) : -1;
+    badges.forEach((b, i) => {
+      const text = total > 0 ? `${Math.round(shares[i])}%` : '';
+      if (b.textContent !== text) b.textContent = text;
+      b.classList.toggle('low', shares[i] === lowest);
+    });
+  }
+
+  /** In a run: adds what one of your weapons or abilities has dealt so far to its tooltip. */
+  private withMyDealt(tip: Tip, key: string): Tip {
+    return addDealt(tip, this.dealt.by[key] ?? 0, this.dealt.total, 'yours');
   }
 
   // --- Tooltips ---
@@ -1263,7 +1280,9 @@ export class UI {
     this.scoreboardDrawnAt = now;
     this.scoreboard.classList.remove('hidden');
     const { snap, myId } = this.latest;
-    this.scoreboardRows.replaceChildren(...[...snap.players].sort((a, b) => b.damageDealt - a.damageDealt).map((p) => this.scoreRow(p, p.id === myId)));
+    this.scoreboardRows.replaceChildren(
+      ...[...snap.players].sort((a, b) => b.damageDealt - a.damageDealt).map((p) => this.scoreRow(p, p.id === myId, p.id === myId ? snap.me?.dealtBy : undefined)),
+    );
   }
 
   /** A player's row: who, their numbers, their build. `dealtBy`: after a run, the damage each weapon dealt (shown when hovering it). */
@@ -1313,30 +1332,48 @@ export class UI {
     this.share(ultCell, () => `(${p.name}) ${hero.ultimate.name} ${ready ? 'ready' : `${Math.round(p.ult * 100)}% charged`}`);
     numbers.append(ultCell);
 
-    // Their build as icon tiles: weapons (big), then passives. Hero abilities are the same for everyone, so they're left out.
+    // Their build as icon tiles: weapons (big), then passives. Hero abilities are the same for everyone, so they're only
+    // shown after a run (for the damage they dealt), set off to the left of the weapons.
     const build = el('div', 'score-build');
+    // After a run: what a weapon or ability dealt, and its share of all their damage.
+    const withDealt = (tip: Tip, key: string) => (dealtBy ? addDealt(tip, dealtBy[key] ?? 0, p.damageDealt, isMe ? 'yours' : 'theirs') : tip);
     const tile = (id: UpgradeId, kind: 'weapon' | 'passive') => {
       const level = p.upgrades[id] ?? 0;
       const evolved = level >= EVOLVED_LEVEL;
       const t = el('div', `score-tile ${kind} ${typeOf(id)}${evolved ? ' evolved shimmer' : ''}`);
       t.append(iconEl(id, kind === 'passive' ? 26 : 38), el('div', 'score-tile-name', upgradeName(id, level)));
       if (!evolved) t.append(el('span', 'score-tile-level', String(level)));
-      this.tip(t, () => {
-        if (kind === 'passive') return passiveTip(id, level);
-        const tip = weaponTip(id, level);
-        // After a run: what it dealt, and its share of all their damage.
-        const dealt = dealtBy?.[id];
-        if (dealtBy) {
-          const share = p.damageDealt > 0 ? Math.round(((dealt ?? 0) / p.damageDealt) * 100) : 0;
-          tip.tags.unshift({ text: `${compact(dealt ?? 0)} damage`, cls: 'tip-damage' });
-          tip.lines.unshift({ text: `Dealt ${exact(Math.round(dealt ?? 0))} damage this run (${share}% of ${isMe ? 'yours' : 'theirs'})`, cls: 'tip-dealt' });
-        }
-        return tip;
-      });
+      this.tip(t, () => (kind === 'passive' ? passiveTip(id, level) : withDealt(weaponTip(id, level), id)));
       this.share(t, () => `(${p.name}) ${upgradeLine(id, level)}`);
       return t;
     };
     const weapons = el('div', 'score-tiles');
+    // (With the hero's tiles, the weapons wrap in a column of their own beside them.)
+    let loadout: HTMLElement = weapons;
+    if (dealtBy) {
+      // The hero's own E and R, apart from the weapons they picked up.
+      const own = el('div', 'score-tiles score-hero');
+      const e = tile(hero.ability, 'weapon');
+      e.append(el('span', 'score-tile-key', 'E'));
+      const ult = hero.ultimate;
+      const r = el('div', `score-tile ult ${ult.damage ?? ''}`);
+      r.append(ultIconEl(ult.id, 38), el('div', 'score-tile-name', ult.name), el('span', 'score-tile-key', 'R'));
+      this.tip(r, () =>
+        withDealt(
+          {
+            title: ult.name,
+            ult: ult.id,
+            tags: [...(ult.damage ? [{ text: DAMAGE_NAMES[ult.damage], cls: `damage-tag ${ult.damage}` }] : []), { text: 'R ultimate', cls: 'tip-level' }],
+            lines: [{ text: ult.text }],
+          },
+          ultimateSource(ult.id),
+        ),
+      );
+      this.share(r, () => `(${p.name}) ${ult.name} (ultimate)`);
+      own.append(e, r);
+      loadout = el('div', 'score-loadout');
+      loadout.append(own, weapons);
+    }
     weapons.append(...ownedWeapons(p.upgrades).map((id) => tile(id, 'weapon')));
     const passives = el('div', 'score-tiles');
     const ownedP = ownedPassives(p.upgrades);
@@ -1350,7 +1387,7 @@ export class UI {
       this.share(relic, () => `(${p.name}) ${ARTIFACTS[artifactId].name}: ${artifactSummary(artifactId)}`);
       passives.prepend(relic);
     }
-    build.append(weapons, passives, el('div', 'score-stats', this.statLine(p)));
+    build.append(loadout, passives, el('div', 'score-stats', this.statLine(p)));
 
     row.append(who, numbers, build);
     return row;
@@ -1421,7 +1458,16 @@ export class UI {
           const name = evolved ? def.evolution!.name : def.name;
           const keeps = Math.min(MAX_LEVEL, level);
           const text = `Give up ${name} (Lv ${Math.min(level, MAX_LEVEL)}${evolved ? ', evolved' : ''}) and pick one of three new weapons to take its place, at Lv ${keeps}.`;
-          card.append(header, iconEl(id, 56), el('div', 'card-name', name), el('p', 'card-desc', text), pips(keeps, upgradeMax(id)));
+          const dealt = this.dealt.by[id] ?? 0;
+          const share = this.dealt.total > 0 ? Math.round((dealt / this.dealt.total) * 100) : 0;
+          card.append(
+            header,
+            iconEl(id, 56),
+            el('div', 'card-name', name),
+            el('p', 'card-desc', text),
+            el('p', 'card-dealt', `Dealt ${compact(dealt)} damage this run (${share}% of yours)`),
+            pips(keeps, upgradeMax(id)),
+          );
         }
         card.addEventListener('click', () => this.onChoose(i));
         return card;

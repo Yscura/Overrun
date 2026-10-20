@@ -1060,7 +1060,8 @@ button.secondary:hover {
 }
 
 .scoreboard-panel {
-  width: min(940px, calc(100vw - 32px));
+  /* Wide enough for a whole build (both hero abilities and four weapons) on one row; it may cover the chat. */
+  width: min(1180px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow-y: auto;
   text-align: left;
@@ -1941,12 +1942,36 @@ body.paused #hud > :not(#loadout) {
 /* --- Icons first: big icon, name under it (skill bar and level-up cards) --- */
 
 .slot.weapon {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   width: 104px;
   padding: 8px 8px 7px;
+}
+
+/* A weapon slot's share of your damage this run (top right); the weakest is marked red. */
+.slot-share {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.slot-share.low {
+  color: #ef9a9a;
+}
+
+/* The Armory's trade-in cards: what that weapon has done this run. */
+.card-dealt {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffab91;
 }
 
 .slot.passive {
@@ -2140,6 +2165,46 @@ body.paused #hud > :not(#loadout) {
 .score-tile-key {
   left: 5px;
   color: var(--muted);
+}
+
+/* After a run: the hero's own E and R, set apart to the left of the weapons. */
+.score-loadout {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.score-loadout > .score-tiles {
+  flex-wrap: nowrap;
+}
+
+/* After a run: narrower name and number columns, so a full build (both hero abilities and four weapons) fits on one row. */
+.postgame-panel .score-row {
+  grid-template-columns: 200px 190px 1fr;
+}
+
+@media (max-width: 900px) {
+  .postgame-panel .score-row {
+    grid-template-columns: 1fr;
+  }
+
+  .score-loadout,
+  .score-loadout > .score-tiles {
+    flex-wrap: wrap;
+  }
+}
+
+.score-hero {
+  flex: none;
+  flex-wrap: nowrap;
+  align-self: stretch;
+  align-items: flex-start;
+  padding-right: 12px;
+  border-right: 1px dashed var(--border);
+}
+
+.score-hero .score-tile {
+  background: #15171d;
 }
 
 /* --- Bot teammates in the lobby --- */
@@ -4078,6 +4143,13 @@ body:has(#lobby:not(.hidden)) #sound-control {
   padding: 6px 10px;
 }
 
+/* Combine is off for tiers that can't be combined (legendary and mythical). */
+.artifact-actions button:disabled {
+  opacity: 0.35;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
+
 .artifact-equipped-tag {
   margin-left: 6px;
   padding: 1px 6px;
@@ -4438,6 +4510,31 @@ body:has(#lobby:not(.hidden)) #sound-control {
 
 .tip-tier.tier-legendary {
   color: #ffb300;
+}
+
+.tip-tier.tier-mythic {
+  color: #ff6d00;
+}
+
+/* Mythical: the medallion smoulders, its glow breathing in and out. */
+.artifact-icon.tier-mythic {
+  animation: mythic-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes mythic-glow {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 2px #0b0d11,
+      inset 0 0 0 3px color-mix(in srgb, var(--tier) 45%, transparent),
+      0 0 8px -2px var(--tier);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 2px #0b0d11,
+      inset 0 0 0 3px color-mix(in srgb, var(--tier) 70%, transparent),
+      0 0 18px 1px var(--tier);
+  }
 }
 
 .tip-title .artifact-icon {

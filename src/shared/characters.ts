@@ -1,4 +1,4 @@
-import { ARTIFACTS, OMNIVAMP_CAP, type ArtifactEffects, type ArtifactId } from './artifacts';
+import { ARTIFACTS, OMNIVAMP_CAP, growthBonus, type ArtifactEffects, type ArtifactGrowth, type ArtifactId } from './artifacts';
 import { PRESTIGE_BONUS, type PrestigeId, type PrestigeRanks } from './prestige';
 import {
   ALL_UPGRADES,
@@ -7,6 +7,7 @@ import {
   UPGRADES,
   WEAPON_SLOTS,
   fieldStats,
+  frostStats,
   magnetRadius,
   orbitStats,
   embersStats,
@@ -37,6 +38,11 @@ export type UltimateId =
   | 'wrath'
   | 'intervention'
   | 'dragonform';
+
+/** The id an ultimate's damage is tracked under (next to weapon and ability ids, which it can't clash with). */
+export function ultimateSource(id: UltimateId): string {
+  return `ult:${id}`;
+}
 
 export interface UltimateDef {
   id: UltimateId;
@@ -408,20 +414,22 @@ export function offerableUpgrades(upgrades: Upgrades, character: CharacterId): U
 export const UPGRADE_PICKS = (WEAPON_SLOTS + 1 + PASSIVE_SLOTS) * MAX_LEVEL - 2; // +1 for the E ability; weapon and ability start at 1.
 
 /** A player's stats: their character's base stats with passive upgrades, prestige ranks and their artifact applied. */
-export function playerStats(upgrades: Upgrades, character: CharacterId, prestige: PrestigeRanks = {}, artifact: ArtifactId | null = null) {
+export function playerStats(upgrades: Upgrades, character: CharacterId, prestige: PrestigeRanks = {}, artifact: ArtifactId | null = null, growth?: ArtifactGrowth) {
   const c = CHARACTERS[character];
+  // (An artifact that grows through the run adds what it has grown so far.)
+  const grown = growthBonus(artifact, growth);
   const lv = (id: UpgradeId) => upgrades[id] ?? 0;
   const rank = (id: PrestigeId) => (prestige[id] ?? 0) * PRESTIGE_BONUS[id];
   const effects: ArtifactEffects = artifact ? ARTIFACTS[artifact].effects : {};
-  const a = (key: Exclude<keyof ArtifactEffects, 'secondWind'>) => effects[key] ?? 0;
+  const a = (key: keyof ArtifactEffects) => effects[key] ?? 0;
   return {
     damageMult: c.damageMult * (1 + 0.1 * lv('might')) * (1 + rank('power')) * (1 + a('damage')),
     cooldownMult: (1 - 0.08 * lv('haste')) / (1 + rank('fury')) / (1 + a('attackSpeed')),
     speed: c.speed * (1 + 0.08 * lv('swift')) * (1 + rank('stride')) * (1 + a('speed')),
-    maxHp: Math.max(1, Math.round((c.maxHp + 20 * lv('vitality') + a('maxHp')) * (1 + rank('fortitude')) * (1 + a('maxHpPct')))),
+    maxHp: Math.max(1, Math.round((c.maxHp + 20 * lv('vitality') + a('maxHp')) * (1 + rank('fortitude')) * (1 + a('maxHpPct')) + grown.maxHp)),
     magnet: magnetRadius(upgrades) * (1 + a('magnet')),
     regen: c.regen + 0.5 * lv('regen') + a('regen'),
-    armor: Math.min(0.6, c.armor + 0.06 * lv('armor') + rank('resolve') + a('armor')),
+    armor: Math.min(0.6, c.armor + 0.06 * lv('armor') + rank('resolve') + a('armor') + (lv('frost') ? frostStats(lv('frost')).reduction : 0)),
     /** Multiplier on damage taken after armor (artifacts with a drawback). */
     damageTaken: 1 + a('damageTaken'),
     dodgeCooldown: c.dodgeCooldown * (1 - a('dodge')),
@@ -433,9 +441,9 @@ export function playerStats(upgrades: Upgrades, character: CharacterId, prestige
     lifesteal: 0.005 * lv('lifesteal') + a('omnivamp'),
     /** Most Vampirism can heal, as a share of max HP per second. */
     lifestealCap: 0.01 * lv('lifesteal') + a('omnivamp') * OMNIVAMP_CAP,
-    area: (1 + 0.1 * lv('area')) * (c.areaMult ?? 1) * (1 + a('area')),
+    area: (1 + 0.1 * lv('area')) * (c.areaMult ?? 1) * (1 + a('area') + grown.area),
     duration: 1 + 0.12 * lv('duration') + a('duration'),
-    projectiles: lv('multishot') + a('projectiles'),
+    projectiles: lv('multishot') + a('projectiles') + grown.projectiles,
     evasion: 0.03 * lv('evasion') + a('evasion'),
     xpMult: 1 + 0.1 * lv('wisdom') + a('xp'),
     /** Devotion: healing this player gives (themselves included), and how long the shields they give last. */
@@ -500,6 +508,12 @@ export function orbitLayout(upgrades: Upgrades, character: CharacterId, artifact
   const s = weapon === 'embers' ? embersStats(level) : orbitStats(level);
   const stats = playerStats(upgrades, character, {}, artifact);
   return { ...s, count: s.count + stats.projectiles, radius: s.radius * stats.area };
+}
+
+/** Frost Shield's pulse radius, or 0 without one. */
+export function frostRadius(upgrades: Upgrades, character: CharacterId, artifact: ArtifactId | null = null): number {
+  const level = upgrades.frost ?? 0;
+  return level ? frostStats(level).radius * playerStats(upgrades, character, {}, artifact).area : 0;
 }
 
 /** Radiant Field's radius, or 0 without one. */

@@ -6,14 +6,15 @@
 
 import type { ChoiceId } from './upgrades';
 
-export type Tier = 'common' | 'rare' | 'epic' | 'legendary';
-export const TIER_IDS: Tier[] = ['common', 'rare', 'epic', 'legendary'];
+export type Tier = 'common' | 'rare' | 'epic' | 'legendary' | 'mythic';
+export const TIER_IDS: Tier[] = ['common', 'rare', 'epic', 'legendary', 'mythic'];
 
 export const TIERS: Record<Tier, { name: string; color: number }> = {
   common: { name: 'Common', color: 0xb0bec5 },
   rare: { name: 'Rare', color: 0x42a5f5 },
   epic: { name: 'Epic', color: 0xb388ff },
   legendary: { name: 'Legendary', color: 0xffb300 },
+  mythic: { name: 'Mythical', color: 0xff6d00 },
 };
 
 /**
@@ -57,6 +58,43 @@ export interface ArtifactEffects {
   gold?: number;
   /** Once per run, a blow that would down you leaves you at this share of max HP instead. */
   secondWind?: number;
+  // These grow through a run (see ArtifactGrowth):
+  /** Max HP gained for good with every heart you pick up (you can pick hearts up at full health). */
+  heartMaxHp?: number;
+  /** +1 projectile every this many level-ups. */
+  levelsPerProjectile?: number;
+  /** Area gained with every bomb that goes off. */
+  areaPerBomb?: number;
+}
+
+/** What a run has given the artifacts that grow: hearts you picked up, level-ups, and bombs that went off. */
+export interface ArtifactGrowth {
+  hearts: number;
+  levels: number;
+  bombs: number;
+}
+
+/** What an artifact that grows adds so far (nothing for the others). */
+export function growthBonus(id: ArtifactId | null, growth: ArtifactGrowth | undefined) {
+  const e: ArtifactEffects = id ? ARTIFACTS[id].effects : {};
+  const g = growth ?? { hearts: 0, levels: 0, bombs: 0 };
+  return {
+    maxHp: (e.heartMaxHp ?? 0) * g.hearts,
+    projectiles: e.levelsPerProjectile ? Math.floor(g.levels / e.levelsPerProjectile) : 0,
+    area: (e.areaPerBomb ?? 0) * g.bombs,
+  };
+}
+
+/** What an artifact that grows has added this run, as text (empty for the others). */
+export function describeGrowth(id: ArtifactId | null, growth: ArtifactGrowth | undefined): string {
+  if (!id) return '';
+  const e: ArtifactEffects = ARTIFACTS[id].effects;
+  const b = growthBonus(id, growth);
+  const parts: string[] = [];
+  if (e.heartMaxHp) parts.push(`+${b.maxHp} max HP`);
+  if (e.levelsPerProjectile) parts.push(`+${b.projectiles} projectile${b.projectiles === 1 ? '' : 's'}`);
+  if (e.areaPerBomb) parts.push(`+${+(b.area * 100).toFixed(1)}% area`);
+  return parts.length ? `This run so far: ${parts.join(', ')}` : '';
 }
 
 /**
@@ -107,7 +145,8 @@ export interface ArtifactDef {
 /*
  * Balance yardstick: one level of a passive upgrade (Might +10% damage, Vitality +20 HP, Swiftness +8% speed,
  * Armor +6%, Evasion +3%, Vampirism +1% max HP healed per second, Multishot +1 of at most 3, ...) is about one
- * point. Commons are worth about 1, rares 2 to 2.5, epics 3 to 4.5, legendaries 6 or more or something unique.
+ * point. Commons are worth about 1, rares 2 to 2.5, epics 3 to 4.5, legendaries 6 or more or something unique,
+ * mythicals 10 or more with an active that can turn a fight.
  * A drawback buys about its own size in extra upside (Glass Edge, Berserker's Mask, Bloodpact Chalice).
  */
 const ARTIFACT_DEFS = {
@@ -243,7 +282,29 @@ const ARTIFACT_DEFS = {
     active: { name: 'Dragonfire', cooldown: 30, blast: { radius: 320, power: 10, push: 60 }, frenzy: { attackSpeed: 0.3, speed: 0.1, duration: 5 } },
     unique: 'Slay Mordak, the Earth Scourger',
   },
-} satisfies Record<string, ArtifactDef>;
+
+  // --- Mythical: the top tier, only ever found in play. Each grows through the run, made for endless ---
+  bottomlessHeart: {
+    name: 'Bottomless Heart',
+    tier: 'mythic',
+    icon: 'vitality',
+    flavor: 'However much you give it, it has room for more.',
+    effects: { heartMaxHp: 3 },
+  },
+  hydrasTooth: {
+    name: "Hydra's Tooth",
+    tier: 'mythic',
+    icon: 'multishot',
+    flavor: 'Cut one head off and two grow back.',
+    effects: { levelsPerProjectile: 6 },
+  },
+  blastforgedCore: {
+    name: 'Blastforged Core',
+    tier: 'mythic',
+    icon: 'area',
+    flavor: 'Every blast leaves it a little bigger.',
+    effects: { areaPerBomb: 0.05 },
+  },} satisfies Record<string, ArtifactDef>;
 
 export type ArtifactId = keyof typeof ARTIFACT_DEFS;
 export const ARTIFACTS: Record<ArtifactId, ArtifactDef> = ARTIFACT_DEFS;
@@ -260,8 +321,8 @@ export function artifact(id: ArtifactId): ArtifactDef {
 /** Omnivamp also raises how much Vampirism can heal per second (as a share of max HP), by this many times itself. */
 export const OMNIVAMP_CAP = 2;
 
-/** Relative odds of each tier: [common, rare, epic, legendary]. */
-type Odds = [number, number, number, number];
+/** Relative odds of each tier: [common, rare, epic, legendary, mythic]. */
+type Odds = [number, number, number, number, number];
 
 /**
  * Where artifacts come from, how often, and how good. How good depends on how far along the run is: its step on the
@@ -282,33 +343,38 @@ export const DROPS = {
  * The tier odds at each step of a run's progression: the campaign's maps on normal mode (Emerald Woods to the Ashen
  * Caldera), then on hard mode. The Emerald Woods only ever gives commons; each map after it opens the next tier, with a
  * rare outlier one tier further. The first legendaries come from the Ashen Caldera's bosses; hard mode is where epics
- * and legendaries are common. Endless mode climbs the ladder a step per boss wave.
+ * and legendaries are common, and the only place a mythical can drop (from warlords and bosses, rarely). Endless mode
+ * climbs the ladder a step per boss wave.
  */
 export const LOOT: { champion: Odds; warlord: Odds; boss: Odds }[] = [
   // Normal: Emerald Woods, Desecrated Ruins, Frozen Fortress, Sunscar Canyon, Ashen Caldera.
-  { champion: [100, 0, 0, 0], warlord: [100, 0, 0, 0], boss: [100, 0, 0, 0] },
-  { champion: [85, 15, 0, 0], warlord: [60, 38, 2, 0], boss: [35, 62, 3, 0] },
-  { champion: [65, 33, 2, 0], warlord: [35, 58, 7, 0], boss: [10, 75, 15, 0] },
-  { champion: [50, 44, 6, 0], warlord: [20, 62, 18, 0], boss: [0, 62, 38, 0] },
-  { champion: [40, 48, 12, 0], warlord: [10, 58, 32, 0], boss: [0, 35, 50, 15] },
+  { champion: [100, 0, 0, 0, 0], warlord: [100, 0, 0, 0, 0], boss: [100, 0, 0, 0, 0] },
+  { champion: [85, 15, 0, 0, 0], warlord: [60, 38, 2, 0, 0], boss: [35, 62, 3, 0, 0] },
+  { champion: [65, 33, 2, 0, 0], warlord: [35, 58, 7, 0, 0], boss: [10, 75, 15, 0, 0] },
+  { champion: [50, 44, 6, 0, 0], warlord: [20, 62, 18, 0, 0], boss: [0, 62, 38, 0, 0] },
+  { champion: [40, 48, 12, 0, 0], warlord: [10, 58, 32, 0, 0], boss: [0, 35, 50, 15, 0] },
   // Hard mode, the same maps again.
-  { champion: [35, 48, 16, 1], warlord: [5, 50, 40, 5], boss: [0, 25, 55, 20] },
-  { champion: [30, 48, 20, 2], warlord: [0, 45, 47, 8], boss: [0, 20, 55, 25] },
-  { champion: [25, 48, 24, 3], warlord: [0, 38, 52, 10], boss: [0, 15, 55, 30] },
-  { champion: [20, 46, 30, 4], warlord: [0, 30, 56, 14], boss: [0, 10, 55, 35] },
-  { champion: [15, 45, 34, 6], warlord: [0, 22, 58, 20], boss: [0, 5, 50, 45] },
+  { champion: [35, 48, 16, 1, 0], warlord: [5, 50, 40, 5, 0], boss: [0, 25, 55, 20, 1] },
+  { champion: [30, 48, 20, 2, 0], warlord: [0, 45, 47, 8, 0], boss: [0, 20, 55, 25, 1.5] },
+  { champion: [25, 48, 24, 3, 0], warlord: [0, 38, 52, 10, 0.5], boss: [0, 15, 55, 30, 2] },
+  { champion: [20, 46, 30, 4, 0], warlord: [0, 30, 56, 14, 0.5], boss: [0, 10, 55, 35, 2.5] },
+  { champion: [15, 45, 34, 6, 0], warlord: [0, 22, 58, 20, 1], boss: [0, 5, 50, 45, 3] },
 ];
 
 /** Combining: this many artifacts of one tier become one random artifact of the next tier up. */
 export const FORGE = { count: 5 };
 
-/** The tier above, or null for legendary (the top). */
+/** Tiers that can't be made by combining or bought on the wheel: they're only found in play. */
+export const FOUND_ONLY: readonly Tier[] = ['mythic'];
+
+/** The tier that combining this one makes, or null if it can't be combined (legendary: the next tier is found only). */
 export function nextTier(tier: Tier): Tier | null {
-  return TIER_IDS[TIER_IDS.indexOf(tier) + 1] ?? null;
+  const next = TIER_IDS[TIER_IDS.indexOf(tier) + 1];
+  return next && !FOUND_ONLY.includes(next) ? next : null;
 }
 
 /** The wheel: a spin costs `cost` gold and lands on a tier with these odds (relative weights), then an artifact of it. */
-export const WHEEL = { cost: 1000, weights: { common: 52, rare: 30, epic: 14, legendary: 4 } as Record<Tier, number> };
+export const WHEEL = { cost: 1000, weights: { common: 52, rare: 30, epic: 14, legendary: 4, mythic: 0 } as Record<Tier, number> };
 
 /** Rolls the wheel's tier. */
 export function rollWheel(random = Math.random): Tier {
@@ -377,6 +443,9 @@ const EFFECT_TEXT: { [K in keyof Required<ArtifactEffects>]: { text: (v: number)
   ultimate: { text: (v) => `Ultimate cooldown ${v >= 0 ? '-' : '+'}${pct(v)}`, bad: (v) => v < 0 },
   gold: { text: (v) => `${sign(v)}${pct(v)} gold from coins` },
   secondWind: { text: (v) => `Once per run, a fatal blow leaves you at ${pct(v)} HP instead` },
+  heartMaxHp: { text: (v) => `+${v} max HP for every heart you pick up (even at full health)` },
+  levelsPerProjectile: { text: (v) => `+1 projectile every ${v} level-ups` },
+  areaPerBomb: { text: (v) => `+${pct(v)} area for every bomb that goes off` },
 };
 
 /** The effects as lines of text, drawbacks flagged. */

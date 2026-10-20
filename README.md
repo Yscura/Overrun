@@ -89,7 +89,7 @@ growing if the boss fight drags on. Hordes are kept smallish (`HORDE_DENSITY`): 
 **Champions.** From about 3 minutes in, a few percent of enemies spawn as champions: bigger, with a colored ring,
 4x the health, 1.5x the damage and 5x the XP, plus an affix: **Hasted** (yellow, much faster), **Vampiric** (red,
 heals by hitting you), **Volatile** (orange, leaves a bomb when it dies) or **Splitting** (green, splits in three).
-**Warlords** still show up every 3:20 (four per run) as a mini-boss fight: the horde out of sight scatters when one arrives, only trickles in (30% of the usual rate) until it dies, and it gets a health bar at the top of the screen (tuned in `WARLORD_FIGHT` in `src/server/game.ts`).
+**Warlords** show up as a mini-boss fight, the first at 1:30 and then every 3:20: the horde out of sight scatters when one arrives and only trickles in (30% of the usual rate) while any is alive. Each has a health bar over its head. There are three kinds: the **Earthbreaker** plants its feet and slams the ground (get out of the filling circle), the **Spearhurler** keeps its distance and throws fans of five big spears, and the **Juggernaut** charges down a wide lane and throws whoever it hits aside. Later in a run they come in groups (two from 8:00, three from 12:00), each a bit frailer. Tuned in `WARLORDS`, `WARLORD_SLAM`, `WARLORD_VOLLEY` and `WARLORD_CHARGE` (`src/shared/enemies.ts`) and `WARLORD_FIGHT` (`src/server/game.ts`).
 
 **Getting to the boss.** Boss arenas are walled off by a big gate until 15:00. Then the gate opens, and a burning zone
 sweeps in from the map's far corners, closing in on the arena over 45 seconds and burning anyone it catches. The fight
@@ -159,18 +159,21 @@ name every time. The later maps are tuned to need a few runs' worth of prestige.
 boss gives everyone one. Whoever touches a dropped artifact finds one of its tier for every person in the team (each
 rolls their own), and any still lying around when the boss dies are found too. They go into your **inventory** on the
 Profile page's Artifacts tab (duplicates stack), and you pick one to take into your runs in the lobby (one at a time;
-you can't swap once you've locked in). There are four tiers, each with its own color: **common** (a small plain bonus),
-**rare**, **epic** and **legendary**, and some trade a drawback for a big upside (Glass Edge: +22% damage, 15% more
+you can't swap once you've locked in). There are five tiers, each with its own color: **common** (a small plain bonus),
+**rare**, **epic**, **legendary** and, at the very top, **mythical** (orange, made for endless: each grows
+through the run. The Bottomless Heart gives +3 max HP per heart you pick up, Hydra's Tooth +1 projectile every 6
+level-ups, the Blastforged Core +5% area per bomb that goes off), and some trade a drawback for a big upside (Glass Edge: +22% damage, 15% more
 damage taken). How good they are grows with the campaign: the Emerald Woods only drops commons, each map after it
 opens the next tier (with a rare outlier one tier further), the first legendaries come from the Ashen Caldera's bosses,
-and hard mode drops far more epics and legendaries. Endless mode gets better with each boss wave. Some artifacts can also be activated: the **Q** slot left of E shows your
+and hard mode drops far more epics and legendaries. Mythicals are only ever found in play: a rare drop from
+hard-mode warlords and bosses (they can't be combined into or won on the wheel). Endless mode gets better with each boss wave. Some artifacts can also be activated: the **Q** slot left of E shows your
 artifact, and pressing Q uses its active (Tower Plate braces you, Windstep Anklet dashes, Storm Sigil and Eye of the
 Storm blast the horde, the Crown rallies the team, the Aegis of Dawn raises a dome that makes everyone inside
 untouchable...) on its own cooldown. The Jeweled Gauntlet lets magic damage crit.
 
 On the Artifacts tab, click an artifact for its **Equip** and **Combine** buttons. Combine shows the combine slots
 (with that artifact in the first) and your other artifacts of its tier: click four more in, and the five become a
-random one of the next tier up (Cancel goes back). The **artifact wheel** is in the Shop, 1000 gold a spin: 52%
+random one of the next tier up, up to legendary (Cancel goes back). The **artifact wheel** is in the Shop, 1000 gold a spin: 52%
 common, 30% rare, 14% epic, 4% legendary. A run kills about 500 champions and three or four warlords, so a winning run finds around four or five.
 
 All of it is in `src/shared/artifacts.ts`: each artifact is one line in `ARTIFACTS` (name, tier, icon, flavor and
@@ -244,7 +247,7 @@ click their card in the lobby. `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.
 
 WASD / arrows to move. Aimed weapons (bolts, knives, cleave) go toward your mouse cursor; the rest work on their own.
 Space dodges in the direction you're moving (toward the cursor when standing still): a quick dash during which nothing can hurt you, so you can keep shooting behind you while dashing away. E casts your hero's ability, R their ultimate, and Q uses your artifact (if it can be activated).
-**Esc** or **P** pauses the game for everyone; it carries on once every player has pressed Ready. Hold Tab for the scoreboard: everyone's HP, kills, damage dealt and taken, build and stats. M mutes sound (volume slider in
+**Esc** or **P** pauses the game for everyone; it carries on once every player has pressed Ready. Hold Tab for the scoreboard: everyone's HP, kills, damage dealt and taken, build and stats. Hold **C** for your own stats (armor, evasion, crit and the rest) beside your player card. M mutes sound (volume slider in
 the top-left corner). Impacts, swings, explosions, roars and the like are recordings (`sfx/effects/`, listed in
 `src/client/samples.ts` with their volumes); everything else is synthesized in the browser (`src/client/audio.ts`),
 and so is a recorded sound until its file has loaded. The recordings are cut to start right on the sound, cleaned of
@@ -272,9 +275,10 @@ lean toward your hero's own damage type: matching weapons come up about three ti
 heroes) or Arcana (magic heroes) twice as often.
 
 You carry up to **4 weapons** (plus your E ability) and **5 passives**. Once a slot type is full, level-ups only offer
-upgrades for what you already have. Weapons: Arcane Bolt, Throwing Knives, Lightning Storm, Seeker Hex, Shuriken, Fireball and Longbow (ranged),
-Cleave, Ground Slam, Venom Trail and Shadow Daggers (melee), Spirit Blades, Radiant Field and Mine Layer (anyone), and
-Wolf Pack (druid only). The Assassin also gets Throwing Knives, and more often than most weapons (`alsoFor` on a
+upgrades for what you already have. Weapons: Arcane Bolt, Throwing Knives, Lightning Storm, Seeker Hex, Shuriken, Fireball, Longbow and
+Glaives (ranged), Cleave, Ground Slam, Venom Trail, Shadow Daggers, Bulwark and Axe Toss (melee), Spirit Blades, Radiant
+Field, Mine Layer and Frost Shield (anyone), and Wolf Pack (druid only). Frost Shield and Bulwark also protect you:
+Frost Shield adds armor, and Bulwark blocks part of every hit from the direction you aim. The Assassin also gets Throwing Knives, and more often than most weapons (`alsoFor` on a
 weapon in `src/shared/upgrades.ts` opens it to a hero outside its role, with its own odds). Passives: Might,
 Haste, Swiftness, Vitality, Magnet, Regeneration, Plating, Crit (physical only), Arcana (magic), Vampirism (lifesteal, capped per second), Expanse (area),
 Persistence (duration), Multishot, Evasion and Wisdom (XP).

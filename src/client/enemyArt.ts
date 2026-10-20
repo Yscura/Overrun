@@ -232,8 +232,40 @@ export function drawEnemy(g: Graphics, type: number, flash: boolean, color = ENE
       eyes(pen, r * 0.45, r * 0.32, r * 0.17, { angry: true });
       return r * 1.5;
     }
+    case EnemyType.Spearhurler: {
+      // A horned warlord with a quiver of spears on its back, the points sticking up past its shoulders.
+      for (const a of [-0.55, -0.2, 0.2, 0.55]) {
+        const tx = -r * 0.2 + Math.cos(Math.PI + a) * r * 1.45;
+        const ty = Math.sin(Math.PI + a) * r * 1.45;
+        detail(pen, (g) => g.moveTo(r * 0.3, 0).lineTo(tx, ty).stroke({ width: Math.max(2, r * 0.07), color: 0x6d4c41 }));
+        solid(pen, (g) => g.circle(tx, ty, r * 0.13), 0xe1f5fe, 0x01579b);
+      }
+      solid(pen, (g) => g.circle(0, 0, r * 0.95));
+      gloss(pen, -r * 0.25, -r * 0.4, r * 0.45, r * 0.22);
+      // Curved horns on its helm.
+      solid(pen, (g) => g.poly([r * 0.1, -r * 0.75, r * 0.75, -r * 1.25, r * 0.45, -r * 0.6]), 0xfff3e0, INK);
+      solid(pen, (g) => g.poly([r * 0.1, r * 0.75, r * 0.75, r * 1.25, r * 0.45, r * 0.6]), 0xfff3e0, INK);
+      // A visor slit across the face.
+      detail(pen, (g) => g.roundRect(r * 0.35, -r * 0.45, r * 0.45, r * 0.9, r * 0.15).fill({ color: INK, alpha: 0.85 }));
+      eyes(pen, r * 0.55, r * 0.22, r * 0.11, { angry: true, glow: 0x80d8ff });
+      return r * 1.55;
+    }
+    case EnemyType.Juggernaut: {
+      // An iron-plated brute: a heavy ram plate up front, rivets, and two small eyes peering over it.
+      solid(pen, (g) => g.roundRect(-r * 1.05, -r * 0.95, r * 1.9, r * 1.9, r * 0.5));
+      detail(pen, (g) => {
+        for (const [px, py] of [[-0.7, -0.6], [-0.7, 0.6], [-0.2, -0.75], [-0.2, 0.75]]) g.circle(px * r, py * r, r * 0.08).fill(0xb0bec5);
+        g.moveTo(-r * 0.95, 0).lineTo(r * 0.3, 0).stroke({ width: 3, color: pen.dark, alpha: 0.5 });
+      });
+      gloss(pen, -r * 0.35, -r * 0.5, r * 0.45, r * 0.18);
+      // The ram: a thick crescent of iron with a spike in the middle.
+      solid(pen, (g) => g.poly([r * 0.55, -r * 1.05, r * 1.05, -r * 0.7, r * 1.2, 0, r * 1.05, r * 0.7, r * 0.55, r * 1.05, r * 0.8, 0]), 0x90a4ae, 0x37474f);
+      solid(pen, (g) => g.poly([r * 1.1, -r * 0.22, r * 1.6, 0, r * 1.1, r * 0.22]), 0xeceff1, 0x37474f);
+      eyes(pen, r * 0.35, r * 0.3, r * 0.12, { angry: true, glow: 0xff6d00 });
+      return r * 1.7;
+    }
     case EnemyType.Warlord: {
-      // A crowned brute with three eyes.
+      // The Earthbreaker: a crowned brute with three eyes.
       solid(pen, (g) => g.poly(star(9, r * 1.18, r * 0.92, Math.PI / 9)), shade(color, -0.3), INK);
       solid(pen, (g) => g.circle(0, 0, r * 0.95));
       gloss(pen, -r * 0.25, -r * 0.4, r * 0.45, r * 0.22);

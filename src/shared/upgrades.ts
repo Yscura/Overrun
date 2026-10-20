@@ -23,6 +23,10 @@ export type WeaponId =
   | 'hammer'
   | 'smite'
   | 'embers'
+  | 'frost'
+  | 'glaive'
+  | 'bulwark'
+  | 'axe'
   | AbilityId;
 export type PassiveId =
   | 'might'
@@ -563,6 +567,82 @@ export const DEVOTION_PER_LEVEL = 0.12;
 
 /** Poison (Venom Trail, Flask Toss's acid, Toxic Pool) slows enemies in it by `amount` (bosses by `boss`) for a moment. */
 export const POISON_SLOW = { amount: 0.35, boss: 0.15, linger: 0.6 };
+
+/**
+ * Frost Shield: a shell of ice around you. It takes `reduction` off all damage (as armor), and pulses every `interval`
+ * seconds to damage and slow (for `slow` seconds) every enemy within `radius`. Evolved: the pulses also freeze them
+ * solid for `freeze` seconds, and the shell is 50% thicker.
+ */
+export function frostStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    reduction: (0.06 + 0.02 * n) * (evolved ? 1.5 : 1),
+    damage: 10 + 5 * n,
+    interval: 1,
+    radius: 105 + 10 * n,
+    slow: 1.5,
+    freeze: evolved ? 0.5 : 0,
+  };
+}
+
+/**
+ * Glaives: thrown at your aim; each one that hits bounces on to the nearest enemy within `bounceRange` it hasn't hit
+ * yet, up to `bounces` times, each bounce dealing `falloff` of the last. Evolved: four more bounces, losing nothing.
+ */
+export function glaiveStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 18 + 7 * n,
+    cooldown: Math.max(0.8, 1.3 - 0.1 * n),
+    bounces: 2 + Math.floor(n / 2) + (evolved ? 4 : 0),
+    bounceRange: 240,
+    falloff: evolved ? 1 : 0.85,
+    speed: 640,
+    range: 520,
+    count: 1,
+    spread: 0.18,
+  };
+}
+
+/**
+ * Bulwark: a shield held toward your aim. Hits from within `arc` of where you aim take `reduction` less damage, and
+ * every `interval` seconds it bashes forward: `damage` and a `knockback` to every enemy within `range` in that arc.
+ * Evolved: it guards (and bashes) all the way around you.
+ */
+export function bulwarkStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    reduction: 0.25 + 0.05 * n,
+    arc: evolved ? Math.PI * 2 : 2.1,
+    damage: 20 + 8 * n,
+    interval: 1,
+    range: 85 + 8 * n,
+    knockback: 70,
+  };
+}
+
+/**
+ * Axe Toss: a heavy axe hurled toward your aim. It cuts through everything in its path (a wide one: `radius`) out to
+ * `range`, where it hits the ground: `impact` damage to everything within `impactRadius` (it lands early on a wall).
+ * Evolved: after landing it spins back to you, cutting through everything again.
+ */
+export function axeStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    damage: 30 + 11 * n,
+    cooldown: Math.max(1.2, 2 - 0.15 * n),
+    radius: 26 + 2 * n,
+    range: 420,
+    speed: 520,
+    impact: 30 + 11 * n,
+    impactRadius: 70 + 5 * n,
+    returns: evolved,
+  };
+}
 const slowPct = `${Math.round(POISON_SLOW.amount * 100)}%`;
 
 /** Overall cost of levels: higher means fewer, further-apart level-ups (above all early on). */
@@ -800,6 +880,53 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       return `${plural(s.count, 'fireball')} circle you, burning enemies they touch (and any pressed up against you) for ${Math.round(s.damage)} damage.`;
     },
     evolution: { name: 'Solar Crown', text: 'Two more fireballs, 40% hotter, bigger and in a wider circle.' },
+  },
+  frost: {
+    name: 'Frost Shield',
+    kind: 'weapon',
+    scales: ['area', 'duration'],
+    damage: 'magic',
+    describe: (level) => {
+      const s = frostStats(level);
+      return `A shell of ice takes ${Math.round(s.reduction * 100)}% off all damage you take, and pulses every ${s.interval}s: ${s.damage} damage to every nearby enemy, slowing them for ${s.slow}s.`;
+    },
+    evolution: { name: 'Glacier Ward', text: 'The pulses freeze enemies solid for half a second, and the shell blocks 50% more.' },
+  },
+  glaive: {
+    name: 'Glaives',
+    kind: 'weapon',
+    scales: ['multishot'],
+    damage: 'physical',
+    role: 'ranged',
+    describe: (level) => {
+      const s = glaiveStats(level);
+      return `Throws a glaive toward your cursor for ${s.damage} damage every ${s.cooldown.toFixed(2)}s. It bounces on to a nearby enemy up to ${plural(s.bounces, 'time')}${s.falloff < 1 ? `, ${Math.round((1 - s.falloff) * 100)}% weaker each bounce` : ''}.`;
+    },
+    evolution: { name: 'Ricochet', text: 'Four more bounces, and bouncing no longer weakens it.' },
+  },
+  bulwark: {
+    name: 'Bulwark',
+    kind: 'weapon',
+    scales: ['area'],
+    damage: 'physical',
+    role: 'melee',
+    describe: (level) => {
+      const s = bulwarkStats(level);
+      return `A shield toward your cursor: hits from in front take ${Math.round(s.reduction * 100)}% less damage. Every ${s.interval}s it bashes forward for ${s.damage} damage, knocking enemies back.`;
+    },
+    evolution: { name: 'Bastion', text: 'It guards, and bashes, all the way around you.' },
+  },
+  axe: {
+    name: 'Axe Toss',
+    kind: 'weapon',
+    scales: ['area'],
+    damage: 'physical',
+    role: 'melee',
+    describe: (level) => {
+      const s = axeStats(level);
+      return `Hurls a heavy axe toward your cursor every ${s.cooldown.toFixed(2)}s: ${s.damage} damage to everything in its wide path, and ${s.impact} to everything around where it hits the ground.`;
+    },
+    evolution: { name: 'Returning Axe', text: 'After it hits the ground, the axe spins back to you, cutting through everything again on the way.' },
   },
   flask: {
     name: 'Flask Toss',

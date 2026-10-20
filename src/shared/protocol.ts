@@ -1,6 +1,6 @@
 // Messages sent over the WebSocket, as JSON.
 
-import type { ArtifactId } from './artifacts';
+import type { ArtifactGrowth, ArtifactId } from './artifacts';
 import type { CharacterId } from './characters';
 import type { BossVoice, MissionKind } from './enemies';
 import type { TowerState } from './maps';
@@ -254,6 +254,10 @@ export interface MeState {
   ultimate: AbilityState & { active: number };
   /** Your artifact's Q, if it has one; `active` is how long its effect still lasts. */
   relic: (AbilityState & { active: number }) | null;
+  /** What this run has given an artifact that grows (hearts picked up, level-ups, bombs gone off). */
+  growth: ArtifactGrowth;
+  /** The damage each of your weapons and abilities has dealt so far this run, by id (ultimates: ultimateSource). */
+  dealtBy: Partial<Record<string, number>>;
   /**
    * Damage numbers since the last snapshot: your hits as [x, y, amount, crit, type, ...] (type indexes DAMAGE_TYPES),
    * and damage you took (0 = evaded).
@@ -349,7 +353,11 @@ export type SoundId =
   | 'stab'
   | 'howl'
   | 'transform'
-  | 'firebreath';
+  | 'firebreath'
+  | 'frost'
+  | 'glaive'
+  | 'bash'
+  | 'axe';
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
@@ -490,7 +498,7 @@ export interface BossFight {
 
 /** Artifact: a relic from an elite or warlord; whoever touches it finds one for every person in the team. */
 export const PickupKind = { Crate: 0, Heart: 1, Coin: 2, Bomb: 3, Artifact: 4 } as const;
-export const ProjectileKind = { Bolt: 0, Knife: 1, Shuriken: 2, Hex: 3, BigShuriken: 4, Fireball: 5, Arrow: 6 } as const;
+export const ProjectileKind = { Bolt: 0, Knife: 1, Shuriken: 2, Hex: 3, BigShuriken: 4, Fireball: 5, Arrow: 6, Glaive: 7, Axe: 8 } as const;
 /** Allies some heroes call in. */
 export const SummonKind = { Wolf: 0, Bear: 1 } as const;
 /** Things players leave on the ground. */
@@ -527,7 +535,8 @@ export const FACING_SHIFT = 16;
 export const FACING_STEPS = 64;
 /**
  * PvP units (see pvp.ts) carry UnitFlag, their team (0 for the jungle's neutral monsters, else the team's index + 1,
- * 2 bits shifted up by TEAM_SHIFT) and their health as a share (0 to HP_STEPS, shifted up by HP_SHIFT).
+ * 2 bits shifted up by TEAM_SHIFT) and their health as a share (0 to HP_STEPS, shifted up by HP_SHIFT). Warlords carry
+ * their health the same way (for the bar over their heads), without UnitFlag.
  */
 export const UnitFlag = 1 << 22;
 export const TEAM_SHIFT = 23;
@@ -537,7 +546,7 @@ export const HP_STEPS = 63;
 // Entity lists are flat number arrays to keep snapshots small:
 // enemies:     [id, type, x, y, flags, ...]
 // projectiles: [id, kind, x, y, ...]
-// enemyShots:  [id, x, y, ...]
+// enemyShots:  [id, x, y, radius, ...]
 // gems:        [id, x, y, big, ...]
 // pickups:     [id, kind, x, y, flash, ...]  for artifacts the last field is the tier (index into TIER_IDS) instead
 // hazards:     [id, kind, x, y, a, b, c, progress, ...]  circle: a = radius; line: a = angle, b = length, c = width. progress 0..1
@@ -546,7 +555,7 @@ export const HP_STEPS = 63;
 // summons:     [id, kind, x, y, ...]  wolves and the spirit bear
 export const ENEMY_STRIDE = 5;
 export const PROJECTILE_STRIDE = 4;
-export const ENEMY_SHOT_STRIDE = 3;
+export const ENEMY_SHOT_STRIDE = 4;
 export const GEM_STRIDE = 4;
 export const PICKUP_STRIDE = 5;
 export const HAZARD_STRIDE = 8;
@@ -583,7 +592,8 @@ export interface Snapshot {
   pvp: PvpState | null;
   bossFight: BossFight | null;
   /** A Warlord (the mini-boss) is out: its health, for the bar at the top of the screen. */
-  warlord: { hp: number; maxHp: number } | null;
+  /** Warlords out (each has its health bar over its head; see HP_SHIFT). */
+  warlord: { count: number } | null;
   pause: Pause | null;
   /** Game speed: below 1 while easing back in from a pause. */
   timeScale: number;

@@ -1,7 +1,7 @@
 // The main menu: your name, the home screen with the modes, multiplayer (create or join a lobby), your profile
 // (prestige shop and heroes) and settings. Profile and settings can also be opened on top of a lobby.
 
-import { ARTIFACTS, FORGE, TIERS, TIER_IDS, WHEEL, nextTier, type ArtifactId, type Tier } from '../shared/artifacts';
+import { ARTIFACTS, FORGE, FOUND_ONLY, TIERS, TIER_IDS, WHEEL, nextTier, type ArtifactId, type Tier } from '../shared/artifacts';
 import { CHARACTERS, CHARACTER_IDS, heroAvailable, type CharacterId } from '../shared/characters';
 import { MAPS } from '../shared/maps';
 import { MODES, MODE_IDS, type ModeId } from '../shared/modes';
@@ -408,7 +408,9 @@ export class Menu {
           const next = nextTier(def.tier);
           const combine = el('button', 'secondary', 'Combine') as HTMLButtonElement;
           combine.disabled = !next;
-          combine.title = next ? `${FORGE.count} ${TIERS[def.tier].name.toLowerCase()} artifacts become one random ${TIERS[next].name.toLowerCase()}` : 'Legendary is the top tier';
+          combine.title = next
+            ? `${FORGE.count} ${TIERS[def.tier].name.toLowerCase()} artifacts become one random ${TIERS[next].name.toLowerCase()}`
+            : `${TIERS[def.tier].name} artifacts can't be combined: ${FOUND_ONLY.map((t) => TIERS[t].name.toLowerCase()).join(' and ')} ones are only found in play`;
           combine.addEventListener('click', (e) => {
             e.stopPropagation();
             this.enterCombine(id);
@@ -533,11 +535,12 @@ export class Menu {
 
   /** The wheel's face: each tier's slice sized by its odds, twice around. */
   private buildWheel(): void {
-    const total = TIER_IDS.reduce((sum, t) => sum + WHEEL.weights[t], 0);
+    const tiers = TIER_IDS.filter((t) => WHEEL.weights[t] > 0);
+    const total = tiers.reduce((sum, t) => sum + WHEEL.weights[t], 0);
     const stops: string[] = [];
     let a = 0;
     for (let rep = 0; rep < 2; rep++) {
-      for (const tier of TIER_IDS) {
+      for (const tier of tiers) {
         const size = (WHEEL.weights[tier] / total) * 180;
         stops.push(`${tierColor(tier)} ${a}deg ${a + size}deg`);
         this.wheelSegments.push({ tier, from: a, to: a + size });
@@ -547,8 +550,9 @@ export class Menu {
     $('wheel').style.background = `conic-gradient(${stops.join(', ')})`;
     const odds = $('wheel-odds');
     odds.replaceChildren(
-      ...TIER_IDS.map((tier) => {
-        const chip = el('span', 'wheel-chance', `${TIERS[tier].name} ${Math.round((WHEEL.weights[tier] / total) * 100)}%`);
+      ...tiers.map((tier) => {
+        const chance = (WHEEL.weights[tier] / total) * 100;
+        const chip = el('span', 'wheel-chance', `${TIERS[tier].name} ${chance < 1 ? chance.toFixed(1) : Math.round(chance)}%`);
         chip.style.setProperty('--tier', tierColor(tier));
         return chip;
       }),

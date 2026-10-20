@@ -134,6 +134,29 @@ const RECIPES: Record<SoundName, Recipe> = {
       v.tone({ type: 'sine', from: 95, to: 70, duration: 0.2, volume: 0.07 });
     },
   },
+  // Frost Shield's pulse: a soft, glassy chime.
+  frost: {
+    play: (v) => {
+      v.tone({ type: 'sine', from: 1300, to: 900, duration: 0.18, volume: 0.04 });
+      v.noise({ filter: 'highpass', from: 5000, to: 3000, duration: 0.12, volume: 0.03 });
+    },
+  },
+  // Glaives: a whirring throw.
+  glaive: { play: (v) => v.noise({ filter: 'bandpass', from: 900, to: 2600, duration: 0.18, volume: 0.12, q: 2.5 }) },
+  // Bulwark's bash: a dull, heavy thud of a shield.
+  bash: {
+    play: (v) => {
+      v.tone({ type: 'triangle', from: 140, to: 60, duration: 0.16, volume: 0.14 });
+      v.noise({ filter: 'lowpass', from: 700, to: 200, duration: 0.1, volume: 0.1 });
+    },
+  },
+  // Axe Toss: a heavy whoosh.
+  axe: {
+    play: (v) => {
+      v.noise({ filter: 'bandpass', from: 500, to: 1500, duration: 0.3, volume: 0.14, q: 1.6 });
+      v.tone({ type: 'sawtooth', from: 110, to: 70, duration: 0.2, volume: 0.04, lowpass: 600 });
+    },
+  },
   shuriken: {
     play: (v) => {
       v.noise({ filter: 'bandpass', from: 700, to: 2200, duration: 0.32, volume: 0.16, q: 3 });

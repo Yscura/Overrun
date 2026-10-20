@@ -3,7 +3,7 @@ import { TIERS, TIER_IDS } from '../shared/artifacts';
 import { CHARACTER_IDS, type CharacterId, REWIND_SECONDS } from '../shared/characters';
 import { BOMB, BOSS_DEATH, BOSS_INTRO, COIN, DRAGON_INTRO, CRATE_RADIUS, DODGE_SPEED, HEART_RADIUS, PLAYER_RADIUS, REVIVE_RADIUS } from '../shared/constants';
 import { DAMAGE_COLORS, DAMAGE_TYPES, type DamageType } from '../shared/upgrades';
-import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType, isBossType } from '../shared/enemies';
+import { AFFIXES, CHAMPION, ENEMY_TYPES, EnemyType, isBossType, isWarlord } from '../shared/enemies';
 import { DRAGON_SHOULDER, NO_ROTATE, SERPENT_PATTERN, drawDragonWing, drawEnemy, drawReaperScythe, drawSerpentHead, shade } from './enemyArt';
 import { decorations, drawGate, drawSecretDoor, drawWalls, groundTile, lavaField, sealedTerrain, TILE } from './mapArt';
 import { MAPS, mapWalls, enemyColor, zoneRect } from '../shared/maps';
@@ -40,7 +40,8 @@ import {
   UnitFlag,
 } from '../shared/protocol';
 import { PVP, PVP_TEAMS } from '../shared/pvp';
-import { dragonBody, fieldRadius, orbitLayout } from '../shared/characters';
+import { dragonBody, fieldRadius, frostRadius, orbitLayout } from '../shared/characters';
+import { bulwarkStats } from '../shared/upgrades';
 import type { Sample } from './snapshots';
 
 const MAX_PARTICLES = 800;
@@ -296,9 +297,12 @@ export class GameRenderer {
     bolt: Texture;
     knife: Texture;
     shuriken: Texture;
+    glaive: Texture;
+    axe: Texture;
     hex: Texture;
     mine: Texture;
     enemyShot: Texture;
+    spear: Texture;
     /** Mordak's fireballs. */
     fireOrb: Texture;
     blade: Texture;
@@ -389,10 +393,37 @@ export class GameRenderer {
       bolt: this.texture(new Graphics().circle(0, 0, 9).fill({ color: 0xffffff, alpha: 0.3 }).circle(0, 0, 5).fill(0xffffff)),
       knife: this.texture(new Graphics().poly([-9, -2, 7, -2, 12, 0, 7, 2, -9, 2]).fill(0xffffff)),
       shuriken: this.texture(this.starShape(new Graphics(), 20, 7, 4).fill(0xffffff).circle(0, 0, 4).fill(0x263238)),
+      // Glaives: two curved blades round a hub. The axe: a broad blade on a short haft.
+      glaive: this.texture(
+        new Graphics()
+          .moveTo(-13, 0)
+          .quadraticCurveTo(-10, -11, 0, -12)
+          .quadraticCurveTo(-5, -6, -6, 0)
+          .closePath()
+          .moveTo(13, 0)
+          .quadraticCurveTo(10, 11, 0, 12)
+          .quadraticCurveTo(5, 6, 6, 0)
+          .closePath()
+          .fill(0xffffff)
+          .circle(0, 0, 4)
+          .fill(0x5d4037),
+      ),
+      axe: this.texture(new Graphics().rect(-12, -2, 22, 4).fill(0x8d6e4a).moveTo(4, -2).quadraticCurveTo(10, -14, 18, -10).lineTo(16, 2).quadraticCurveTo(10, 6, 4, 2).closePath().fill(0xffffff)),
       hex: this.texture(new Graphics().circle(0, 0, 10).fill({ color: 0xffffff, alpha: 0.25 }).poly(this.hexagon(6)).fill(0xffffff)),
       // Mines keep their own colors: dark casing with a red light.
       mine: this.texture(new Graphics().circle(0, 0, 9).fill(0x37474f).stroke({ width: 2, color: 0xffab40 }).circle(0, 0, 3).fill(0xff1744)),
       enemyShot: this.texture(new Graphics().circle(0, 0, 10).fill({ color: 0xffffff, alpha: 0.3 }).circle(0, 0, 6).fill(0xffffff)),
+      // The Spearhurler's spears: a long shaft and a broad, pale head (pointing along +x).
+      spear: this.texture(
+        new Graphics()
+          .roundRect(-34, -3, 48, 6, 3)
+          .fill(0x6d4c41)
+          .poly([12, -10, 36, 0, 12, 10, 16, 0])
+          .fill(0xe1f5fe)
+          .stroke({ width: 2, color: 0x01579b })
+          .circle(0, 0, 18)
+          .fill({ color: 0x4fc3f7, alpha: 0.12 }),
+      ),
       fireOrb: this.texture(
         new Graphics()
           .circle(0, 0, 16)
@@ -1090,6 +1121,10 @@ export class GameRenderer {
           ? { texture: this.tex.bolt, tint: 0xff7043, scale: 1.7 }
           : list[i + 1] === ProjectileKind.Arrow
           ? { texture: this.tex.knife, tint: 0xdcedc8, rotate: true, scale: 1.4 }
+          : list[i + 1] === ProjectileKind.Glaive
+          ? { texture: this.tex.glaive, tint: 0xffcc80, spin: true }
+          : list[i + 1] === ProjectileKind.Axe
+          ? { texture: this.tex.axe, tint: 0xcfd8dc, spin: true, scale: 1.9 }
           : list[i + 1] === ProjectileKind.Hex
             ? { texture: this.tex.hex, tint: 0xea80fc, spin: true }
             : { texture: this.tex.bolt, tint: 0xb3e5fc },
@@ -1099,8 +1134,9 @@ export class GameRenderer {
     );
     // In the dragon's den, the only things flying are Mordak's fireballs.
     const den = b.snap.finale?.stage === 'den';
-    this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_STRIDE, 1, t, this.layers.enemyShots, () =>
-      den ? { texture: this.tex.fireOrb, tint: 0xffffff } : { texture: this.tex.enemyShot, tint: 0xd4e157 },
+    this.renderPoints(this.enemyShotViews, a.snap.enemyShots, a.enemyShots, b.snap.enemyShots, ENEMY_SHOT_STRIDE, 1, t, this.layers.enemyShots, (list, i) =>
+      // Big ones are the Spearhurler's spears.
+      list[i + 3] > 12 ? { texture: this.tex.spear, tint: 0xffffff, rotate: true, scale: list[i + 3] / 18 } : den ? { texture: this.tex.fireOrb, tint: 0xffffff } : { texture: this.tex.enemyShot, tint: 0xd4e157 },
     );
     this.renderPoints(this.gemViews, a.snap.gems, a.gems, b.snap.gems, GEM_STRIDE, 1, t, this.layers.gems, (list, i) =>
       list[i + 3] ? { texture: this.tex.gemBig, tint: 0xb388ff } : { texture: this.tex.gemSmall, tint: 0x69f0ae },
@@ -1376,6 +1412,18 @@ export class GameRenderer {
         if (type === EnemyType.Tower || type === EnemyType.Crystal) {
           marks.circle(x, y, type === EnemyType.Tower ? PVP.tower.range : PVP.crystal.range).stroke({ width: 2, color: teamColor, alpha: 0.13 });
         }
+      }
+      // Warlords: a health bar over their heads.
+      if (isWarlord(type) && !dying) {
+        const share = ((flags >> HP_SHIFT) & HP_STEPS) / HP_STEPS;
+        const wr = ENEMY_TYPES[type].radius * size;
+        const w = Math.max(90, wr * 2.2);
+        const top = y - wr * 1.4 - 16;
+        marks
+          .roundRect(x - w / 2 - 2, top - 2, w + 4, 11, 3)
+          .fill({ color: 0x000000, alpha: 0.7 })
+          .rect(x - w / 2, top, w * share, 7)
+          .fill(share > 0.3 ? 0xef5350 : 0xff1744);
       }
       const r = ENEMY_TYPES[type].radius;
       if (view.dragon) {
@@ -2093,6 +2141,19 @@ export class GameRenderer {
     if (field) {
       const flicker = 0.5 + 0.5 * Math.sin(performance.now() / 90);
       g.circle(0, 0, field).fill({ color: 0xffca28, alpha: 0.06 + 0.03 * flicker }).stroke({ width: 2, color: 0xffca28, alpha: 0.25 });
+    }
+    // Frost Shield: a pale shell of ice, and its pulse's reach.
+    const frost = p.downed ? 0 : frostRadius(p.upgrades, p.character, p.artifact);
+    if (frost) {
+      g.circle(0, 0, frost).stroke({ width: 1.5, color: 0x80deea, alpha: 0.22 });
+      g.circle(0, 0, PLAYER_RADIUS + 9).fill({ color: 0xb2ebf2, alpha: 0.12 }).stroke({ width: 2, color: 0xe0f7fa, alpha: 0.45 });
+    }
+    // Bulwark: the shield held toward your aim (all around, evolved).
+    if (!p.downed && p.upgrades.bulwark) {
+      const s = bulwarkStats(p.upgrades.bulwark);
+      const r = PLAYER_RADIUS + 13;
+      if (s.arc >= Math.PI * 2) g.circle(0, 0, r).stroke({ width: 4, color: 0xb0bec5, alpha: 0.55 });
+      else g.arc(0, 0, r, p.aim - s.arc / 2, p.aim + s.arc / 2).stroke({ width: 5, color: 0xb0bec5, alpha: 0.7, cap: 'round' });
     }
     // A glowing ring while a buff (Bloodrage, guard, Death Lotus) is active.
     if (p.aura) {

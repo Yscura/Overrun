@@ -18,6 +18,7 @@ import {
   playerStats,
   type CharacterId,
   type PlayerStats,
+  ultimateSource,
 } from '../shared/characters';
 import { PVP, PVP_TEAMS, PVP_TEAM_SIZE, pointAlong, pvpHeroDamage, pvpRespawn, pvpXpNext, type PvpPoint, type UnitKind } from '../shared/pvp';
 import { DROPS, TIERS, TIER_IDS, artifact as artifactDef, lootStep, rollArtifact, rollTier, type ArtifactId, type DropSource, type Tier } from '../shared/artifacts';
@@ -61,6 +62,12 @@ import {
 import {
   BOMBARDIER,
   BOSS_ATTACK,
+  WARLORDS,
+  WARLORD_CHARGE,
+  WARLORD_SLAM,
+  WARLORD_TYPES,
+  WARLORD_VOLLEY,
+  isWarlord,
   BOSS_BERSERK,
   BOSS_CHARGE,
   BOSS_ENRAGE_AT,
@@ -192,6 +199,10 @@ import {
   CRIT_MULTIPLIER,
   arrowsStats,
   boltStats,
+  axeStats,
+  bulwarkStats,
+  frostStats,
+  glaiveStats,
   cleaveStats,
   daggersStats,
   fireballStats,
@@ -254,7 +265,7 @@ const BOT_NAMES = ['Rook (bot)', 'Mira (bot)', 'Bram (bot)', 'Juno (bot)', 'Wren
 const GEM_ACCEL = 1500;
 const GEM_MAX_SPEED = 900;
 /** Weapons that fire on their own (hero abilities are cast with E instead). */
-const WEAPON_IDS: WeaponId[] = ['bolt', 'knives', 'storm', 'hex', 'cleave', 'slam', 'venom', 'orbit', 'field', 'mines', 'shuriken', 'daggers', 'fireball', 'arrows', 'wolves', 'flask', 'hammer', 'smite', 'embers'];
+const WEAPON_IDS: WeaponId[] = ['bolt', 'knives', 'storm', 'hex', 'cleave', 'slam', 'venom', 'orbit', 'field', 'mines', 'shuriken', 'daggers', 'fireball', 'arrows', 'wolves', 'flask', 'hammer', 'smite', 'embers', 'frost', 'glaive', 'bulwark', 'axe'];
 /** Seeker hexes turn this fast (radians per second) and look this far for a target. */
 const HEX_TURN = 7;
 const HEX_SEEK = 600;
@@ -512,6 +523,9 @@ interface Player {
   found: ArtifactFind[];
   /** Their artifact's second wind has been used up this run. */
   secondWindUsed: boolean;
+  /** This run: hearts picked up and bombs that went off (for artifacts that grow). */
+  heartsTaken: number;
+  bombsSeen: number;
   /** Their artifact's Q: seconds of cooldown left, and of its speed boost (frenzy). */
   relicCd: number;
   frenzy: number;
@@ -741,6 +755,10 @@ interface Projectile {
   phasing: boolean;
   /** Shuriken: flies out `range`, then homes back to its owner. */
   boomerang: { range: number; traveled: number; returning: boolean } | null;
+  /** Axe Toss: hits the ground at the end of its throw (or on a wall), damaging everything within `radius`. */
+  landing?: { radius: number; damage: number; done: boolean };
+  /** Glaives: bounces left, how far it looks for the next enemy, and the damage kept each bounce. */
+  bounce?: { left: number; range: number; falloff: number };
   /** Seeker Hex: steers toward this enemy (picking a new one when it dies). */
   homing: boolean;
   target: Enemy | null;
@@ -759,6 +777,8 @@ interface EnemyShot {
   /** Homing shots (Embra's orbs) turn toward this player, at most `turn` radians a second. */
   target: Player | null;
   turn: number;
+  /** How big it is (ENEMY_SHOT_RADIUS for most; the Spearhurler's spears are bigger). */
+  radius: number;
 }
 
 /**
@@ -895,7 +915,9 @@ export class Game {
   /** Upgrade picks earned but not yet handed out; each one is a pause where everyone picks. */
   private choices: ChoiceReason[] = [];
   private spawnAcc = 0;
-  private nextBossAt = BOSS_INTERVAL;
+  private nextBossAt = WARLORDS.first;
+  /** While a group of warlords spawns: the share of the usual health each gets. */
+  private warlordHp = 1;
   private crateTimer = 0;
   private shrines: Shrine[] = [];
   private shrineTimer = SHRINE_FIRST;
@@ -1178,6 +1200,8 @@ export class Game {
       pvpPicks: 0,
       found: [],
       secondWindUsed: false,
+      heartsTaken: 0,
+      bombsSeen: 0,
       relicCd: 0,
       frenzy: 0,
     };
@@ -1927,7 +1951,7 @@ export class Game {
     this.time += seconds;
     if (this.bossPhase === 'fight') this.fightTime += seconds; // Straight toward berserk.
     // Don't unleash every warlord that was skipped over at once.
-    this.nextBossAt = Math.max(this.nextBossAt, Math.ceil(this.time / BOSS_INTERVAL) * BOSS_INTERVAL);
+    this.nextBossAt = Math.max(this.nextBossAt, WARLORDS.first + Math.ceil(Math.max(0, this.time - WARLORDS.first) / BOSS_INTERVAL) * BOSS_INTERVAL);
     // Of the Forges skipped over, only the latest one appears.
     while (this.forgesSpawned < FORGE_SCHEDULE.length - 1 && this.time >= FORGE_SCHEDULE[this.forgesSpawned + 1] * this.bossTime) this.forgesSpawned++;
     if (this.bossPhase === 'waiting') {
@@ -2134,7 +2158,7 @@ export class Game {
     this.xp = 0;
     this.choices = [];
     this.spawnAcc = 0;
-    this.nextBossAt = BOSS_INTERVAL;
+    this.nextBossAt = WARLORDS.first;
     this.crateTimer = CRATE_INTERVAL / 2;
     this.shrines = [];
     this.shrineTimer = SHRINE_FIRST;
@@ -2202,6 +2226,8 @@ export class Game {
     p.unlockedMap = null;
     p.found = [];
     p.secondWindUsed = false;
+    p.heartsTaken = 0;
+    p.bombsSeen = 0;
     p.relicCd = 0;
     p.frenzy = 0;
     p.abilityCd = 0;
@@ -2347,7 +2373,7 @@ export class Game {
   /** A player's stats, including their buffs and the active Altar event. */
   private stats(p: Player): PlayerStats {
     // PvP is balanced on its own: no prestige ranks or artifacts, its own health (and the Guardian's might).
-    const stats = this.pvp ? playerStats(p.upgrades, p.character, {}, null) : playerStats(p.upgrades, p.character, p.profile.ranks, p.artifact);
+    const stats = this.pvp ? playerStats(p.upgrades, p.character, {}, null) : playerStats(p.upgrades, p.character, p.profile.ranks, p.artifact, this.growth(p));
     if (this.pvp) {
       stats.maxHp = Math.round(stats.maxHp * PVP.heroHp * (PVP.heroes[p.character]?.hp ?? 1));
       if ((this.pvp.teams[p.team]?.buffUntil ?? 0) > this.time) stats.damageMult *= 1 + PVP.guardianBuff.damage;
@@ -2676,13 +2702,18 @@ export class Game {
       e.dead = true;
       if (e.hazard) e.hazard.dead = true;
     }
-    this.spawnEnemy(EnemyType.Warlord, alive);
-    this.banner('A Warlord approaches!', 'danger');
+    // Later in a run they come in groups (each a bit frailer), of different kinds.
+    const count = Math.min(WARLORDS.maxGroup, 1 + Math.floor(Math.max(0, this.time - WARLORDS.groupFrom) / WARLORDS.groupEvery));
+    const kinds = [...WARLORD_TYPES].sort(() => Math.random() - 0.5);
+    this.warlordHp = count > 1 ? WARLORDS.groupHp : 1;
+    for (let i = 0; i < count; i++) this.spawnEnemy(kinds[i % kinds.length], alive);
+    this.warlordHp = 1;
+    this.banner(count > 1 ? `${count} Warlords approach!` : `${ENEMY_TYPES[kinds[0]].name}, a Warlord, approaches!`, 'danger');
   }
 
-  /** The Warlord that's out, if any. */
+  /** A Warlord that's out, if any. */
   private warlord(): Enemy | undefined {
-    return this.enemies.find((e) => e.type === EnemyType.Warlord && !e.dead);
+    return this.enemies.find((e) => isWarlord(e.type) && !e.dead);
   }
 
   /**
@@ -2788,10 +2819,11 @@ export class Game {
     // Enemies toughen up over time. Spawn rate already scales with player count, so only
     // single special enemies (warlords, the thief) get extra HP for it.
     let hp = this.enemyHp(type);
-    if (type === EnemyType.Warlord || type === EnemyType.Thief) {
+    if (isWarlord(type) || type === EnemyType.Thief) {
       // One-off enemies grow steadily rather than steeply, or the last warlord would rival the final boss.
       hp = ENEMY_TYPES[type].hp * (1 + 7 * Math.min(1, this.time / this.bossTime)) * this.difficulty();
       hp *= 1 + 0.35 * (this.players.size - 1);
+      if (isWarlord(type)) hp *= this.warlordHp;
       return this.addEnemy(type, x, y, hp);
     }
     // Later on, some spawns are champions with an affix.
@@ -4449,8 +4481,7 @@ export class Game {
             }
             break;
           case 'boss':
-            this.warlordAttack(e, alive, dt);
-            [vx, vy] = [px * speed, py * speed];
+            [vx, vy] = this.warlordStep(e, ux, uy, px, py, d, dt, speed);
             break;
           case 'named':
             [vx, vy] = this.namedBossStep(e, alive, ux, uy, px, py, d, dt, def.speed);
@@ -4504,11 +4535,16 @@ export class Game {
       }
 
       if (e.mode === Mode.Charge) {
-        const damage = def.behavior === 'named' ? BOSS_CHARGE.damage : CHARGER.damage;
+        const juggernaut = e.type === EnemyType.Juggernaut;
+        const damage = juggernaut ? WARLORD_CHARGE.damage : def.behavior === 'named' ? BOSS_CHARGE.damage : CHARGER.damage;
         for (const p of alive) {
           const reach = Math.max(def.radius, e.chargeWidth / 2);
           if (e.charged.has(p.id) || dist2(p.x, p.y, e.x, e.y) >= (PLAYER_RADIUS + reach) ** 2) continue;
-          if (this.hurtPlayer(p, damage * this.damageScale(e), false, e)) e.charged.add(p.id);
+          if (this.hurtPlayer(p, damage * this.damageScale(e), false, e)) {
+            e.charged.add(p.id);
+            // The Juggernaut throws whoever it hits out of its way.
+            if (juggernaut) this.knockPlayer(p, e.x, e.y, WARLORD_CHARGE.knockback);
+          }
         }
       }
     }
@@ -4593,8 +4629,8 @@ export class Game {
     return [-uy * e.strafe * speed * 0.4, ux * e.strafe * speed * 0.4];
   }
 
-  private addEnemyShot(x: number, y: number, angle: number, speed: number, damage: number, life: number): void {
-    this.enemyShots.push({ id: this.nextId++, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, damage, life, dead: false, target: null, turn: 0 });
+  private addEnemyShot(x: number, y: number, angle: number, speed: number, damage: number, life: number, radius = ENEMY_SHOT_RADIUS): void {
+    this.enemyShots.push({ id: this.nextId++, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, damage, life, dead: false, target: null, turn: 0, radius });
   }
 
   private spit(e: Enemy, ux: number, uy: number, d: number, dt: number): void {
@@ -4658,11 +4694,59 @@ export class Game {
     }
   }
 
-  private warlordAttack(e: Enemy, alive: Player[], dt: number): void {
+  /**
+   * A Warlord's move and attack, by kind. The Earthbreaker stops and slams the ground around it; the Spearhurler keeps
+   * its distance and throws fans of spears; the Juggernaut charges (see WARLORD_CHARGE). Returns its velocity.
+   */
+  private warlordStep(e: Enemy, ux: number, uy: number, px: number, py: number, d: number, dt: number, speed: number): [number, number] {
+    if (e.type === EnemyType.Juggernaut) {
+      if (e.mode !== Mode.Normal) return this.chargeStep(e, dt, WARLORD_CHARGE);
+      e.attackTimer -= dt;
+      if (e.attackTimer <= 0 && d < WARLORD_CHARGE.triggerRange) {
+        this.startWindup(e, ux, uy, WARLORD_CHARGE);
+        return [0, 0];
+      }
+      return [px * speed, py * speed];
+    }
+    // The other two plant their feet while they wind up.
+    if (e.mode === Mode.Windup) {
+      e.modeTimer -= dt;
+      if (e.modeTimer > 0) return [0, 0];
+      e.mode = Mode.Normal;
+      if (e.type === EnemyType.Spearhurler) {
+        const V = WARLORD_VOLLEY;
+        const aim = Math.atan2(uy, ux);
+        for (let i = 0; i < V.count; i++) {
+          const a = aim + (i / (V.count - 1) - 0.5) * V.spread;
+          const r = ENEMY_TYPES[e.type].radius;
+          this.addEnemyShot(e.x + Math.cos(a) * r, e.y + Math.sin(a) * r, a, V.speed, V.damage * this.damageScale(e), V.life, V.radius);
+        }
+      }
+      return [0, 0];
+    }
     e.attackTimer -= dt;
-    if (e.attackTimer > 0) return;
-    e.attackTimer = BOSS_ATTACK.cooldown;
-    for (const p of alive) this.addHazard(HazardKind.Circle, p.x, p.y, BOSS_ATTACK.radius, 0, 0, BOSS_ATTACK.delay, BOSS_ATTACK.damage * this.damageScale(e));
+    if (e.type === EnemyType.Spearhurler) {
+      const V = WARLORD_VOLLEY;
+      if (e.attackTimer <= 0 && d < V.range) {
+        e.attackTimer = V.cooldown;
+        e.mode = Mode.Windup;
+        e.modeTimer = V.windup;
+        e.dirX = ux;
+        e.dirY = uy;
+        return [0, 0];
+      }
+      return this.keepDistance(e, ux, uy, px, py, d, V.minRange, V.maxRange, speed);
+    }
+    // The Earthbreaker: once someone's close, the ground around it starts to give (the circle fills), then breaks.
+    const S = WARLORD_SLAM;
+    if (e.attackTimer <= 0 && d < S.trigger) {
+      e.attackTimer = S.cooldown;
+      e.mode = Mode.Windup;
+      e.modeTimer = S.delay;
+      this.addHazard(HazardKind.Circle, e.x, e.y, S.radius, 0, 0, S.delay, S.damage * this.damageScale(e));
+      return [0, 0];
+    }
+    return [px * speed, py * speed];
   }
 
   private addHazard(kind: number, x: number, y: number, a: number, b: number, c: number, duration: number, damage: number): Hazard {
@@ -4828,7 +4912,7 @@ export class Game {
       }
       for (const p of this.players.values()) {
         // A dodging player lets the shot pass straight through.
-        if (dist2(p.x, p.y, s.x, s.y) < (PLAYER_RADIUS + ENEMY_SHOT_RADIUS) ** 2 && this.hurtPlayer(p, s.damage)) {
+        if (dist2(p.x, p.y, s.x, s.y) < (PLAYER_RADIUS + s.radius) ** 2 && this.hurtPlayer(p, s.damage, false, undefined, undefined, { x: s.x - s.vx, y: s.y - s.vy })) {
           s.dead = true;
           break;
         }
@@ -4859,7 +4943,9 @@ export class Game {
     p.guard = Math.max(0, p.guard - dt);
     p.relicCd = Math.max(0, p.relicCd - dt);
     p.frenzy = Math.max(0, p.frenzy - dt);
+    this.dealing = ultimateSource(CHARACTERS[p.character].ultimate.id);
     this.updateUltimates(p, dt);
+    this.dealing = null;
     if (p.downed) {
       p.history = []; // Chronobreak can't take you back to before you went down.
       // PvP: no reviving; back at your base after a while.
@@ -4917,15 +5003,25 @@ export class Game {
       }
     }
     if (!target) return;
+    const dealing = this.dealing;
+    this.dealing = ultimateSource('retribution');
     this.damageEnemy(target, amount * R.mult + (continuous ? 0 : R.flat * stats.damageMult), p, 'physical');
+    this.dealing = dealing;
     if (!continuous) {
       const a = Math.atan2(target.y - p.y, target.x - p.x);
       this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: Math.round(Math.sqrt(dist2(target.x, target.y, p.x, p.y)) + 10), a: round2(a), arc: 0.35, c: R.color });
     }
   }
 
-  private hurtPlayer(p: Player, amount: number, continuous = false, from?: Enemy, attacker?: Player): boolean {
+  private hurtPlayer(p: Player, amount: number, continuous = false, from?: Enemy, attacker?: Player, source?: { x: number; y: number }): boolean {
     if (p.downed || p.invuln > 0 || this.sheltered(p)) return false;
+    // Bulwark: a blow from in front of your shield (where you aim) is partly blocked.
+    const shield = p.upgrades.bulwark ? bulwarkStats(p.upgrades.bulwark) : null;
+    const hitFrom = source ?? from ?? attacker;
+    if (shield && hitFrom) {
+      const off = Math.atan2(hitFrom.y - p.y, hitFrom.x - p.x) - p.aim;
+      if (Math.abs(Math.atan2(Math.sin(off), Math.cos(off))) <= shield.arc / 2) amount *= 1 - shield.reduction;
+    }
     // PvP: remember who it was, for the kill (and assists).
     if (attacker) p.hitBy.set(attacker.id, this.time);
     const stats = this.stats(p);
@@ -5105,6 +5201,45 @@ export class Game {
       }
       case 'cleave':
         return this.cleave(p, level, stats);
+      case 'frost': {
+        // A pulse of cold from the shell: damage and a slow (evolved: a moment frozen solid).
+        const s = frostStats(level);
+        const r = s.radius * stats.area;
+        const damage = s.damage * stats.damageMult;
+        for (const e of this.grid.query(p.x, p.y, r + MAX_ENEMY_RADIUS, this.near)) {
+          if (e.dead || dist2(e.x, e.y, p.x, p.y) >= (r + ENEMY_TYPES[e.type].radius) ** 2) continue;
+          this.damageEnemy(e, damage, p, 'magic');
+          e.slowUntil = Math.max(e.slowUntil, this.time + s.slow * stats.duration);
+          if (s.freeze > 0) this.stun(e, s.freeze * stats.duration);
+        }
+        this.hitCratesAround(p.x, p.y, r, damage, p);
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r, c: 0x80deea });
+        p.sounds.push('frost');
+        return s.interval;
+      }
+      case 'glaive': {
+        const s = glaiveStats(level);
+        const count = s.count + stats.projectiles;
+        for (let i = 0; i < count; i++) {
+          const pr = this.projectile(p, ProjectileKind.Glaive, p.aim + (i - (count - 1) / 2) * s.spread, s.speed, s.damage * stats.damageMult, s.range / s.speed, 'physical');
+          pr.radius = 11;
+          pr.bounce = { left: s.bounces, range: s.bounceRange * stats.area, falloff: s.falloff };
+        }
+        p.sounds.push('glaive');
+        return s.cooldown;
+      }
+      case 'bulwark':
+        return this.bash(p, level, stats);
+      case 'axe': {
+        const s = axeStats(level);
+        const pr = this.projectile(p, ProjectileKind.Axe, p.aim, s.speed, s.damage * stats.damageMult, s.returns ? 5 : s.range / s.speed, 'physical');
+        pr.radius = s.radius * stats.area;
+        pr.pierce = Infinity;
+        pr.landing = { radius: s.impactRadius * stats.area, damage: s.impact * stats.damageMult, done: false };
+        if (s.returns) pr.boomerang = { range: s.range, traveled: 0, returning: false };
+        p.sounds.push('axe');
+        return s.cooldown;
+      }
       case 'slam':
         return this.slam(p, level, stats);
       case 'field': {
@@ -5634,6 +5769,29 @@ export class Game {
     return s.cooldown;
   }
 
+  /** Bulwark: the shield bashes forward (all around, evolved), damaging and knocking back whatever it meets. */
+  private bash(p: Player, level: number, stats: PlayerStats): number {
+    const s = bulwarkStats(level);
+    const range = s.range * stats.area;
+    const damage = s.damage * stats.damageMult;
+    let hit = false;
+    for (const e of this.grid.query(p.x, p.y, range + MAX_ENEMY_RADIUS, this.near)) {
+      if (e.dead || !this.inSwing(p, e.x, e.y, ENEMY_TYPES[e.type].radius, range, s.arc)) continue;
+      this.damageEnemy(e, damage, p, 'physical');
+      this.knockback(e, p.x, p.y, s.knockback);
+      hit = true;
+    }
+    for (const c of this.pickups) {
+      if (this.breakable(c) && this.inSwing(p, c.x, c.y, CRATE_RADIUS, range, s.arc)) this.damageCrate(c, damage, p);
+    }
+    // Only a bash that meets something shows (and sounds): it'd be a constant flicker otherwise.
+    if (hit) {
+      this.fx.push({ k: 'slash', x: Math.round(p.x), y: Math.round(p.y), r: range, a: round2(p.aim), arc: Math.min(s.arc, Math.PI * 2), c: 0xb0bec5, heavy: true });
+      p.sounds.push('bash');
+    }
+    return s.interval;
+  }
+
   /** Is a circle at (x, y) with radius r inside the swing arc in front of the player? */
   private inSwing(p: Player, x: number, y: number, r: number, range: number, arc: number): boolean {
     const dx = x - p.x;
@@ -5794,9 +5952,9 @@ export class Game {
       return;
     }
     if (by) by.kills++;
-    if (e.type === EnemyType.Warlord) {
+    if (isWarlord(e.type)) {
       this.dropArtifact('warlord', e.x, e.y);
-      if (!this.warlord()) this.banner('The Warlord has fallen!', 'good');
+      if (!this.warlord()) this.banner(`${ENEMY_TYPES[e.type].name} has fallen!`, 'good');
     }
     else if (e.affix) this.dropArtifact('champion', e.x, e.y);
     if (e.partOf) this.wingTorn(e);
@@ -5826,6 +5984,8 @@ export class Game {
       pr.y += pr.vy * dt;
       pr.life -= dt;
       if (pr.dead || pr.life <= 0 || (!pr.phasing && blocksShot(this.walls, pr.x, pr.y))) {
+        // An axe hits the ground where its throw ends (or on a wall it struck).
+        if (!pr.dead) this.axeLands(pr, owner);
         pr.dead = true;
         continue;
       }
@@ -5834,6 +5994,8 @@ export class Game {
         if (dist2(e.x, e.y, pr.x, pr.y) >= (pr.radius + ENEMY_TYPES[e.type].radius) ** 2) continue;
         pr.hit.add(e.id);
         this.damageEnemy(e, pr.damage, owner, pr.type);
+        // Glaives: on to the next enemy nearby (it keeps flying), until it runs out of bounces.
+        if (pr.bounce && pr.bounce.left > 0 && this.bounceOn(pr, e)) break;
         if (pr.explosion) {
           this.splash(e.x, e.y, pr.explosion.radius, pr.explosion.damage, owner, pr.type, e);
           const c = pr.explosion.color ?? 0xb3e5fc;
@@ -5859,6 +6021,45 @@ export class Game {
     }
     this.dealing = null;
     this.projectiles = this.projectiles.filter((pr) => !pr.dead);
+  }
+
+  /**
+   * A glaive that just hit `from`: turn it toward the nearest enemy within its bounce range it hasn't hit yet (weaker
+   * by its falloff). False if there's none, and it's spent.
+   */
+  private bounceOn(pr: Projectile, from: Enemy): boolean {
+    const b = pr.bounce!;
+    let next: Enemy | null = null;
+    let best = b.range ** 2;
+    for (const e of this.grid.query(from.x, from.y, b.range + MAX_ENEMY_RADIUS, this.splashNear)) {
+      if (e.dead || pr.hit.has(e.id)) continue;
+      const d = dist2(e.x, e.y, from.x, from.y);
+      if (d < best) {
+        best = d;
+        next = e;
+      }
+    }
+    if (!next) return false;
+    b.left--;
+    pr.damage *= b.falloff;
+    const speed = Math.hypot(pr.vx, pr.vy);
+    const d = Math.sqrt(best) || 1;
+    pr.vx = ((next.x - from.x) / d) * speed;
+    pr.vy = ((next.y - from.y) / d) * speed;
+    pr.x = from.x;
+    pr.y = from.y;
+    pr.life = (b.range + 60) / speed;
+    return true;
+  }
+
+  /** Axe Toss hits the ground: everything around the spot takes its impact damage (once per throw). */
+  private axeLands(pr: Projectile, owner: Player | undefined): void {
+    const l = pr.landing;
+    if (!l || l.done) return;
+    l.done = true;
+    this.splash(pr.x, pr.y, l.radius, l.damage, owner, pr.type);
+    this.hitCratesAround(pr.x, pr.y, l.radius, l.damage, owner);
+    this.fx.push({ k: 'ring', x: Math.round(pr.x), y: Math.round(pr.y), r: Math.round(l.radius), c: 0xbcaaa4, snd: 'slam' });
   }
 
   /** Seeker Hex: turn toward the nearest enemy it hasn't hit yet. */
@@ -5896,6 +6097,8 @@ export class Game {
     if (!b.returning && b.traveled >= b.range) {
       b.returning = true;
       pr.hit.clear();
+      // The returning axe hits the ground at the far end of its throw first.
+      this.axeLands(pr, owner);
     }
     if (!b.returning) return;
     if (!owner) {
@@ -5929,11 +6132,16 @@ export class Game {
       p.abilityCd = DRAGON_FORM.breathCooldown * stats.cooldownMult;
     } else if (slot === 'e' && p.abilityCd <= 0) {
       const level = p.upgrades[hero.ability] ?? 0;
+      // Its damage (and that of what it leaves behind) counts toward the ability, after the run.
+      this.dealing = hero.ability;
       if (level > 0) p.abilityCd = this.castAbility(p, hero.ability, level, reach, stats) * stats.cooldownMult;
+      this.dealing = null;
     } else if (slot === 'r' && this.bearOf(p)) {
       this.directBear(p, this.bearOf(p)!, reach);
     } else if (slot === 'r' && p.ultCd <= 0) {
+      this.dealing = ultimateSource(hero.ultimate.id);
       this.castUltimate(p);
+      this.dealing = null;
       p.ultCd = hero.ultimate.cooldown * stats.ultCooldown;
     } else if (slot === 'q' && p.relicCd <= 0) {
       this.useArtifact(p, stats);
@@ -6662,6 +6870,7 @@ export class Game {
   /** Boom: heavy damage to enemies around it, and it sets off any crates and bombs nearby. */
   private explodeBomb(b: Pickup, by?: Player): void {
     b.dead = true;
+    for (const p of this.players.values()) p.bombsSeen++;
     const damage = BOMB.damage * this.horde().hp * this.difficulty();
     // The grid may be stale if this happens between ticks (a cast).
     this.rebuildGrid();
@@ -6712,7 +6921,7 @@ export class Game {
     if (Math.random() >= DROPS[source].chance) return;
     const tier = rollTier(source, this.lootIndex());
     this.addPickup(PickupKind.Artifact, x, y, 0, TIER_IDS.indexOf(tier));
-    this.log(`${tier === 'epic' || tier === 'legendary' ? 'An' : 'A'} ${TIERS[tier].name.toLowerCase()} artifact dropped!`, 'good', TIERS[tier].color);
+    this.log(`${/^[aeiou]/i.test(TIERS[tier].name) ? 'An' : 'A'} ${TIERS[tier].name.toLowerCase()} artifact dropped!`, 'good', TIERS[tier].color);
   }
 
   /** Artifacts on the ground: whoever touches one finds an artifact of its tier for every person in the team. */
@@ -6754,9 +6963,12 @@ export class Game {
       if (h.kind !== PickupKind.Heart || h.dead) continue;
       for (const p of this.alivePlayers()) {
         const maxHp = this.stats(p).maxHp;
-        // Players at full health walk over hearts, leaving them for teammates.
-        if (p.hp >= maxHp || dist2(p.x, p.y, h.x, h.y) >= (PLAYER_RADIUS + HEART_RADIUS) ** 2) continue;
+        // Players at full health walk over hearts, leaving them for teammates (unless their artifact grows on hearts).
+        const grows = p.artifact ? (artifactDef(p.artifact).effects.heartMaxHp ?? 0) : 0;
+        if ((p.hp >= maxHp && !grows) || dist2(p.x, p.y, h.x, h.y) >= (PLAYER_RADIUS + HEART_RADIUS) ** 2) continue;
         this.heal(p, maxHp * HEART_HEAL);
+        p.heartsTaken++;
+        p.hp += grows;
         p.sounds.push('heal');
         h.dead = true;
         break;
@@ -6915,6 +7127,8 @@ export class Game {
       if (e.unit?.kind === 'hero') continue; // (Heroes' stand-ins are never drawn.)
       const flags =
         (e.unit ? UnitFlag | ((e.team + 1) << TEAM_SHIFT) | (Math.round(Math.max(0, Math.min(1, e.hp / e.maxHp)) * HP_STEPS) << HP_SHIFT) : 0) |
+        // (Warlords carry their health too, for the bar over their heads.)
+        (isWarlord(e.type) ? Math.round(Math.max(0, Math.min(1, e.hp / e.maxHp)) * HP_STEPS) << HP_SHIFT : 0) |
         (e.unit && this.unitShielded(e) ? EnemyFlag.Shielded : 0) |
         (e.flashUntil > this.time ? EnemyFlag.Hit : 0) |
         (e.mode === Mode.Windup ? EnemyFlag.WindingUp : 0) |
@@ -6934,7 +7148,7 @@ export class Game {
     const projectiles: number[] = [];
     for (const pr of this.projectiles) projectiles.push(pr.id, pr.kind, Math.round(pr.x), Math.round(pr.y));
     const enemyShots: number[] = [];
-    for (const s of this.enemyShots) enemyShots.push(s.id, Math.round(s.x), Math.round(s.y));
+    for (const s of this.enemyShots) enemyShots.push(s.id, Math.round(s.x), Math.round(s.y), s.radius);
     const gems: number[] = [];
     for (const g of this.gems) gems.push(g.id, Math.round(g.x), Math.round(g.y), g.value >= 5 ? 1 : 0);
     const pickups: number[] = [];
@@ -7012,8 +7226,8 @@ export class Game {
             }
           : null,
       warlord: (() => {
-        const w = this.bossPhase === 'waiting' ? this.warlord() : undefined;
-        return w ? { hp: Math.ceil(Math.max(0, w.hp)), maxHp: Math.ceil(w.maxHp) } : null;
+        const count = this.bossPhase === 'waiting' ? this.enemies.filter((e) => isWarlord(e.type) && !e.dead).length : 0;
+        return count ? { count } : null;
       })(),
       pause: this.pause && (this.pause.kind === 'choose' ? { ...this.pause, timeLeft: round1(this.pause.timeLeft) } : { ...this.pause, ready: [...this.pause.ready] }),
       timeScale: round2(this.pause ? 0 : this.timeScale()),
@@ -7059,6 +7273,8 @@ export class Game {
       dodgeCooldown: stats.dodgeCooldown,
       ability: { cd: round1(p.abilityCd), cooldown: round1(this.abilityCooldown(p) * stats.cooldownMult) },
       relic: this.relicState(p),
+      growth: this.growth(p),
+      dealtBy: Object.fromEntries(Object.entries(p.damageBy).map(([id, d]) => [id, Math.round(d)])),
       ultimate: { cd: round1(p.ultCd), cooldown: round1(hero.ultimate.cooldown * stats.ultCooldown), active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil, p.wrath, hero.ultimate.id === 'elixir' ? p.elixir : 0, p.dragonForm, this.bearOf(p)?.life ?? 0)) },
       hits: this.takeHits(p),
       taken: p.taken.splice(0),
@@ -7075,6 +7291,11 @@ export class Game {
   }
 
   /** The artifact's Q for the HUD, or null if it has none. */
+  /** What this run has given an artifact that grows. */
+  private growth(p: Player): MeState['growth'] {
+    return { hearts: p.heartsTaken, levels: this.levelOf(p) - 1, bombs: p.bombsSeen };
+  }
+
   private relicState(p: Player): MeState['relic'] {
     const active = p.artifact ? artifactDef(p.artifact).active : undefined;
     return active ? { cd: round1(p.relicCd), cooldown: active.cooldown, active: round1(p.frenzy) } : null;

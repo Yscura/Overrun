@@ -59,6 +59,14 @@ const ICONS: Record<ChoiceId, string> = {
 
   // --- Weapons ---
   // Ember Halo: fireballs circling a core.
+  // Frost Shield: a shield of ice with a snowflake.
+  frost: `<path d="M16 2 L28 6 L27 17 C26 23 21 27 16 30 C11 27 6 23 5 17 L4 6 Z" fill="${CYAN}"/><path d="M16 2 L28 6 L27 17 C26 23 21 27 16 30 Z" fill="#9be8f7"/><g stroke="#ffffff" stroke-width="2" stroke-linecap="round"><path d="M16 9 V23 M10 12.5 L22 19.5 M22 12.5 L10 19.5"/></g>`,
+  // Glaives: a curved, two-bladed throwing glaive.
+  glaive: `<path d="M16 3 C24 3 29 9 29 16 C25 10 20 9 16 11 C12 9 7 10 3 16 C3 9 8 3 16 3 Z" fill="${STEEL}"/><path d="M16 29 C8 29 3 23 3 16 C7 22 12 23 16 21 C20 23 25 22 29 16 C29 23 24 29 16 29 Z" fill="${STEEL_DARK}"/><circle cx="16" cy="16" r="4" fill="${GOLD}"/><circle cx="16" cy="16" r="1.6" fill="${GOLD_DARK}"/>`,
+  // Bulwark: a big square shield with an iron boss.
+  bulwark: `<rect x="5" y="3" width="22" height="26" rx="4" fill="${STEEL_DARK}"/><rect x="8" y="6" width="16" height="20" rx="2.5" fill="${STEEL}"/><path d="M16 6 V26 M8 16 H24" stroke="${STEEL_DARK}" stroke-width="2"/><circle cx="16" cy="16" r="4" fill="${GOLD}"/>`,
+  // Axe Toss: a single-bit battle axe, its crescent blade sharp-edged and bearded, on a long haft.
+  axe: `<path d="M7 30 L22 5" stroke="#8d6e4a" stroke-width="3.4" stroke-linecap="round"/><path d="M8.6 26.3 L10.6 27.5 M11.2 22 L13.2 23.2" stroke="#5d4430" stroke-width="1.6"/><path d="M23 4.5 L8 1.5 C4 6 3.2 12.5 6.5 18 L19.8 11 Z" fill="${STEEL}"/><path d="M8 1.5 C4 6 3.2 12.5 6.5 18 L9.2 15.6 C7 11.5 7.4 6.8 10.4 3.4 Z" fill="#ffffff" opacity=".75"/><path d="M19.6 3.2 L24.4 5.6 L21 12.4 L16.6 10 Z" fill="${STEEL_DARK}"/><path d="M24 6 L30 3.5 L26.6 9.6 Z" fill="${STEEL_DARK}"/>`,
   embers: `<circle cx="16" cy="16" r="9.5" fill="none" stroke="${ORANGE}" stroke-width="1.6" stroke-dasharray="3 3" opacity=".7"/><circle cx="16" cy="16" r="3" fill="#ffd84d"/><g><circle cx="16" cy="5" r="4.2" fill="${ORANGE}"/><circle cx="16" cy="5" r="2" fill="#ffd84d"/></g><g><circle cx="26" cy="21" r="4.2" fill="${ORANGE_DARK}"/><circle cx="26" cy="21" r="2" fill="#ffb84d"/></g><g><circle cx="6" cy="21" r="4.2" fill="${ORANGE}"/><circle cx="6" cy="21" r="2" fill="#ffd84d"/></g>`,
   // Fire Wave: flames bursting up in a row.
   firewave: `<path d="M3 29 C2 25 4 22 6 21 C6 23 7 24 8 24 C8 21 9 18 11 17 C11 20 13 22 13 25 C13 27.5 12 29 12 29 Z" fill="${ORANGE}"/><path d="M12 29 C11 23 14 19 17 17 C17 20 18 21.5 19.5 21.5 C19.5 17 21 13 24 11 C24 16 27 19 27 24 C27 27 26 29 26 29 Z" fill="${ORANGE_DARK}"/><path d="M16 29 C15.5 26 17 24 18.5 23 C18.5 24.5 19.5 25 20.5 25 C21 23.5 21.5 22.5 23 22 C23 25 24 26.5 23 29 Z" fill="#ffd84d"/><path d="M2 31 H30" stroke="${ORANGE_DARK}" stroke-width="2" stroke-linecap="round"/>`,

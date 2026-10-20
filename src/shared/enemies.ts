@@ -38,8 +38,8 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Grunt', radius: 14, speed: 85, hp: 12, damage: 10, xp: 1, color: 0xe57373, behavior: 'chase', spawnAfter: 0, weight: 10 },
   { name: 'Runner', radius: 10, speed: 145, hp: 8, damage: 8, xp: 1, color: 0xffd54f, behavior: 'chase', spawnAfter: 25, weight: 4 },
   { name: 'Brute', radius: 24, speed: 60, hp: 70, damage: 17, xp: 5, color: 0xba68c8, behavior: 'chase', spawnAfter: 60, weight: 2, elite: true, armor: 0.3 },
-  // Mini-boss every few minutes.
-  { name: 'Warlord', radius: 56, speed: 75, hp: 1200, damage: 40, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.25, ward: 0.25 },
+  // Warlords: mini-bosses every few minutes (see WARLORD_TYPES). The Earthbreaker slams the ground around it.
+  { name: 'Earthbreaker', radius: 56, speed: 75, hp: 1200, damage: 40, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.25, ward: 0.25 },
   { name: 'Spitter', radius: 13, speed: 80, hp: 16, damage: 6, xp: 2, color: 0x9ccc65, behavior: 'ranged', spawnAfter: 50, weight: 1.2 },
   { name: 'Bombardier', radius: 17, speed: 55, hp: 30, damage: 8, xp: 3, color: 0x4db6ac, behavior: 'lobber', spawnAfter: 90, weight: 0.7, elite: true, ward: 0.3 },
   { name: 'Charger', radius: 18, speed: 75, hp: 45, damage: 12, xp: 3, color: 0x7986cb, behavior: 'charger', spawnAfter: 65, weight: 1.5, elite: true, armor: 0.25 },
@@ -73,6 +73,9 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Crystal', radius: 62, speed: 0, hp: 1, damage: 0, xp: 0, color: 0xe3e8ee, behavior: 'unit', spawnAfter: 0, weight: 0, elite: true, pvp: true },
   { name: 'Guardian', radius: 40, speed: 70, hp: 1, damage: 0, xp: 0, color: 0x8d6e63, behavior: 'unit', spawnAfter: 0, weight: 0, elite: true, armor: 0.2, pvp: true },
   { name: 'Hero', radius: 16, speed: 0, hp: 1, damage: 0, xp: 0, color: 0xffffff, behavior: 'unit', spawnAfter: 0, weight: 0, pvp: true },
+  // More warlords: the Spearhurler throws fans of spears, the Juggernaut charges and throws you back.
+  { name: 'Spearhurler', radius: 52, speed: 70, hp: 1000, damage: 35, xp: 100, color: 0x4fc3f7, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.15, ward: 0.3 },
+  { name: 'Juggernaut', radius: 60, speed: 70, hp: 1400, damage: 40, xp: 100, color: 0x8d6e63, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.35, ward: 0.15 },
 ];
 
 export const EnemyType = {
@@ -102,7 +105,30 @@ export const EnemyType = {
   Crystal: 23,
   Guardian: 24,
   Hero: 25,
+  Spearhurler: 26,
+  Juggernaut: 27,
 } as const;
+
+/** The warlords (mini-bosses), any of which can lead the horde in. Warlord is the Earthbreaker. */
+export const WARLORD_TYPES: readonly number[] = [EnemyType.Warlord, EnemyType.Spearhurler, EnemyType.Juggernaut];
+
+export function isWarlord(type: number): boolean {
+  return WARLORD_TYPES.includes(type);
+}
+
+/**
+ * When warlords come: the first after `first` seconds, then one every `every` (BOSS_INTERVAL). Later on they come in
+ * groups: one more for every `groupEvery` seconds past `groupFrom` (up to `maxGroup`), each with `groupHp` of the health.
+ */
+export const WARLORDS = { first: 90, groupFrom: 240, groupEvery: 240, maxGroup: 4, groupHp: 0.7 };
+
+/** The Earthbreaker stops and slams the ground: a circle around it fills up, then everything in it is hit. */
+export const WARLORD_SLAM = { cooldown: 4.5, trigger: 320, radius: 230, delay: 1.6, damage: 40 };
+
+/** The Spearhurler winds up, then throws `count` big spears in a fan (`spread` radians across) at whoever's nearest. */
+export const WARLORD_VOLLEY = { cooldown: 3, windup: 0.6, range: 750, count: 5, spread: 0.9, speed: 280, radius: 18, damage: 28, life: 3.2, minRange: 240, maxRange: 420 };
+
+
 
 export const MAX_ENEMY_RADIUS = Math.max(...ENEMY_TYPES.map((e) => e.radius));
 
@@ -151,7 +177,20 @@ export const CHARGER: ChargeConfig & { triggerRange: number; cooldown: number } 
   width: 40,
 };
 
-/** The Warlord drops bombs on every player. */
+/** The Juggernaut charges down a wide lane (like a Charger), hitting hard and throwing whoever it hits `knockback` away. */
+export const WARLORD_CHARGE: ChargeConfig & { triggerRange: number; cooldown: number; knockback: number } = {
+  triggerRange: 620,
+  windup: 1,
+  speed: 640,
+  duration: 0.8,
+  recover: 0.8,
+  cooldown: 3.5,
+  damage: 38,
+  width: 120,
+  knockback: 230,
+};
+
+/** Named bosses' barrage: bombs on every player. */
 export const BOSS_ATTACK = { cooldown: 5, radius: 95, delay: 1.4, damage: 35 };
 
 // --- Named bosses ---
