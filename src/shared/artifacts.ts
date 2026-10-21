@@ -65,23 +65,27 @@ export interface ArtifactEffects {
   levelsPerProjectile?: number;
   /** Area gained with every bomb that goes off. */
   areaPerBomb?: number;
+  /** Damage gained with every war chest the team opens. */
+  damagePerChest?: number;
 }
 
-/** What a run has given the artifacts that grow: hearts you picked up, level-ups, and bombs that went off. */
+/** What a run has given the artifacts that grow: hearts you picked up, level-ups, bombs that went off, war chests opened. */
 export interface ArtifactGrowth {
   hearts: number;
   levels: number;
   bombs: number;
+  chests: number;
 }
 
 /** What an artifact that grows adds so far (nothing for the others). */
 export function growthBonus(id: ArtifactId | null, growth: ArtifactGrowth | undefined) {
   const e: ArtifactEffects = id ? ARTIFACTS[id].effects : {};
-  const g = growth ?? { hearts: 0, levels: 0, bombs: 0 };
+  const g = growth ?? { hearts: 0, levels: 0, bombs: 0, chests: 0 };
   return {
     maxHp: (e.heartMaxHp ?? 0) * g.hearts,
     projectiles: e.levelsPerProjectile ? Math.floor(g.levels / e.levelsPerProjectile) : 0,
     area: (e.areaPerBomb ?? 0) * g.bombs,
+    damage: (e.damagePerChest ?? 0) * (g.chests ?? 0),
   };
 }
 
@@ -94,6 +98,7 @@ export function describeGrowth(id: ArtifactId | null, growth: ArtifactGrowth | u
   if (e.heartMaxHp) parts.push(`+${b.maxHp} max HP`);
   if (e.levelsPerProjectile) parts.push(`+${b.projectiles} projectile${b.projectiles === 1 ? '' : 's'}`);
   if (e.areaPerBomb) parts.push(`+${+(b.area * 100).toFixed(1)}% area`);
+  if (e.damagePerChest) parts.push(`+${+(b.damage * 100).toFixed(1)}% damage`);
   return parts.length ? `This run so far: ${parts.join(', ')}` : '';
 }
 
@@ -298,6 +303,13 @@ const ARTIFACT_DEFS = {
     flavor: 'Cut one head off and two grow back.',
     effects: { levelsPerProjectile: 6 },
   },
+  warlordsTrophy: {
+    name: "Warlord's Trophy",
+    tier: 'mythic',
+    icon: 'might',
+    flavor: 'Every warlord that falls makes the next one easier.',
+    effects: { damagePerChest: 0.05 },
+  },
   blastforgedCore: {
     name: 'Blastforged Core',
     tier: 'mythic',
@@ -331,8 +343,8 @@ type Odds = [number, number, number, number, number];
 export const DROPS = {
   /** Champions (elites with an affix): a small chance each (a run kills around 500). */
   champion: { chance: 0.004 },
-  /** Warlords (three or four a run): often. */
-  warlord: { chance: 0.5 },
+  /** Warlords drop a war chest: this share hold an artifact for everyone (the rest, a Warforge pick). */
+  warlord: { chance: 0.2 },
   /** Beating the final boss: one for everyone. */
   boss: { chance: 1 },
   /** Artifacts you don't own yet are this many times likelier to be picked within a tier. */
@@ -360,6 +372,25 @@ export const LOOT: { champion: Odds; warlord: Odds; boss: Odds }[] = [
   { champion: [20, 46, 30, 4, 0], warlord: [0, 30, 56, 14, 0.5], boss: [0, 10, 55, 35, 2.5] },
   { champion: [15, 45, 34, 6, 0], warlord: [0, 22, 58, 20, 1], boss: [0, 5, 50, 45, 3] },
 ];
+
+/**
+ * In a run, artifacts drop as orbs of their tier: you only see what's inside when you open it, on the profile's
+ * Artifacts tab. The Dragon Orb is Mordak's alone, and always holds the Dragonsheart.
+ */
+export type OrbKind = Tier | 'dragon';
+export const ORB_KINDS: OrbKind[] = [...TIER_IDS, 'dragon'];
+
+export function isOrbKind(v: unknown): v is OrbKind {
+  return typeof v === 'string' && (ORB_KINDS as string[]).includes(v);
+}
+
+export function orbName(kind: OrbKind): string {
+  return kind === 'dragon' ? 'Dragon Orb' : `${TIERS[kind].name} Orb`;
+}
+
+export function orbColor(kind: OrbKind): number {
+  return kind === 'dragon' ? 0xd32f2f : TIERS[kind].color;
+}
 
 /** Combining: this many artifacts of one tier become one random artifact of the next tier up. */
 export const FORGE = { count: 5 };
@@ -446,6 +477,7 @@ const EFFECT_TEXT: { [K in keyof Required<ArtifactEffects>]: { text: (v: number)
   heartMaxHp: { text: (v) => `+${v} max HP for every heart you pick up (even at full health)` },
   levelsPerProjectile: { text: (v) => `+1 projectile every ${v} level-ups` },
   areaPerBomb: { text: (v) => `+${pct(v)} area for every bomb that goes off` },
+  damagePerChest: { text: (v) => `+${pct(v)} damage for every war chest opened` },
 };
 
 /** The effects as lines of text, drawbacks flagged. */

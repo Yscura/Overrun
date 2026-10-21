@@ -1,5 +1,5 @@
 import type { Wall } from './collision';
-import { ENEMY_TYPES, EnemyType, bossDisplayName } from './enemies';
+import { ENEMY_TYPES, EnemyType, bossDisplayName, isWarlord } from './enemies';
 import { distanceToPath, pvpLayout, type PvpLayout } from './pvp';
 
 /** The named boss arrives this many seconds in; with the fight that makes a run about 16 minutes. */
@@ -1036,6 +1036,8 @@ export function waveBoss(map: MapDef, wave: number): { boss: number; twin?: numb
 
 /** An enemy type's color on this map. */
 export function enemyColor(map: MapDef, type: number): number {
+  // Every warlord wears the map's warlord colors (each map sets them for the first, the Earthbreaker).
+  if (isWarlord(type)) return map.enemyColors?.[EnemyType.Warlord] ?? ENEMY_TYPES[EnemyType.Warlord].color;
   return map.enemyColors?.[type] ?? ENEMY_TYPES[type].color;
 }
 

@@ -92,5 +92,12 @@ export const BOMB = { radius: 20, blast: 170, damage: 30 };
 export const HEART_RADIUS = 12;
 /** Artifacts lying on the ground: touch one to pick it up. */
 export const ARTIFACT_RADIUS = 16;
+/** A warlord's war chest: how close you walk to open it. */
+export const CHEST_RADIUS = 24;
+/**
+ * The Warforge, in most war chests: everyone gets a single upgrade card (a weapon evolution if one is ready,
+ * otherwise one weapon or passive to upgrade). Anyone with nothing left to upgrade gets `gold` instead.
+ */
+export const WARFORGE = { gold: 50 };
 /** Fraction of max HP a heart restores. */
 export const HEART_HEAL = 0.2;

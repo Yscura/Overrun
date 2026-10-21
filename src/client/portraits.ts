@@ -11,10 +11,11 @@ import alchemist from '../../img/alchemist.png';
 import cleric from '../../img/cleric.png';
 import paladin from '../../img/paladin.png';
 import dragonmancer from '../../img/dragonmancer.png';
+import bard from '../../img/bard.png';
 
 
 // Hero portraits, from the img folder (bundled by Vite).
-const PORTRAITS: Record<CharacterId, string> = { assassin, mage, bruiser, tank, pyro, ranger, druid, chronobreaker, alchemist, paladin, cleric, dragonmancer };
+const PORTRAITS: Record<CharacterId, string> = { assassin, mage, bruiser, tank, pyro, ranger, druid, chronobreaker, alchemist, paladin, cleric, dragonmancer, bard };
 
 /** The URL of a hero's portrait image. */
 export function portraitUrl(character: CharacterId): string {

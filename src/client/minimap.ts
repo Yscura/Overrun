@@ -200,6 +200,7 @@ export class Minimap {
       const y = snap.pickups[i + 3] * s;
       if (kind === PickupKind.Crate) g.rect(x - 2.5, y - 2.5, 5, 5).fill(0xbc8a5f).stroke({ width: 1, color: 0x3e2723 });
       else if (kind === PickupKind.Heart) g.rect(x - 3, y - 1.2, 6, 2.4).rect(x - 1.2, y - 3, 2.4, 6).fill(HEALTH_GREEN);
+      else if (kind === PickupKind.Chest) g.rect(x - 4, y - 3, 8, 6).fill(0xffca28).stroke({ width: 1, color: 0x3e2723 });
       else if (kind === PickupKind.Artifact) {
         // Artifacts: a diamond in their tier's color, so they're easy to find.
         const color = TIERS[TIER_IDS[snap.pickups[i + 4]] ?? 'common'].color;

@@ -20,6 +20,8 @@ export interface Wall {
 export interface PassFlags {
   thin?: boolean;
   thick?: boolean;
+  /** Walks through any wall no bigger than this either way (headstones, small rocks), unless it's solid or terrain. */
+  small?: number;
 }
 
 const CELL = 128;
@@ -64,6 +66,7 @@ export class WallIndex {
 
 function blocks(wall: Wall, pass: PassFlags | undefined): boolean {
   if (wall.look === 'terrain' || wall.solid) return true;
+  if (pass?.small && wall.w <= pass.small && wall.h <= pass.small) return false;
   return wall.thin ? !pass?.thin : !pass?.thick;
 }
 

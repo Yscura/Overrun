@@ -89,7 +89,7 @@ growing if the boss fight drags on. Hordes are kept smallish (`HORDE_DENSITY`): 
 **Champions.** From about 3 minutes in, a few percent of enemies spawn as champions: bigger, with a colored ring,
 4x the health, 1.5x the damage and 5x the XP, plus an affix: **Hasted** (yellow, much faster), **Vampiric** (red,
 heals by hitting you), **Volatile** (orange, leaves a bomb when it dies) or **Splitting** (green, splits in three).
-**Warlords** show up as a mini-boss fight, the first at 1:30 and then every 3:20: the horde out of sight scatters when one arrives and only trickles in (30% of the usual rate) while any is alive. Each has a health bar over its head. There are three kinds: the **Earthbreaker** plants its feet and slams the ground (get out of the filling circle), the **Spearhurler** keeps its distance and throws fans of five big spears, and the **Juggernaut** charges down a wide lane and throws whoever it hits aside. Later in a run they come in groups (two from 8:00, three from 12:00), each a bit frailer. Tuned in `WARLORDS`, `WARLORD_SLAM`, `WARLORD_VOLLEY` and `WARLORD_CHARGE` (`src/shared/enemies.ts`) and `WARLORD_FIGHT` (`src/server/game.ts`).
+**Warlords** show up as a mini-boss fight, the first at 1:30 and then every 3:20: the horde out of sight scatters when one arrives and only trickles in (30% of the usual rate) while any is alive. Each has a health bar over its head. There are three kinds: the **Earthbreaker** plants its feet and slams the ground (get out of the filling circle), the **Spearhurler** keeps its distance and throws fans of five big spears, and the **Juggernaut** charges down a wide lane and throws whoever it hits aside. Later in a run they come in groups (two from 8:00, three from 12:00), each a bit frailer. In endless they keep coming all run (skipping any due during or just before a boss wave), up to four at once, and keep toughening. Tuned in `WARLORDS`, `WARLORD_SLAM`, `WARLORD_VOLLEY` and `WARLORD_CHARGE` (`src/shared/enemies.ts`) and `WARLORD_FIGHT` (`src/server/game.ts`).
 
 **Getting to the boss.** Boss arenas are walled off by a big gate until 15:00. Then the gate opens, and a burning zone
 sweeps in from the map's far corners, closing in on the arena over 45 seconds and burning anyone it catches. The fight
@@ -124,7 +124,7 @@ pointing in for "stack up", magenta with arrows pointing out for "spread out".
 | Rime, the Frost Queen | She laughs through the fight, and at every hero who falls. **Glacial Wrath**: she channels, then blasts everyone she can see for 65% of their max HP. Hide behind one of the hall's columns; the safe shadows are shown. Plus **Frost Bomb** (follows one player and goes off on everyone near them), **frost breath** (a long cone) and her ice nova. At **half health she retreats**: she glides back to her throne (untouchable) and vanishes, and a **secret door** opens in the wall behind it onto a **labyrinth**, with some of her minions lost in it. Whoever finds the way out into her **tower** finds her waiting there, and the fight goes on; the tower's gate shuts once the whole team is in (the fallen are carried along). The labyrinth and tower stay hidden, even on the minimap, until she flees, and the berserk clock waits while she's away. Tuned in `RETREAT` (`src/server/game.ts`) and the map's `tower` (`src/shared/maps.ts`); the dev **K** key skips to her retreat on this map. |
 | Kharzak | **Burrow** (it vanishes, a mark hunts one player, and it bursts out there), a **pincer sweep** (a very wide short cone), its tail **sting** line, and a charge. **Hardened shell** at 66% and 33%: it shrugs off 85% of damage and keeps charging. Bait a charge into one of the den's boulders to crack it: it's stunned, then takes 50% extra damage for a while. |
 | Twin Flames | Two winged demons who growl in turn through the fight (and the survivor roars when its twin dies). A **burning tether** between the twins hurts anyone standing in it. While they're close they're **kindred** and shrug off 40% of damage: pull them apart. Vael drops **meteors** whose damage is split between everyone inside (stack up); Embra throws **homing cinder orbs**. |
-| Mordak *(spoiler)* | The Ashen Caldera's true ending. When the twins fall, the caldera **shakes apart**: lava everywhere but a few **stepping stones**, crossed by dodging over the gaps (a dodge's invulnerability carries you over the lava) under **falling rock**. They lead to a hidden **dragon's den**, where Mordak, the Earth Scourger lands: the largest boss in the game. **Fireball** volleys, a **fire beam** his head sweeps across a half circle while his body holds still (hide behind one of the den's pillars, or dodge through it), a **tail lash** at anyone standing behind him (a cone shows where; it hurts and throws you back) a **fire flight** (untargetable, carpet-bombing the den in 3 passes back and forth, 4 once he's below half health, then landing somewhere else) and a **roost**: he sits back on his haunches and hurls meteors of fire all over the den, big circles that land a moment later. He can't be hurt while he's flying or roosting, so his fight has no berserk clock. When he lands, the whole team is gathered at the edge of the den where they came in. (His **wings** can be made targets of their own, torn off to keep him on the ground: switched off for now, see `BOSS_MECHANICS.wings.enabled`.) Slaying him gives everyone the **Dragonsheart** (a legendary artifact found nowhere else) earns the **Dragonmancer** and opens **hard mode**. |
+| Mordak *(spoiler)* | The Ashen Caldera's true ending. When the twins fall, the caldera **shakes apart**: lava everywhere but a few **stepping stones**, crossed by dodging over the gaps (a dodge's invulnerability carries you over the lava) under **falling rock**. They lead to a hidden **dragon's den**, where Mordak, the Earth Scourger lands: the largest boss in the game. **Fireball** volleys, a **fire beam** his head sweeps across a half circle while his body holds still (hide behind one of the den's pillars, or dodge through it), a **tail lash** at anyone standing behind him (a cone shows where; it hurts and throws you back) a **fire flight** (untargetable, carpet-bombing the den in 3 passes back and forth, 4 once he's below half health, then landing somewhere else) and a **roost**: he sits back on his haunches and hurls meteors of fire all over the den, big circles that land a moment later. He can't be hurt while he's flying or roosting, so his fight has no berserk clock. When he lands, the whole team is gathered at the edge of the den where they came in. (His **wings** can be made targets of their own, torn off to keep him on the ground: switched off for now, see `BOSS_MECHANICS.wings.enabled`.) Slaying him gives everyone the **Dragon Orb**, which holds the **Dragonsheart** (a legendary artifact found nowhere else), earns the **Dragonmancer** and opens **hard mode**. |
 
 All of this is tuned in `src/shared/enemies.ts` (`NAMED_BOSSES` for each boss's rotation and phase, `BOSS_MECHANICS`, `BOSS_BERSERK`, `BOSS_VENGEFUL`, `BOSS_MISSIONS`). Beating the boss shows **Victory**: the prestige and gold you earned count up under it, then the artifacts you found
 appear one by one (click to skip), then **Continue** goes on to the post-game screen, where hovering a weapon in
@@ -155,32 +155,39 @@ movement speed), Fortitude (+6% max HP) and Resolve (2% less damage taken). Rank
 "Refund all" gives everything back for free. Prestige is saved per player name in `data/progress.json`, so use the same
 name every time. The later maps are tuned to need a few runs' worth of prestige.
 
-**Artifacts.** Champions (elites with an affix) sometimes drop an artifact, warlords often do, and beating the final
-boss gives everyone one. Whoever touches a dropped artifact finds one of its tier for every person in the team (each
-rolls their own), and any still lying around when the boss dies are found too. They go into your **inventory** on the
+**War chests.** Every warlord drops a war chest; walk over it to open it. One in five holds an artifact for everyone;
+the rest hold a **Warforge**: a free upgrade for the whole team, one card each (a weapon evolution if one is ready,
+otherwise a weapon or passive to upgrade; gold instead if everything's maxed). Tuned in `DROPS.warlord`
+(`src/shared/artifacts.ts`) and `WARFORGE` (`src/shared/constants.ts`).
+
+**Artifacts.** Champions (elites with an affix) sometimes drop an artifact, warlords' war chests sometimes hold one, and beating the final
+boss gives everyone one. They drop as **orbs** of their tier (a Rare Orb, a Legendary Orb...): whoever touches one finds an orb of its tier
+for every person in the team, and any still lying around when the boss dies are found too. What's inside stays a
+surprise until you open it, on the profile's Artifacts tab (each person rolls their own then). Mordak gives the
+**Dragon Orb**, which always holds the Dragonsheart. Opened, they go into your **inventory** on the
 Profile page's Artifacts tab (duplicates stack), and you pick one to take into your runs in the lobby (one at a time;
 you can't swap once you've locked in). There are five tiers, each with its own color: **common** (a small plain bonus),
 **rare**, **epic**, **legendary** and, at the very top, **mythical** (orange, made for endless: each grows
 through the run. The Bottomless Heart gives +3 max HP per heart you pick up, Hydra's Tooth +1 projectile every 6
-level-ups, the Blastforged Core +5% area per bomb that goes off), and some trade a drawback for a big upside (Glass Edge: +22% damage, 15% more
+level-ups, the Blastforged Core +5% area per bomb that goes off, the Warlord's Trophy +5% damage per war chest the team opens), and some trade a drawback for a big upside (Glass Edge: +22% damage, 15% more
 damage taken). How good they are grows with the campaign: the Emerald Woods only drops commons, each map after it
 opens the next tier (with a rare outlier one tier further), the first legendaries come from the Ashen Caldera's bosses,
 and hard mode drops far more epics and legendaries. Mythicals are only ever found in play: a rare drop from
-hard-mode warlords and bosses (they can't be combined into or won on the wheel). Endless mode gets better with each boss wave. Some artifacts can also be activated: the **Q** slot left of E shows your
+hard-mode warlords and bosses (they can't be traded in for or won on the wheel). Endless mode gets better with each boss wave. Some artifacts can also be activated: the **Q** slot left of E shows your
 artifact, and pressing Q uses its active (Tower Plate braces you, Windstep Anklet dashes, Storm Sigil and Eye of the
 Storm blast the horde, the Crown rallies the team, the Aegis of Dawn raises a dome that makes everyone inside
 untouchable...) on its own cooldown. The Jeweled Gauntlet lets magic damage crit.
 
-On the Artifacts tab, click an artifact for its **Equip** and **Combine** buttons. Combine shows the combine slots
-(with that artifact in the first) and your other artifacts of its tier: click four more in, and the five become a
-random one of the next tier up, up to legendary (Cancel goes back). The **artifact wheel** is in the Shop, 1000 gold a spin: 52%
-common, 30% rare, 14% epic, 4% legendary. A run kills about 500 champions and three or four warlords, so a winning run finds around four or five.
+On the Artifacts tab, click an artifact for its **Equip** and **Trade In** buttons. Trade In shows the trade-in slots
+(with that artifact in the first) and your other artifacts of its tier: click four more in, and the five are traded
+for a random one of the next tier up, up to legendary (Cancel goes back). The **artifact wheel** is in the Shop, 1000 gold a spin: 52%
+common, 30% rare, 14% epic, 4% legendary. A run kills about 500 champions and five to eight warlords (one in five of their chests holds an artifact), so a winning run finds around four.
 
 All of it is in `src/shared/artifacts.ts`: each artifact is one line in `ARTIFACTS` (name, tier, icon, flavor and
 `effects`, such as `{ damage: 0.22, damageTaken: 0.15 }`, plus an optional `active` for Q built from parts like
 `heal`, `guard`, `frenzy`, `blast`, `stun`, `blink`, `invuln` and `rally`), and the descriptions everywhere are written
 from those.
-`DROPS` holds the drop chances, `LOOT` the tier odds for each map and source (normal, then hard mode), `FORGE` how many it takes to combine, and `WHEEL` the spin's cost and odds. Profiles save artifacts by key, so rename one by changing its `name`.
+`DROPS` holds the drop chances, `LOOT` the tier odds for each map and source (normal, then hard mode), `FORGE` how many it takes to trade in, and `WHEEL` the spin's cost and odds. Profiles save artifacts by key, so rename one by changing its `name`.
 To try one out: `npm run balance -- --map 1 --god --artifact glassEdge`.
 
 **Walls:** thick walls (stone) block movement and all projectiles. Thin walls (fences) block movement but you can shoot
@@ -188,7 +195,7 @@ over them and dodge through them. Kael's dodge goes through thick walls too. Wra
 
 **God mode:** join as `dev` (or `dev2`, so two people can test together) and you take damage but never go down (toggle it with **G**), and every hero is unlocked and you always have at least one of every artifact. A DEV panel (top left) has cheats for testing:
 **T** jumps the clock a minute ahead (with the level-ups you'd have earned; during the boss fight it pushes toward
-berserk), **J** skips to just before the boss (picking the level-ups you'd have earned at random), **K** skips to the Ashen Caldera's finale (press it again while crossing to land at the den) or, on the Frozen Fortress, to the Frost Queen's retreat (press it again to land at the labyrinth's way out), **U** gives a free level-up pick, **F** a free Forge pick, and **B** fills your slots and maxes everything.
+berserk), **J** skips to just before the boss (picking the level-ups you'd have earned at random), **K** skips to the Ashen Caldera's finale (press it again while crossing to land at the den) or, on the Frozen Fortress, to the Frost Queen's retreat (press it again to land at the labyrinth's way out), **U** gives a free level-up pick, **F** a free Forge pick, **L** brings in a warlord (the Earthbreaker, Spearhurler and Juggernaut in turn), and **B** fills your slots and maxes everything.
 
 **Testing switches** for the server: `OVERRUN_BOSS_TIME=60` brings the final boss after a minute and
 `OVERRUN_UNLOCK_ALL=1` unlocks every map (hard mode too). In PowerShell: `$env:OVERRUN_BOSS_TIME=60; npm run dev`.
@@ -240,10 +247,11 @@ Pick a hero in the lobby. Ranged and melee heroes are offered different weapons:
 | Vessa, the Alchemist | Ranged | Flask Toss: splash and acid puddles | Toxic Pool: a wide, long-lasting pool of poison at the cursor | Grand Elixir (75s): heal 30%, then 8s of +25% damage, faster attacks, speed and armor | +15% damage |
 | Aldric, the Paladin | Melee | Judgment Hammer (magic) | Consecration: hallowed ground that burns enemies and heals allies | Avenging Wrath (70s): 8s of light pillars, half damage taken | 150 HP, armored |
 | Seraphine, the Cleric | Ranged | Smite: strikes the nearest enemy, heals the most hurt ally | Prayer of Light: heal and shield allies around you, sear enemies | Divine Intervention (120s): every ally up, full HP, 3s invulnerable | The healer |
+| Tricky, the Bard | Ranged | Lute Notes: notes that weave toward the cursor and pierce (evolved Symphony: two more lines) | On Hit: for a few seconds his Lute Notes hit 50-90% harder as true damage, glowing gold (evolved Encore: the song plays 40% faster meanwhile) | Ballad of Heroes (60s): for 10s, you and every ally nearby get +30% damage, 25% faster attacks, 15% more speed and heal 2% of max HP a second | Support trickster |
 | Kaelor, the Dragonmancer *(secret)* | Melee | Ember Halo: fireballs circle him, burning what they touch | Fire Wave: blasts of fire burst up in a row toward the cursor (evolved: they leave the ground burning) | Dragon Form (60s): 25s as a dragon: +50% damage, +40% max HP, 25% less damage taken, faster, bigger areas, and E breathes fire from the dragon's mouth. Its body turns the way you walk and its head toward your aim; aim more than 90° off and the body swings round | Earned only by slaying Mordak; +20% damage |
 
-The first four heroes are free. Ignis, Sylva, Oakhart, Vex, Vessa, Aldric and Seraphine cost 500 gold each (a full run brings in a few hundred):
-click their card in the lobby. `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.
+The first four heroes are free. The others are bought with gold in the Shop (500 to 1500 each; Tricky costs 1000), and
+the Dragonmancer is earned. `OVERRUN_UNLOCK_ALL=1` also unlocks every hero.
 
 WASD / arrows to move. Aimed weapons (bolts, knives, cleave) go toward your mouse cursor; the rest work on their own.
 Space dodges in the direction you're moving (toward the cursor when standing still): a quick dash during which nothing can hurt you, so you can keep shooting behind you while dashing away. E casts your hero's ability, R their ultimate, and Q uses your artifact (if it can be activated).
@@ -298,14 +306,14 @@ nearby. **Gold** flies to you like gems and everyone on the team gets all of it.
 
 **Upgrade points** appear on the map (arrows on the screen edge point to them). Stand inside one to fill it up; the more
 of the team stands inside, the faster it fills. Altars and Quest points show up every 40 seconds (at most two at a time);
-Forges come on a fixed schedule: 6 per run, at 3:45, 6:00, 8:15, 10:12, 12:00 and 13:30 (and one every 2:30 after
+Forges come on a fixed schedule: 3 per run, at 4:30, 8:15 and 12:00 (warlords' war chests hand out evolutions too) (and one every 2:30 after
 that in endless mode). In endless mode an Armory comes at 5:15, and every 4 minutes after that.
 
 - **Forge** (orange): everyone picks a weapon upgrade. A weapon or E ability at level 5 can **evolve** to level 6, which
   is only possible here (Arcane Barrage, Blade Fan, Tempest, Hex Swarm, Shuriken Storm, Pyroblast, Hunter's Volley,
   Whirlwind, Earthshatter, Plague, Eviscerate, Solar Flare, Minefield, Spirit Vortex, Alpha Pack; abilities: Shadow
   Dance, Starfall, Cataclysm, Unbreakable, Supernova, Hail of Arrows, Ancient Grove, Paradox). Evolving all four weapons and
-  your ability takes 5 Forges, so a team that captures every Forge and plans its picks can max out everything.
+  your ability takes 5 evolutions: the 3 Forges, plus the Warforges in warlords' war chests (which always offer an evolution when one is ready).
 - **Armory** (light blue, endless mode only): everyone may trade in one of their weapons (or keep them all for a little gold). Pick the
   weapon to give up, then one of three new weapons to take its place **at the same level** (an evolved weapon's
   replacement comes at level 5, ready for a Forge). Your E ability can't be traded.

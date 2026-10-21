@@ -1,0 +1,142 @@
+// The Bard's song: Through the Fire and Flames (DragonForce), the verse and chorus melodies. Lute Notes plays them a
+// note per volley, in their own rhythm (see the 'notes' weapon in game.ts): the verse loops while he shoots, and his
+// Ballad of Heroes switches to the chorus. Each note is [beat it starts on (from 0), how many beats it lasts, MIDI
+// pitch]; a part loops every `beats` beats. Made from Hooktheory melody exports (scale degrees in a key).
+
+export interface SongPart {
+  key: string;
+  beats: number;
+  notes: [beat: number, length: number, midi: number][];
+}
+
+/** The song's tempo before attack speed (which plays it faster). */
+export const SONG_BPM = 70;
+
+export const BARD_SONG: { verse: SongPart; chorus: SongPart } = {
+  verse: {
+    key: 'C minor',
+    beats: 64,
+    notes: [
+      [1, 0.5, 79],
+      [1.5, 0.5, 79],
+      [2, 1, 79],
+      [3, 0.5, 77],
+      [3.5, 0.5, 75],
+      [4, 1, 77],
+      [5, 1, 79],
+      [7, 0.5, 77],
+      [7.5, 0.5, 75],
+      [8, 1, 77],
+      [9, 0.5, 79],
+      [9.5, 1, 77],
+      [10.5, 1, 75],
+      [11.5, 3, 72],
+      [15, 1, 75],
+      [16, 1, 77],
+      [17, 1, 79],
+      [18, 1, 77],
+      [19, 1, 75],
+      [20, 1, 77],
+      [21, 0.5, 79],
+      [21.5, 1.5, 77],
+      [23, 1, 75],
+      [24, 1, 77],
+      [25, 0.5, 79],
+      [25.5, 1, 77],
+      [26.5, 1, 75],
+      [27.5, 3, 72],
+      [33, 0.5, 79],
+      [33.5, 0.5, 79],
+      [34, 1, 79],
+      [35, 0.5, 77],
+      [35.5, 0.5, 75],
+      [36, 1, 77],
+      [37, 0.5, 75],
+      [37.5, 1, 79],
+      [39, 0.5, 75],
+      [39.5, 0.5, 72],
+      [40, 1, 77],
+      [41, 1, 79],
+      [42, 0.5, 77],
+      [42.5, 1, 75],
+      [43.5, 1.5, 72],
+      [45, 1, 75],
+      [47, 1, 75],
+      [48, 1, 77],
+      [49, 1, 79],
+      [50, 1, 77],
+      [51, 1, 75],
+      [52, 1, 77],
+      [53, 0.5, 79],
+      [53.5, 1.5, 77],
+      [55, 1, 75],
+      [56, 1, 77],
+      [57, 0.5, 79],
+      [57.5, 1, 77],
+      [58.5, 1, 75],
+      [59.5, 3, 72],
+    ],
+  },
+  chorus: {
+    key: 'Eb major',
+    beats: 64,
+    notes: [
+      [1, 1, 70],
+      [2, 1, 75],
+      [3, 1, 77],
+      [4, 1.5, 79],
+      [5.5, 1.5, 77],
+      [7, 1, 75],
+      [8, 3, 82],
+      [11, 1, 82],
+      [12, 1, 82],
+      [13, 0.5, 82],
+      [13.5, 1.5, 80],
+      [15, 1, 79],
+      [16, 1, 75],
+      [17, 0.5, 75],
+      [17.5, 1.5, 77],
+      [20, 1, 79],
+      [21, 0.5, 79],
+      [21.5, 1.5, 80],
+      [23, 1, 79],
+      [24, 1, 77],
+      [25, 0.5, 77],
+      [25.5, 1.5, 79],
+      [27, 1, 77],
+      [28, 1.5, 79],
+      [29.5, 1.5, 77],
+      [31, 1, 75],
+      [32, 2, 75],
+      [36, 1, 79],
+      [37, 0.5, 79],
+      [37.5, 1.5, 77],
+      [39, 1, 75],
+      [40, 1, 75],
+      [41, 0.5, 75],
+      [41.5, 1.5, 77],
+      [44, 1, 79],
+      [45, 0.5, 79],
+      [45.5, 1.5, 77],
+      [47, 1, 75],
+      [48, 1.5, 82],
+      [49.5, 1.5, 79],
+      [52, 1, 80],
+      [53, 0.5, 80],
+      [53.5, 1.5, 80],
+      [55, 1, 80],
+      [56, 1, 80],
+      [57, 0.5, 79],
+      [57.5, 1.5, 77],
+      [59, 1, 75],
+      [60, 4, 82],
+    ],
+  },
+};
+
+/** Beats from note `i` of a part to the next one (round to the start again after the last). */
+export function beatsToNext(part: SongPart, i: number): number {
+  const [beat] = part.notes[i];
+  const next = part.notes[i + 1];
+  return next ? next[0] - beat : part.beats - beat + part.notes[0][0];
+}

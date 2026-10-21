@@ -1,14 +1,14 @@
 // The main menu: your name, the home screen with the modes, multiplayer (create or join a lobby), your profile
 // (prestige shop and heroes) and settings. Profile and settings can also be opened on top of a lobby.
 
-import { ARTIFACTS, FORGE, FOUND_ONLY, TIERS, TIER_IDS, WHEEL, nextTier, type ArtifactId, type Tier } from '../shared/artifacts';
+import { ARTIFACTS, FORGE, FOUND_ONLY, ORB_KINDS, TIERS, TIER_IDS, WHEEL, nextTier, orbColor as orbColorOf, orbName, type ArtifactId, type OrbKind, type Tier } from '../shared/artifacts';
 import { CHARACTERS, CHARACTER_IDS, heroAvailable, type CharacterId } from '../shared/characters';
 import { MAPS } from '../shared/maps';
 import { MODES, MODE_IDS, type ModeId } from '../shared/modes';
 import { PRESTIGE, PRESTIGE_IDS, prestigeCost, type PrestigeId } from '../shared/prestige';
 import type { ProfileState, RoomInfo } from '../shared/protocol';
 import type { Sound } from './audio';
-import { artifactIcon, effectLines, sortArtifacts, tierColor, tierTag } from './artifactView';
+import { artifactIcon, effectLines, orbIcon, sortArtifacts, tierColor, tierTag } from './artifactView';
 import { renderBestiary } from './bestiary';
 import { heroDetail, heroPortrait, mystery, mysteryDetail, statGrid } from './heroView';
 import { portraitHtml } from './portraits';
@@ -64,6 +64,11 @@ export class Menu {
   onEquip: (artifact: ArtifactId | null) => void = () => {};
   /** Combine these artifacts (FORGE.count of one tier) into one of the next tier. */
   onCombine: (artifacts: ArtifactId[]) => void = () => {};
+  /** Open one of your orbs: what's inside comes back through showArtifactResult. */
+  onOpenOrb: (orb: OrbKind) => void = () => {};
+  /** Waiting on the server to open an orb (and which kind, for the reveal). */
+  private openingOrb = false;
+  private openingKind: OrbKind | null = null;
   /** Spin the artifact wheel. */
   onSpin: () => void = () => {};
 
@@ -381,6 +386,7 @@ export class Menu {
     $('artifact-found').textContent = String(items.reduce((sum, i) => sum + i.total, 0) || '');
     const combining = this.combineTier !== null;
     $('artifact-browse').classList.toggle('hidden', combining);
+    this.renderOrbs(profile);
     $('artifact-combine').classList.toggle('hidden', !combining);
     if (combining) {
       this.renderForge();
@@ -401,7 +407,7 @@ export class Menu {
         const selected = this.selectedArtifact === id;
         const card = this.artifactCard(id, total, `${equipped ? ' equipped' : ''}${selected ? ' selected' : ''}`);
         if (equipped) card.querySelector('.artifact-card-names')!.append(el('span', 'artifact-equipped-tag', 'Equipped'));
-        card.title = selected ? '' : 'Click to equip or combine it';
+        card.title = selected ? '' : 'Click to equip or trade it in';
         if (selected) {
           // Its two buttons: take it into your runs (or out), or combine it with others of its tier.
           const actions = el('div', 'artifact-actions');
@@ -411,11 +417,11 @@ export class Menu {
             this.onEquip(equipped ? null : id);
           });
           const next = nextTier(def.tier);
-          const combine = el('button', 'secondary', 'Combine') as HTMLButtonElement;
+          const combine = el('button', 'secondary', 'Trade In') as HTMLButtonElement;
           combine.disabled = !next;
           combine.title = next
-            ? `${FORGE.count} ${TIERS[def.tier].name.toLowerCase()} artifacts become one random ${TIERS[next].name.toLowerCase()}`
-            : `${TIERS[def.tier].name} artifacts can't be combined: ${FOUND_ONLY.map((t) => TIERS[t].name.toLowerCase()).join(' and ')} ones are only found in play`;
+            ? `Trade in ${FORGE.count} ${TIERS[def.tier].name.toLowerCase()} artifacts for one random ${TIERS[next].name.toLowerCase()}`
+            : `${TIERS[def.tier].name} artifacts can't be traded in: ${FOUND_ONLY.map((t) => TIERS[t].name.toLowerCase()).join(' and ')} ones are only found in play`;
           combine.addEventListener('click', (e) => {
             e.stopPropagation();
             this.enterCombine(id);
@@ -513,12 +519,12 @@ export class Menu {
     const go = $<HTMLButtonElement>('forge-go');
     const n = this.forgeSlots.length;
     go.disabled = n < FORGE.count || this.combining;
-    go.textContent = next && n === FORGE.count ? `Combine into ${TIERS[next].name}` : 'Combine';
+    go.textContent = next && n === FORGE.count ? `Trade in for ${/^[AEIOU]/.test(TIERS[next].name) ? 'an' : 'a'} ${TIERS[next].name}` : 'Trade In';
     $('forge-hint').textContent = !tier
       ? `Put ${FORGE.count} artifacts of the same tier in the slots to turn them into a random one of the next tier.`
       : n < FORGE.count
         ? `${n} of ${FORGE.count} ${TIERS[tier].name.toLowerCase()}: add ${FORGE.count - n} more.`
-        : `Ready: ${FORGE.count} ${TIERS[tier].name.toLowerCase()} become one random ${TIERS[next!].name.toLowerCase()}.`;
+        : `Ready: trade in ${FORGE.count} ${TIERS[tier].name.toLowerCase()} for one random ${TIERS[next!].name.toLowerCase()}.`;
   }
 
   private combine(): void {
@@ -590,14 +596,58 @@ export class Menu {
     if (profile) this.setProfile(profile);
   }
 
-  /** The server's answer to Combine or Spin: turn the wheel onto the tier first, then show what you got. */
-  showArtifactResult(id: ArtifactId, how: 'combine' | 'spin'): void {
+  /** Your unopened orbs, best first, each with an Open button. */
+  private renderOrbs(profile: ProfileState): void {
+    const shelf = $('orb-shelf');
+    const kinds = [...ORB_KINDS].reverse().filter((k) => (profile.orbs[k] ?? 0) > 0);
+    shelf.classList.toggle('hidden', kinds.length === 0);
+    if (kinds.length === 0) return;
+    shelf.replaceChildren(
+      el('h3', 'orb-shelf-title', 'Unopened orbs'),
+      ...kinds.map((kind) => {
+        const card = el('div', 'orb-card');
+        card.style.setProperty('--tier', `#${orbColorOf(kind).toString(16).padStart(6, '0')}`);
+        const n = profile.orbs[kind] ?? 0;
+        const name = el('div', 'orb-card-name', orbName(kind));
+        const count = el('div', 'orb-card-count', `×${n}`);
+        const open = el('button', 'primary', 'Open') as HTMLButtonElement;
+        open.disabled = this.openingOrb;
+        open.addEventListener('click', () => {
+          if (this.openingOrb) return;
+          this.openingOrb = true;
+          this.openingKind = kind;
+          for (const b of shelf.querySelectorAll<HTMLButtonElement>('button')) b.disabled = true;
+          card.classList.add('opening');
+          this.onOpenOrb(kind);
+          // (If the answer never comes, don't stay locked.)
+          window.setTimeout(() => {
+            this.openingOrb = false;
+            if (this.profile) this.renderOrbs(this.profile);
+          }, 4000);
+        });
+        card.append(orbIcon(kind, 46), name, count, open);
+        return card;
+      }),
+    );
+  }
+
+  /** The server's answer to Combine, Spin or opening an orb: show what you got (after the wheel's turn, for a spin). */
+  showArtifactResult(id: ArtifactId, how: 'combine' | 'spin' | 'orb'): void {
+    if (how === 'orb') {
+      // The orb cracks open, then what was inside.
+      window.setTimeout(() => {
+        this.openingOrb = false;
+        if (this.profile) this.renderOrbs(this.profile);
+        this.reveal(id, 'The orb held', this.openingKind ?? undefined);
+      }, 600);
+      return;
+    }
     if (how === 'combine') {
       this.forgeSlots = [];
       window.setTimeout(() => {
         this.combineTier = null;
         this.endCombine();
-        this.reveal(id, 'Combined into');
+        this.reveal(id, 'Traded in for');
       }, 700);
       return;
     }
@@ -618,16 +668,58 @@ export class Menu {
   }
 
   /** What you just got, big, over everything (from combining in the profile, or the wheel in the Shop). */
-  private reveal(id: ArtifactId, label: string): void {
+  /**
+   * What you just got, over everything: its orb charges up (shaking harder and glowing brighter the rarer it is), then
+   * bursts in a flash, with sparks, light rays and, from legendary up, a shaking screen. Then the artifact itself.
+   * `orb`: the orb it came out of (otherwise one of its tier stands in, for the wheel and trading in).
+   */
+  private reveal(id: ArtifactId, label: string, orb?: OrbKind): void {
     const def = ARTIFACTS[id];
+    const rank = TIER_IDS.indexOf(def.tier); // 0 common .. 4 mythic
     const box = $('artifact-reveal');
+    box.className = `artifact-reveal reveal-rank-${rank}`;
     box.style.setProperty('--tier', tierColor(def.tier));
+    // How long it charges, how hard it shakes, and how bright the burst is.
+    const build = [0.45, 0.7, 1, 1.35, 1.8][rank];
+    box.style.setProperty('--build', `${build}s`);
+    box.style.setProperty('--shake', `${[1, 2, 3, 5, 8][rank]}px`);
+    box.style.setProperty('--flash', String([0.25, 0.4, 0.6, 0.85, 1][rank]));
+    const stage = el('div', 'reveal-stage');
+    const rays = el('div', 'reveal-rays');
+    const rays2 = el('div', 'reveal-rays reveal-rays-2');
+    const glow = el('div', 'reveal-glow');
+    const holder = el('div', 'reveal-orb');
+    holder.append(orbIcon(orb ?? def.tier, 120));
+    const sparks = el('div', 'reveal-sparks');
+    const count = [0, 12, 22, 36, 60][rank];
+    for (let i = 0; i < count; i++) {
+      const spark = el('span', 'reveal-spark');
+      const a = Math.random() * Math.PI * 2;
+      const d = 120 + Math.random() * (90 + rank * 50);
+      spark.style.setProperty('--x', `${Math.cos(a) * d}px`);
+      spark.style.setProperty('--y', `${Math.sin(a) * d}px`);
+      spark.style.setProperty('--size', `${3 + Math.random() * (2 + rank)}px`);
+      spark.style.setProperty('--delay', `${build + Math.random() * 0.15}s`);
+      // Mythical sparks come in fire and gold; the rest in the tier's color and white.
+      if (rank === 4 ? Math.random() < 0.5 : Math.random() < 0.3) spark.classList.add(rank === 4 ? 'gold' : 'white');
+      sparks.append(spark);
+    }
+    const flash = el('div', 'reveal-flash');
     const card = el('div', 'reveal-card');
     const ok = el('button', 'primary', 'Nice!') as HTMLButtonElement;
     ok.addEventListener('click', () => box.classList.add('hidden'));
     card.append(el('div', 'reveal-label', label), artifactIcon(id, 110), el('div', 'reveal-name', def.name), tierTag(def.tier), effectLines(id), ok);
-    box.replaceChildren(card);
+    stage.append(rays, rays2, glow, holder, sparks, card);
+    box.replaceChildren(stage, flash);
     box.classList.remove('hidden');
+    // The sound: a hum as it charges, then the burst, bigger the rarer it is.
+    this.sound?.play('relic');
+    window.setTimeout(() => {
+      if (box.classList.contains('hidden')) return;
+      this.sound?.play(rank >= 3 ? 'explode' : 'pop');
+      if (rank >= 2) this.sound?.play('chime');
+      if (rank >= 4) this.sound?.play('ult');
+    }, build * 1000);
   }
 
   /** The corner card: your favorite hero's portrait, your name, and your gold and prestige. */

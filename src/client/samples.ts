@@ -55,11 +55,30 @@ import evade2 from '../../sfx/effects/evade2.wav?url';
 import explode from '../../sfx/effects/explode.wav?url';
 import fireball from '../../sfx/effects/fireball.wav?url';
 import flame from '../../sfx/effects/flame.wav?url';
-import flask from '../../sfx/effects/flask.wav?url';
 import gate from '../../sfx/effects/gate.wav?url';
 import growl1 from '../../sfx/effects/growl1.wav?url';
 import growl2 from '../../sfx/effects/growl2.wav?url';
 import hammer from '../../sfx/effects/hammer.wav?url';
+import sylvaraspawn from '../../sfx/effects/sylvaraspawn.wav?url';
+import sylvaradeath from '../../sfx/effects/sylvaradeath.wav?url';
+import glacialwrath from '../../sfx/effects/glacialwrath.wav?url';
+import ghostwhisper from '../../sfx/effects/ghostwhisper.wav?url';
+import grimmdeath from '../../sfx/effects/grimmdeath.wav?url';
+import rimespawn from '../../sfx/effects/rimespawn.wav?url';
+import rimedeath from '../../sfx/effects/rimedeath.wav?url';
+import bloodrage from '../../sfx/effects/bloodrage.wav?url';
+import kharzakspawn from '../../sfx/effects/kharzakspawn.wav?url';
+import kharzakvoice from '../../sfx/effects/kharzakvoice.wav?url';
+import kharzakdeath from '../../sfx/effects/kharzakdeath.wav?url';
+import kharzaktaunt from '../../sfx/effects/kharzaktaunt.wav?url';
+import reaperstart from '../../sfx/effects/reaperstart.wav?url';
+import grimmtaunt from '../../sfx/effects/grimmtaunt.wav?url';
+import scythe from '../../sfx/effects/scythe.wav?url';
+import rockcrash1 from '../../sfx/effects/rockcrash1.wav?url';
+import rockcrash2 from '../../sfx/effects/rockcrash2.wav?url';
+import rockcrash3 from '../../sfx/effects/rockcrash3.wav?url';
+import flasktoss from '../../sfx/effects/flasktoss.wav?url';
+import divine from '../../sfx/effects/divine.wav?url';
 import crit1 from '../../sfx/effects/crit1.wav?url';
 import crit2 from '../../sfx/effects/crit2.wav?url';
 import meleecrit from '../../sfx/effects/meleecrit.wav?url';
@@ -116,7 +135,10 @@ export interface Sample {
 export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   // --- Your weapons and abilities ---
   fireball: { files: [fireball], volume: 0.13 },
-  flask: { files: [flask], volume: 0.14, max: 2, gap: 0.08 },
+  // (Quiet, and at most every 0.7s: flasks fly constantly.)
+  flask: { files: [flasktoss], volume: 0.07, max: 1, gap: 0.7 },
+  // The Cleric's Divine Intervention: a heavenly swell as everyone is saved.
+  divine: { files: [divine], volume: 0.5, max: 1 },
   hammer: { files: [hammer], volume: 0.21, max: 2, gap: 0.06 },
   meteor: { files: [flame], volume: 0.37, rate: 0.85 },
   nova: { files: [flame], volume: 0.31, rate: 1.1 },
@@ -154,6 +176,8 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   howl: { files: [howl1, howl2], volume: 0.3, max: 1 },
   // Berserker's Mask: a beastly roar, pitched up.
   roar: { files: [roar], volume: 0.27, rate: 1.3, max: 1 },
+  // Bloodrage: the Barbarian's battle cry.
+  bloodrage: { files: [bloodrage], volume: 0.5, max: 1 },
   // The Spirit Bear: its roar when it appears, a growl when you send it after something.
   bear: { files: [bear], volume: 0.4, max: 1 },
   growl: { files: [growl1, growl2], volume: 0.24, max: 1, gap: 0.3 },
@@ -200,11 +224,31 @@ export const SAMPLES: Partial<Record<SoundName, Sample>> = {
   // A final boss: the warlords' roars, deeper (it's bigger). On its entrance, when it's enraged, and going berserk.
   bossRoar: { files: [warlord1, warlord2], volume: 0.75, rate: 0.8, max: 1 },
   // Bosses' voices through the fight: Grimm whispers and Rime laughs (heard the same everywhere), Sylvara hisses.
-  whisper: { files: [whisper], volume: 0.5, max: 1 },
+  whisper: { files: [whisper, ghostwhisper], volume: 0.5, max: 1 },
   laugh: { files: [laugh1, laugh2], volume: 0.5, max: 1, gap: 2 },
   // Mordak: his own roars and growls through the fight, and the biggest roar of all on his entrance.
   dragon: { files: [mordak2, mordak3], volume: 1.1, max: 1, gap: 2 },
   mordakRoar: { files: [mordak1], volume: 1.5, max: 1 },
+  // Kharzak: his entrance, his voice through the fight, his taunt when a hero falls, rocks crashing (bursting out of
+  // the ground, cracking his shell on a boulder) and his death.
+  kharzakSpawn: { files: [kharzakspawn], volume: 1, max: 1 },
+  kharzak: { files: [kharzakvoice], volume: 0.6, max: 1, gap: 2 },
+  kharzakTaunt: { files: [kharzaktaunt], volume: 0.8, max: 1 },
+  rockCrash: { files: [rockcrash1, rockcrash2, rockcrash3], volume: 0.55, max: 2, gap: 0.3 },
+  kharzakDeath: { files: [kharzakdeath], volume: 1, max: 1 },
+  // The Reaper: the start of his fight, his taunt when a hero falls, and his scythe's swing.
+  reaperStart: { files: [reaperstart], volume: 0.8, max: 1 },
+  grimmTaunt: { files: [grimmtaunt], volume: 0.8, max: 1 },
+  scythe: { files: [scythe], volume: 0.5, max: 2, gap: 0.1 },
+  grimmDeath: { files: [grimmdeath], volume: 1, max: 1 },
+  // The Frost Queen: her entrance and her death, and Glacial Wrath (it builds through her cast and crashes as the
+  // blast goes off, 3.5 s in: see BOSS_MECHANICS.glacial).
+  rimeSpawn: { files: [rimespawn], volume: 0.9, max: 1 },
+  rimeDeath: { files: [rimedeath], volume: 1, max: 1 },
+  // Sylvara, the Glade Serpent: her entrance (and her cry when enraged or berserk) and her death.
+  sylvaraSpawn: { files: [sylvaraspawn], volume: 0.9, max: 1 },
+  sylvaraDeath: { files: [sylvaradeath], volume: 1, max: 1 },
+  glacialWrath: { files: [glacialwrath], volume: 1.4, max: 1 },
   // The Frost Queen: her frost breath, and Glacial Wrath freezing everyone it catches.
   iceBreath: { files: [frostqueen], volume: 0.6, max: 1 },
   freeze: { files: [freezing], volume: 0.7, max: 1 },

@@ -15,7 +15,7 @@ export class Connection {
   onRooms: (rooms: RoomInfo[]) => void = () => {};
   onError: (message: string) => void = () => {};
   /** What combining or the wheel gave you. */
-  onArtifact: (id: ArtifactId, how: 'combine' | 'spin') => void = () => {};
+  onArtifact: (id: ArtifactId, how: 'combine' | 'spin' | 'orb') => void = () => {};
   onSnapshot: (snap: Snapshot) => void = () => {};
   onClosed: () => void = () => {};
 
@@ -31,6 +31,13 @@ export class Connection {
         case 'snap':
           this.onSnapshot(msg);
           break;
+        case 'build': {
+          // The host was rebuilt since this page loaded (it reconnected to a newer server): load the new game, or
+          // the two would disagree about what's in a message. (Not on the dev server, which serves no build.)
+          const mine = document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.getAttribute('src');
+          if (msg.script && mine && mine.includes('/assets/') && mine !== msg.script) location.reload();
+          break;
+        }
         case 'welcome':
           this.onWelcome(msg.id, msg.room);
           break;

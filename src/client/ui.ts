@@ -12,7 +12,7 @@ import {
   type CharacterId,
   type UltimateId,
 } from '../shared/characters';
-import { ARTIFACTS, TIERS, artifact, artifactSummary, describeActive, describeArtifact, describeGrowth, type ArtifactId } from '../shared/artifacts';
+import { ARTIFACTS, TIERS, artifact, artifactSummary, describeActive, describeArtifact, describeGrowth, isOrbKind, orbColor, orbName, type ArtifactId, type OrbKind } from '../shared/artifacts';
 import { HARD, MAX_PLAYERS } from '../shared/constants';
 import { MODES } from '../shared/modes';
 import { ENEMY_TYPES, EnemyType, MISSIONS } from '../shared/enemies';
@@ -42,7 +42,7 @@ import {
   CRIT_MULTIPLIER,
   type PassiveId,
 } from '../shared/upgrades';
-import { artifactIcon, sortArtifacts, tierColor } from './artifactView';
+import { artifactIcon, orbIcon, sortArtifacts, tierColor } from './artifactView';
 import type { Sound } from './audio';
 import { iconEl, ultIconEl } from './icons';
 import { heroDetail, mystery, mysteryDetail } from './heroView';
@@ -126,6 +126,8 @@ function addDealt(tip: Tip, dealt: number, total: number, whose: string): Tip {
   tip.lines.unshift({ text: `Dealt ${exact(Math.round(dealt))} damage this run (${share}% of ${whose})`, cls: 'tip-dealt' });
   return tip;
 }
+
+const hexColor = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
 function weaponTip(id: UpgradeId, level: number): Tip {
   const def = UPGRADES[id];
@@ -571,6 +573,8 @@ export class UI {
       this.chooseTitle.textContent =
         pause.reason === 'forge'
           ? 'The Forge: upgrade a weapon'
+          : pause.reason === 'warforge'
+          ? 'The Warforge: a free upgrade from the war chest'
           : pause.reason === 'armory'
             ? swap
               ? `The Armory: what takes the place of ${UPGRADES[swap.id].name}?`
@@ -700,6 +704,21 @@ export class UI {
   }
 
   /** An artifact's tooltip: tier, effects (drawbacks in red) and flavor. */
+  /** An orb found this run, as a card for the rewards and post-game screens. */
+  private orbCard(kind: OrbKind, className: string): HTMLElement {
+    const card = el('div', className);
+    card.style.setProperty('--tier', hexColor(orbColor(kind)));
+    const text = el('div', 'postgame-loot-text');
+    text.append(el('div', 'postgame-loot-name', orbName(kind)), el('div', 'postgame-loot-note', kind === 'dragon' ? 'Mordak\'s' : TIERS[kind].name));
+    card.append(orbIcon(kind, 34), text);
+    this.tip(card, () => ({
+      title: orbName(kind),
+      tags: [],
+      lines: [{ text: kind === 'dragon' ? 'Holds the Dragonsheart.' : `Holds a random ${TIERS[kind].name.toLowerCase()} artifact.` }, { text: "Open it on your profile's Artifacts tab.", cls: 'tip-note' }],
+    }));
+    return card;
+  }
+
   private artifactTip(id: ArtifactId, extra?: string): Tip {
     const def = ARTIFACTS[id];
     return {
@@ -752,19 +771,19 @@ export class UI {
     this.artifactPicker.replaceChildren(...(owned.length ? [tile(null), ...sortArtifacts(owned).map(tile)] : []), desc);
   }
 
-  /** Artifacts you just found: a toast for each, for a few seconds. */
+  /** Orbs you just found: a toast for each, for a few seconds (what's inside is a surprise until you open it). */
   showFinds(found: ArtifactFind[]): void {
     for (const find of found) {
-      const def = ARTIFACTS[find.id];
+      if (!isOrbKind(find.orb)) continue;
       const toast = el('div', 'loot-toast');
-      toast.style.setProperty('--tier', tierColor(def.tier));
+      toast.style.setProperty('--tier', hexColor(orbColor(find.orb)));
       const text = el('div', 'loot-toast-text');
       text.append(
-        el('div', 'loot-toast-label', `${TIERS[def.tier].name} artifact!`),
-        el('div', 'loot-toast-name', def.name),
-        el('div', 'loot-toast-effects', artifactSummary(find.id)),
+        el('div', 'loot-toast-label', 'An orb!'),
+        el('div', 'loot-toast-name', orbName(find.orb)),
+        el('div', 'loot-toast-effects', find.orb === 'dragon' ? 'Open it on your profile: the Dragonsheart awaits.' : "Open it on your profile's Artifacts tab to see what's inside."),
       );
-      toast.append(artifactIcon(find.id, 44), text);
+      toast.append(orbIcon(find.orb, 44), text);
       this.lootToasts.append(toast);
       window.setTimeout(() => toast.classList.add('out'), 5000);
       window.setTimeout(() => toast.remove(), 5600);
@@ -1653,18 +1672,13 @@ export class UI {
     const p = counter(pvpGame ? 'Hero kills' : 'Prestige', 'prestige');
     const g = counter(pvpGame ? 'Damage dealt' : 'Gold', 'gold');
     const list = el('div', 'splash-loot');
-    const cards = loot.map((find) => {
-      const def = ARTIFACTS[find.id];
-      const card = el('div', 'postgame-loot-card splash-loot-card pending');
-      card.style.setProperty('--tier', tierColor(def.tier));
-      const text = el('div', 'postgame-loot-text');
-      text.append(el('div', 'postgame-loot-name', def.name), el('div', 'postgame-loot-note', TIERS[def.tier].name));
-      card.append(artifactIcon(find.id, 34), text);
-      this.tip(card, () => this.artifactTip(find.id));
+    // (Only finds this client understands: never let one stop the rewards and the Continue button.)
+    const cards = loot.filter((find) => isOrbKind(find.orb)).map((find) => {
+      const card = this.orbCard(find.orb, 'postgame-loot-card splash-loot-card pending');
       list.append(card);
       return card;
     });
-    if (loot.length > 0) box.replaceChildren(p.row, g.row, el('div', 'splash-loot-title', `Artifacts found · ${loot.length}`), list);
+    if (loot.length > 0) box.replaceChildren(p.row, g.row, el('div', 'splash-loot-title', `Orbs found · ${loot.length}`), list);
     else box.replaceChildren(p.row, g.row);
     // The timeline (ms): wait for the title and the line under it, count, then a card at a time, then Continue.
     const START = 1300;
@@ -1776,18 +1790,9 @@ export class UI {
     this.postgameLoot.classList.toggle('hidden', loot.length === 0);
     this.postgameLoot.replaceChildren();
     if (loot.length > 0) {
-      this.postgameLoot.append(el('div', 'postgame-loot-title', `Artifacts found · ${loot.length}`));
+      this.postgameLoot.append(el('div', 'postgame-loot-title', `Orbs found · ${loot.length} (open them on your profile)`));
       const row = el('div', 'postgame-loot-row');
-      for (const find of loot) {
-        const def = ARTIFACTS[find.id];
-        const card = el('div', 'postgame-loot-card');
-        card.style.setProperty('--tier', tierColor(def.tier));
-        const text = el('div', 'postgame-loot-text');
-        text.append(el('div', 'postgame-loot-name', def.name), el('div', 'postgame-loot-note', TIERS[def.tier].name));
-        card.append(artifactIcon(find.id, 34), text);
-        this.tip(card, () => this.artifactTip(find.id));
-        row.append(card);
-      }
+      for (const find of loot) if (isOrbKind(find.orb)) row.append(this.orbCard(find.orb, 'postgame-loot-card'));
       this.postgameLoot.append(row);
     }
     const myId = this.latest?.myId;

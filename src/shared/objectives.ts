@@ -37,7 +37,7 @@ export const MAX_SHRINES = 2;
  * don't count toward MAX_SHRINES. Evolving all four weapons and the E ability takes 5 Forges, so a team
  * that captures every one can max everything, with one Forge to spare.
  */
-export const FORGE_SCHEDULE = [0.25, 0.4, 0.55, 0.68, 0.8, 0.9];
+export const FORGE_SCHEDULE = [0.3, 0.55, 0.8];
 /** New shrines keep at least this distance from existing ones. */
 export const SHRINE_SPACING = 700;
 

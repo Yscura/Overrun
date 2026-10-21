@@ -1,6 +1,6 @@
 // Messages sent over the WebSocket, as JSON.
 
-import type { ArtifactGrowth, ArtifactId } from './artifacts';
+import type { ArtifactGrowth, ArtifactId, OrbKind } from './artifacts';
 import type { CharacterId } from './characters';
 import type { BossVoice, MissionKind } from './enemies';
 import type { TowerState } from './maps';
@@ -61,6 +61,8 @@ export type ClientMessage =
   | { t: 'combine'; artifacts: ArtifactId[] }
   /** Spin the artifact wheel (costs WHEEL.cost gold). */
   | { t: 'spin' }
+  /** Open one of your orbs (between runs): what's inside comes back as an 'artifact' message. */
+  | { t: 'openOrb'; orb: OrbKind }
   /** Testing cheats, only for the testing accounts, "dev" and "dev2" (see DevAction). */
   | { t: 'dev'; action: DevAction }
   /** Pause the game for everyone. */
@@ -79,9 +81,10 @@ export type ClientMessage =
 
 /**
  * Cheats for testing: 'skip' jumps the clock a minute ahead (with the level-ups you'd have earned), 'level' and
- * 'forge' hand out a free pick, 'max' fills your slots and maxes everything, 'god' toggles god mode.
+ * 'forge' hand out a free pick, 'max' fills your slots and maxes everything, 'god' toggles god mode, 'warlord'
+ * brings in a warlord (each kind in turn).
  */
-export type DevAction = 'skip' | 'boss' | 'finale' | 'level' | 'forge' | 'max' | 'god';
+export type DevAction = 'skip' | 'boss' | 'finale' | 'level' | 'forge' | 'max' | 'god' | 'warlord';
 export const DEV_NAME = 'dev';
 /** The testing accounts (god mode, cheats, everything unlocked): `dev`, and `dev2` for a second tester alongside. */
 export const DEV_NAMES: readonly string[] = [DEV_NAME, 'dev2'];
@@ -94,6 +97,11 @@ export function isDevName(name: string | null | undefined): boolean {
 export type ServerMessage =
   /** You're in a room now, as player `id`. */
   | { t: 'welcome'; id: number; room: RoomRef }
+  /**
+   * Sent on connecting: the game script the server is serving (from its built index.html), or null when it isn't
+   * serving a build (the dev server). A page running a different one is stale (the host was rebuilt): it reloads.
+   */
+  | { t: 'build'; script: string | null }
   /** You left your room. */
   | { t: 'left' }
   | { t: 'profile'; profile: ProfileState }
@@ -103,7 +111,7 @@ export type ServerMessage =
   | { t: 'rooms'; rooms: RoomInfo[] }
   | { t: 'error'; message: string }
   /** What combining or spinning the wheel gave you (your profile follows). */
-  | { t: 'artifact'; id: ArtifactId; how: 'combine' | 'spin' }
+  | { t: 'artifact'; id: ArtifactId; how: 'combine' | 'spin' | 'orb' }
   | Snapshot;
 
 /** A room on the server: its code (to share with friends) and mode. */
@@ -160,12 +168,15 @@ export interface ProfileState {
   endless: Record<string, number>;
   /** Your artifact inventory (how many of each you have), and the one you take into runs. */
   inventory: Partial<Record<ArtifactId, number>>;
+  /** Unopened orbs (what artifacts drop as in a run), by kind. */
+  orbs: Partial<Record<OrbKind, number>>;
   equipped: ArtifactId | null;
 }
 
 /** An artifact someone found. */
 export interface ArtifactFind {
-  id: ArtifactId;
+  /** It comes as an orb: what's inside is only seen when it's opened (on the profile's Artifacts tab). */
+  orb: OrbKind;
 }
 
 export interface PlayerState {
@@ -256,6 +267,8 @@ export interface MeState {
   relic: (AbilityState & { active: number }) | null;
   /** What this run has given an artifact that grows (hearts picked up, level-ups, bombs gone off). */
   growth: ArtifactGrowth;
+  /** The Bard: the note of his song his Lute Notes played last (shared/song.ts), so it sounds at that pitch. */
+  lute: { chorus: boolean; note: number } | null;
   /** The damage each of your weapons and abilities has dealt so far this run, by id (ultimates: ultimateSource). */
   dealtBy: Partial<Record<string, number>>;
   /**
@@ -292,7 +305,7 @@ export type Pause =
   | { kind: 'choose'; timeLeft: number; reason: ChoiceReason }
   /** A player paused the game (`by` is their name); it resumes once every player in `ready` (ids) is ready. */
   | { kind: 'menu'; by: string; ready: number[] };
-export type ChoiceReason = 'level' | 'forge' | 'armory';
+export type ChoiceReason = 'level' | 'forge' | 'armory' | 'warforge';
 
 /**
  * Normal: the maps as they come. Hard: the same, far less forgiving (see HARD). Endless: no final victory, the boss
@@ -358,27 +371,49 @@ export type SoundId =
   | 'glaive'
   | 'bash'
   | 'axe'
-  | 'aim';
+  | 'aim'
+  | 'notes'
+  | 'onhit'
+  | 'ballad'
+  | 'divine'
+  | 'bloodrage';
 
-/** Sounds from somewhere in the world, heard by everyone nearby: the Frost Queen's frost breath and Glacial Wrath. */
-export type WorldSound = 'iceBreath' | 'freeze';
+/**
+ * Sounds from somewhere in the world, heard by everyone nearby: the Frost Queen's frost breath and Glacial Wrath,
+ * Kharzak's rocks and death, and the Reaper's scythe. And two bosses' entrances (heard everywhere).
+ */
+export type WorldSound =
+  | 'iceBreath'
+  | 'freeze'
+  | 'glacialWrath'
+  | 'rockCrash'
+  | 'kharzakDeath'
+  | 'scythe'
+  | 'kharzakSpawn'
+  | 'reaperStart'
+  | 'grimmDeath'
+  | 'rimeSpawn'
+  | 'rimeDeath'
+  | 'sylvaraSpawn'
+  | 'sylvaraDeath';
 
 export type Fx =
   /** An expanding ring: slams, explosions, captures. `snd` is the sound everyone nearby hears, if any. */
   | { k: 'ring'; x: number; y: number; r: number; c: number; snd?: 'slam' | 'bigSlam' | 'explode' | 'pop' | 'blades' }
   /** A swing. `heavy`: a big one (a boss's sweep, the bear), which sounds like it; `snd`: a sound of its own instead. */
-  | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number; heavy?: true; snd?: 'blades' }
+  | { k: 'slash'; x: number; y: number; r: number; a: number; arc: number; c: number; heavy?: true; snd?: 'blades' | 'none' | 'scythe' }
   | { k: 'zap'; x: number; y: number }
   | { k: 'boom'; x: number; y: number; r: number }
   /**
    * A final boss arrives at (x, y): clients pan the camera there and play its roar. `dragon`: Mordak's longer,
    * frozen-still entrance (DRAGON_INTRO), with his own roar.
    */
-  | { k: 'intro'; x: number; y: number; dragon?: true }
+  | { k: 'intro'; x: number; y: number; dragon?: true; boss?: number }
   /** A meteor of fire lobbed from (x, y) to (tx, ty), landing `t` seconds later (Mordak's roost). */
   | { k: 'lob'; x: number; y: number; tx: number; ty: number; t: number }
   /** A boss roars (enraged, berserk): everyone hears it. */
-  | { k: 'roar'; x: number; y: number }
+  /** A boss roars (enraged, berserk, ...): `boss` is its type, for the bosses with a sound of their own. */
+  | { k: 'roar'; x: number; y: number; boss?: number }
   /** The Dragonmancer breathes fire: a cone from (x, y) toward `a`, `r` long, `arc` wide. */
   | { k: 'breath'; x: number; y: number; a: number; r: number; arc: number }
   /** A final boss breaks apart at the end of its death animation. */
@@ -502,8 +537,9 @@ export interface BossFight {
 }
 
 /** Artifact: a relic from an elite or warlord; whoever touches it finds one for every person in the team. */
-export const PickupKind = { Crate: 0, Heart: 1, Coin: 2, Bomb: 3, Artifact: 4 } as const;
-export const ProjectileKind = { Bolt: 0, Knife: 1, Shuriken: 2, Hex: 3, BigShuriken: 4, Fireball: 5, Arrow: 6, Glaive: 7, Axe: 8 } as const;
+/** Chest: a warlord's war chest; walking over it opens it (an artifact, or a Warforge pick for everyone). */
+export const PickupKind = { Crate: 0, Heart: 1, Coin: 2, Bomb: 3, Artifact: 4, Chest: 5 } as const;
+export const ProjectileKind = { Bolt: 0, Knife: 1, Shuriken: 2, Hex: 3, BigShuriken: 4, Fireball: 5, Arrow: 6, Glaive: 7, Axe: 8, Note: 9, HitNote: 10 } as const;
 /** Allies some heroes call in. */
 export const SummonKind = { Wolf: 0, Bear: 1 } as const;
 /** Things players leave on the ground. */

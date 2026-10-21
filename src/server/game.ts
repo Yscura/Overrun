@@ -1,6 +1,7 @@
 import {
   CHARACTERS,
   DRAGON_FORM,
+  BALLAD,
   DRAGON_FORM_TURN,
   dragonBody,
   FIREBREATH,
@@ -21,10 +22,13 @@ import {
   ultimateSource,
 } from '../shared/characters';
 import { PVP, PVP_TEAMS, PVP_TEAM_SIZE, pointAlong, pvpHeroDamage, pvpRespawn, pvpXpNext, type PvpPoint, type UnitKind } from '../shared/pvp';
-import { DROPS, TIERS, TIER_IDS, artifact as artifactDef, lootStep, rollArtifact, rollTier, type ArtifactId, type DropSource, type Tier } from '../shared/artifacts';
+import { DROPS, TIERS, TIER_IDS, artifact as artifactDef, lootStep, orbColor, orbName, rollArtifact, rollTier, type ArtifactId, type DropSource, type Tier } from '../shared/artifacts';
+import { BARD_SONG, SONG_BPM, beatsToNext } from '../shared/song';
 import { WallIndex, blocksShot, moveCircle, overlapsWall, pushOut, type PassFlags } from '../shared/collision';
 import {
   ARTIFACT_RADIUS,
+  CHEST_RADIUS,
+  WARFORGE,
   BOSS_INTERVAL,
   BOSS_DEATH,
   CHOOSE_TIME,
@@ -221,6 +225,8 @@ import {
   meteorStats,
   damageType,
   firewaveStats,
+  onhitStats,
+  notesStats,
   flaskStats,
   hammerStats,
   smiteStats,
@@ -246,7 +252,7 @@ import {
   equipArtifact,
   equippedArtifact,
   getProfile,
-  giveArtifact,
+  giveOrb,
   noteBoss,
   notePlayed,
   noteRun,
@@ -265,7 +271,7 @@ const BOT_NAMES = ['Rook (bot)', 'Mira (bot)', 'Bram (bot)', 'Juno (bot)', 'Wren
 const GEM_ACCEL = 1500;
 const GEM_MAX_SPEED = 900;
 /** Weapons that fire on their own (hero abilities are cast with E instead). */
-const WEAPON_IDS: WeaponId[] = ['bolt', 'knives', 'storm', 'hex', 'cleave', 'slam', 'venom', 'orbit', 'field', 'mines', 'shuriken', 'daggers', 'fireball', 'arrows', 'wolves', 'flask', 'hammer', 'smite', 'embers', 'frost', 'glaive', 'bulwark', 'axe'];
+const WEAPON_IDS: WeaponId[] = ['bolt', 'knives', 'storm', 'hex', 'cleave', 'slam', 'venom', 'orbit', 'field', 'mines', 'shuriken', 'daggers', 'fireball', 'arrows', 'wolves', 'flask', 'hammer', 'smite', 'embers', 'frost', 'glaive', 'bulwark', 'axe', 'notes'];
 /** Seeker hexes turn this fast (radians per second) and look this far for a target. */
 const HEX_TURN = 7;
 const HEX_SEEK = 600;
@@ -367,13 +373,18 @@ const RAGE = { duration: 8, damage: 1.6, cooldown: 0.7, regen: 0.04, lifesteal: 
  * multiplier) per blow; hits from nowhere in particular (shots, telegraphs) go back to the nearest enemy within `reach`.
  */
 const RETRIBUTION = { duration: 8, reduction: 0.4, taunt: 420, tauntFor: 3, mult: 2.5, flat: 15, reach: 500, color: 0xff8f00 };
-const AURA = { rage: 0xff1744, guard: 0xffd54f, strike: 0xce93d8, storm: 0x9ccc65, inferno: 0xff6d00, elixir: 0x76ff03, wrath: 0xfff59d };
+const AURA = { rage: 0xff1744, guard: 0xffd54f, strike: 0xce93d8, storm: 0x9ccc65, inferno: 0xff6d00, elixir: 0x76ff03, wrath: 0xfff59d, ballad: 0xb388ff, onHit: 0xffd54f };
 /** Grand Elixir: the alchemist drinks it, healing and buffing herself for a while. */
 const ELIXIR = { duration: 8, heal: 0.3, damage: 1.25, cooldown: 0.8, speed: 1.50, reduction: 0.25 };
 /** Avenging Wrath: pillars of light around the paladin, who takes less damage meanwhile. */
 const WRATH = { duration: 8, interval: 0.3, range: 420, radius: 70, damage: 70, perLevel: 5, reduction: 0.5 };
 /** Divine Intervention: everyone up, healed to full and untouchable for a moment. */
 const INTERVENTION = { invuln: 3 };
+/**
+ * Bosses and warlords walk through walls no bigger than `small` (headstones, small rocks), and one that's got
+ * nowhere for `after` seconds while trying to walk slips through walls for `phase` seconds.
+ */
+const BOSS_UNSTICK = { small: 60, after: 0.8, phase: 1.2 };
 /** The flash of a boss's cone attack landing. */
 const DANGER_FX = 0xff5252;
 /**
@@ -452,6 +463,14 @@ interface Player {
   elixir: number;
   /** Avenging Wrath: seconds of light pillars left. */
   wrath: number;
+  /** Ballad of Heroes: seconds left of the Bard's song (it buffs everyone near him: see inBallad). */
+  ballad: number;
+  /** On Hit: seconds left of the Bard's buff to his Lute Notes, how much harder they hit, and how much faster they come. */
+  onHit: number;
+  onHitBonus: number;
+  onHitHaste: number;
+  /** Lute Notes: how far into each part of his song he's got, and the note he played last (for the client). */
+  lute: { verse: number; chorus: number; last: { chorus: boolean; note: number } | null };
   guard: number;
   guardReduction: number;
   /** Shadow Veil: seconds of invisibility left. */
@@ -526,6 +545,8 @@ interface Player {
   /** This run: hearts picked up and bombs that went off (for artifacts that grow). */
   heartsTaken: number;
   bombsSeen: number;
+  /** This run: war chests the team has opened (for the Warlord's Trophy). */
+  chestsSeen: number;
   /** Their artifact's Q: seconds of cooldown left, and of its speed boost (frenzy). */
   relicCd: number;
   frenzy: number;
@@ -636,6 +657,9 @@ interface Enemy {
   /** Taunted by this player (War Cry) until tauntUntil. */
   tauntBy: number;
   tauntUntil: number;
+  /** Bosses: when they started getting nowhere while trying to walk (0: they're moving), and slipping through walls until then. */
+  stuckSince: number;
+  phaseUntil: number;
   /** Width of the current charge lane (hits anyone it covers). */
   chargeWidth: number;
   /** Final bosses: below half health (attacks faster). */
@@ -757,6 +781,8 @@ interface Projectile {
   boomerang: { range: number; traveled: number; returning: boolean } | null;
   /** Axe Toss: hits the ground at the end of its throw (or on a wall), damaging everything within `radius`. */
   landing?: { radius: number; damage: number; done: boolean };
+  /** Lute Notes: weaves toward `base` (radians), swinging `amp` either side at `freq` radians a second. */
+  wave?: { base: number; amp: number; freq: number; t: number };
   /** Glaives: bounces left, how far it looks for the next enemy, and the damage kept each bounce. */
   bounce?: { left: number; range: number; falloff: number };
   /** Seeker Hex: steers toward this enemy (picking a new one when it dies). */
@@ -874,6 +900,8 @@ interface FanStats {
 }
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+/** A boss's voice line: its one sound, or one of several at random. */
+const pickVoice = <T,>(sound: T | T[]): T => (Array.isArray(sound) ? sound[Math.floor(Math.random() * sound.length)] : sound);
 const dist2 = (ax: number, ay: number, bx: number, by: number) => (ax - bx) ** 2 + (ay - by) ** 2;
 const round1 = (v: number) => Math.max(0, Math.round(v * 10) / 10);
 const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -916,6 +944,8 @@ export class Game {
   private choices: ChoiceReason[] = [];
   private spawnAcc = 0;
   private nextBossAt = WARLORDS.first;
+  /** Dev: how many warlords have been called in (which kind comes next). */
+  private devWarlords = 0;
   /** While a group of warlords spawns: the share of the usual health each gets. */
   private warlordHp = 1;
   private crateTimer = 0;
@@ -1154,6 +1184,11 @@ export class Game {
       retribution: 0,
       elixir: 0,
       wrath: 0,
+      ballad: 0,
+      onHit: 0,
+      onHitBonus: 0,
+      onHitHaste: 0,
+      lute: { verse: 0, chorus: 0, last: null },
       guard: 0,
       guardReduction: 0,
       veil: 0,
@@ -1202,6 +1237,7 @@ export class Game {
       secondWindUsed: false,
       heartsTaken: 0,
       bombsSeen: 0,
+      chestsSeen: 0,
       relicCd: 0,
       frenzy: 0,
     };
@@ -1932,6 +1968,13 @@ export class Game {
       case 'forge':
         this.choices.push('forge');
         break;
+      case 'warlord': {
+        // One warlord, a little way off: each kind in turn.
+        const type = WARLORD_TYPES[this.devWarlords++ % WARLORD_TYPES.length];
+        this.spawnEnemy(type, this.alivePlayers().length > 0 ? this.alivePlayers() : [p], 500, 600);
+        this.banner(`Dev: ${ENEMY_TYPES[type].name}, a Warlord, approaches!`, 'danger');
+        break;
+      }
       case 'max':
         this.maxBuild(p);
         break;
@@ -2228,6 +2271,7 @@ export class Game {
     p.secondWindUsed = false;
     p.heartsTaken = 0;
     p.bombsSeen = 0;
+    p.chestsSeen = 0;
     p.relicCd = 0;
     p.frenzy = 0;
     p.abilityCd = 0;
@@ -2236,6 +2280,9 @@ export class Game {
     p.retribution = 0;
     p.elixir = 0;
     p.wrath = 0;
+    p.ballad = 0;
+    p.onHit = 0;
+    p.lute = { verse: 0, chorus: 0, last: null };
     p.guard = 0;
     p.veil = 0;
     p.strikes = 0;
@@ -2314,11 +2361,12 @@ export class Game {
     if (slain !== undefined && slain === this.map.finale?.boss) {
       this.victor = this.map.finale.bossName;
       for (const p of this.humans()) {
-        const find = giveArtifact(p.profile, 'dragonsheart');
+        // The Dragon Orb: it always holds the Dragonsheart (opened on the profile's Artifacts tab).
+        const find = giveOrb(p.profile, 'dragon');
         p.loot.push(find);
         p.found.push(find);
         p.sounds.push('relic');
-        this.log(`${p.name} claimed the Dragonsheart`, 'good', TIERS.legendary.color);
+        this.log(`${p.name} claimed the Dragon Orb`, 'good', orbColor('dragon'));
         if (!p.profile.dragonmancer) {
           p.profile.dragonmancer = true;
           if (!this.feats.includes(DRAGONMANCER_FEAT)) this.feats.push(DRAGONMANCER_FEAT);
@@ -2370,6 +2418,15 @@ export class Game {
     return [...this.players.values()].filter((p) => !p.downed);
   }
 
+  /** Is a Bard on this player's side playing the Ballad of Heroes within earshot of them (themselves included)? */
+  private inBallad(p: Player): boolean {
+    if (p.downed) return false;
+    for (const q of this.players.values()) {
+      if (q.ballad > 0 && !q.downed && this.sameSide(q, p) && dist2(q.x, q.y, p.x, p.y) <= BALLAD.radius ** 2) return true;
+    }
+    return false;
+  }
+
   /** A player's stats, including their buffs and the active Altar event. */
   private stats(p: Player): PlayerStats {
     // PvP is balanced on its own: no prestige ranks or artifacts, its own health (and the Guardian's might).
@@ -2384,6 +2441,12 @@ export class Game {
       stats.regen += stats.maxHp * RAGE.regen;
       stats.lifesteal += RAGE.lifesteal;
       stats.lifestealCap += RAGE.lifestealCap;
+    }
+    if (this.inBallad(p)) {
+      stats.damageMult *= 1 + BALLAD.damage;
+      stats.cooldownMult /= 1 + BALLAD.attackSpeed;
+      stats.speed *= 1 + BALLAD.speed;
+      stats.regen += stats.maxHp * BALLAD.regen;
     }
     if (p.elixir > 0) {
       stats.damageMult *= ELIXIR.damage;
@@ -2467,6 +2530,13 @@ export class Game {
       for (const p of this.players.values()) {
         p.options = this.rollOptions(p, reason);
         if (p.options) anyOptions = true;
+        else if (reason === 'warforge' && !this.pvp) {
+          // Everything already upgraded: the Warforge pays out gold instead.
+          p.profile.gold = (p.profile.gold ?? 0) + WARFORGE.gold;
+          p.goldEarned += WARFORGE.gold;
+          p.sounds.push('coin');
+          this.log(`${p.name} has nothing left to forge: +${WARFORGE.gold} gold`, 'good');
+        }
       }
       if (anyOptions) {
         this.pause = { kind: 'choose', timeLeft: CHOOSE_TIME, reason };
@@ -2486,6 +2556,15 @@ export class Game {
     }
     // Anything owned and not maxed, plus new things while there are free slots.
     const offerable = offerableUpgrades(p.upgrades, p.character);
+    if (reason === 'warforge') {
+      // A single card: a weapon ready to evolve if there is one, otherwise one weapon or passive to upgrade (or null:
+      // nothing left to upgrade, so gold instead, see startChoosing).
+      const evolve = shuffle(
+        (Object.keys(p.upgrades) as UpgradeId[]).filter((id) => UPGRADES[id].kind === 'weapon' && p.upgrades[id] === MAX_LEVEL && UPGRADES[id].evolution),
+      );
+      const pick = evolve[0] ?? weightedOrder(offerable, (id) => offerWeight(id, p.character))[0];
+      return pick ? [pick] : null;
+    }
     if (reason === 'forge') {
       // Max-level weapons and E abilities can evolve; otherwise it's a regular weapon upgrade (or a new weapon).
       const evolve = shuffle(
@@ -2627,6 +2706,7 @@ export class Game {
     this.updateHearts();
     this.updateCoins(dt);
     this.updateArtifacts();
+    this.updateChests();
     this.enemies = this.enemies.filter((e) => !e.dead);
     this.pickups = this.pickups.filter((c) => !c.dead);
     if (this.players.size > 0 && this.alivePlayers().length === 0) this.endGame(false);
@@ -2687,10 +2767,12 @@ export class Game {
       this.spawnAcc -= 1;
       if (this.enemies.length < MAX_ENEMIES) this.spawnEnemy(this.pickEnemyType(), alive);
     }
-    // Warlords every few minutes, but not right before the final boss.
+    // Warlords every few minutes, but not right before the final boss. In endless, all run long: just not during a
+    // boss wave or right before one.
     if (this.time >= this.nextBossAt) {
       this.nextBossAt += BOSS_INTERVAL;
-      if (this.time < this.bossTime - 30) this.warlordArrives(alive);
+      const clear = this.endless ? this.bossPhase === 'waiting' && this.nextWaveAt - this.time > 30 : this.time < this.bossTime - 30;
+      if (clear) this.warlordArrives(alive);
     }
   }
 
@@ -2821,7 +2903,9 @@ export class Game {
     let hp = this.enemyHp(type);
     if (isWarlord(type) || type === EnemyType.Thief) {
       // One-off enemies grow steadily rather than steeply, or the last warlord would rival the final boss.
-      hp = ENEMY_TYPES[type].hp * (1 + 7 * Math.min(1, this.time / this.bossTime)) * this.difficulty();
+      // (In endless, warlords keep toughening past the usual boss time, as the horde does.)
+      const progress = isWarlord(type) && this.endless ? this.time / this.bossTime : Math.min(1, this.time / this.bossTime);
+      hp = ENEMY_TYPES[type].hp * (1 + 7 * progress) * this.difficulty();
       hp *= 1 + 0.35 * (this.players.size - 1);
       if (isWarlord(type)) hp *= this.warlordHp;
       return this.addEnemy(type, x, y, hp);
@@ -2898,6 +2982,8 @@ export class Game {
       strafe: Math.random() < 0.5 ? 1 : -1,
       tauntBy: 0,
       tauntUntil: 0,
+      stuckSince: 0,
+      phaseUntil: 0,
       chargeWidth: 0,
       enraged: false,
       vengeful: false,
@@ -3092,7 +3178,7 @@ export class Game {
     // The entrance: everything slows down while the camera shows the boss (or the middle of the twins).
     const bx = this.bosses.reduce((s, b) => s + b.x, 0) / this.bosses.length;
     const by = this.bosses.reduce((s, b) => s + b.y, 0) / this.bosses.length;
-    this.fx.push({ k: 'intro', x: Math.round(bx), y: Math.round(by) });
+    this.fx.push({ k: 'intro', x: Math.round(bx), y: Math.round(by), boss: this.bosses[0]?.type });
     this.slowMotion(BOSS_INTRO.speed, BOSS_INTRO.hold, BOSS_INTRO.ease);
   }
 
@@ -3110,14 +3196,14 @@ export class Game {
       if (b.voiceAt === 0) b.voiceAt = this.fightTime + BOSS_VOICE_FIRST + i * (voice.every[0] / 2);
       if (this.fightTime < b.voiceAt) continue;
       b.voiceAt = this.fightTime + voice.every[0] + Math.random() * (voice.every[1] - voice.every[0]);
-      this.fx.push({ k: 'voice', snd: voice.sound, x: Math.round(b.x), y: Math.round(b.y) });
+      this.fx.push({ k: 'voice', snd: pickVoice(voice.sound), x: Math.round(b.x), y: Math.round(b.y) });
     }
     const stacks = this.berserkClock() ? Math.max(0, Math.floor((this.fightTime - BOSS_BERSERK.after) / BOSS_BERSERK.every) + 1) : 0;
     if (stacks > this.berserk) {
       this.berserk = stacks;
       this.banner(stacks === 1 ? 'Out of time! The boss goes berserk!' : `Berserk x${stacks}: it keeps getting stronger!`, 'danger');
       const boss = this.bosses.find((b) => !b.dead);
-      if (boss) this.fx.push({ k: 'roar', x: Math.round(boss.x), y: Math.round(boss.y) });
+      if (boss) this.fx.push({ k: 'roar', x: Math.round(boss.x), y: Math.round(boss.y), boss: boss.type });
     }
 
     if (this.mission) {
@@ -3265,6 +3351,10 @@ export class Game {
    * is swept away. Then the victory, or (on a map with a finale, the first time) the ground gives way.
    */
   private beginDeath(e: Enemy): void {
+    // Some bosses have a death cry of their own.
+    const deathCry =
+      e.type === EnemyType.Kharzak ? 'kharzakDeath' : e.type === EnemyType.Reaper ? 'grimmDeath' : e.type === EnemyType.Rime ? 'rimeDeath' : e.type === EnemyType.Sylvara ? 'sylvaraDeath' : null;
+    if (deathCry) this.fx.push({ k: 'sfx', snd: deathCry, x: Math.round(e.x), y: Math.round(e.y) });
     e.dead = false;
     e.corpse = true;
     e.burrowed = false;
@@ -3500,7 +3590,7 @@ export class Game {
     boss.flashUntil = this.time + 0.3;
     const name = ENEMY_TYPES[boss.type].name;
     this.fx.push({ k: 'ring', x: Math.round(wing.x), y: Math.round(wing.y), r: 140, c: 0xff5252, snd: 'bigSlam' });
-    this.fx.push({ k: 'roar', x: Math.round(boss.x), y: Math.round(boss.y) });
+    this.fx.push({ k: 'roar', x: Math.round(boss.x), y: Math.round(boss.y), boss: boss.type });
     this.banner(boss.wingsLost >= 2 ? `${name} can no longer take flight!` : `${name}'s wing is torn!`, 'good');
   }
 
@@ -3803,7 +3893,8 @@ export class Game {
     boss.attackTimer = 2.5;
     for (const p of alive) if (insideArena(t.arena, p.x, p.y, PLAYER_RADIUS)) p.inArena = true;
     this.fx.push({ k: 'ring', x: Math.round(boss.x), y: Math.round(boss.y), r: 300, c: 0xb3e5fc, snd: 'explode' });
-    this.fx.push({ k: 'voice', snd: 'laugh', x: Math.round(boss.x), y: Math.round(boss.y) });
+    // Her entrance again, for the second round.
+    this.fx.push({ k: 'roar', x: Math.round(boss.x), y: Math.round(boss.y), boss: boss.type });
     this.banner(`${bossDisplayName(boss.type)} awaits in her tower. Finish her!`, 'danger');
   }
 
@@ -3906,7 +3997,7 @@ export class Game {
       this.banner(`${ENEMY_TYPES[b.type].name} is consumed by rage over ${ENEMY_TYPES[e.type].name}!`, 'danger');
       const voice = NAMED_BOSSES[b.type]?.voice;
       if (voice) {
-        this.fx.push({ k: 'voice', snd: voice.sound, x: Math.round(b.x), y: Math.round(b.y) });
+        this.fx.push({ k: 'voice', snd: pickVoice(voice.sound), x: Math.round(b.x), y: Math.round(b.y) });
         b.voiceAt = Math.max(b.voiceAt, this.fightTime + 8);
       }
     }
@@ -3937,7 +4028,7 @@ export class Game {
     if (!e.enraged && e.hp < e.maxHp * BOSS_ENRAGE_AT) {
       e.enraged = true;
       this.banner(`${ENEMY_TYPES[e.type].name} is enraged!`, 'danger');
-      this.fx.push({ k: 'roar', x: Math.round(e.x), y: Math.round(e.y) });
+      this.fx.push({ k: 'roar', x: Math.round(e.x), y: Math.round(e.y), boss: e.type });
     }
     const def = NAMED_BOSSES[e.type];
     // Casters back off when you get close, and only walk in when you're far.
@@ -3969,7 +4060,7 @@ export class Game {
         e.roostUntil = this.time + RO.duration;
         e.roostLobAt = this.time + RO.settle;
         e.channelUntil = e.roostUntil;
-        this.fx.push({ k: 'roar', x: Math.round(e.x), y: Math.round(e.y) });
+        this.fx.push({ k: 'roar', x: Math.round(e.x), y: Math.round(e.y), boss: e.type });
         return [0, 0];
       }
       case 'firebeam': {
@@ -4007,7 +4098,7 @@ export class Game {
         e.flight = { path, leg: 0, bombIn: 0.3 };
         e.burrowed = true;
         for (const p of alive) this.addHazard(HazardKind.Circle, p.x, p.y, F.radius * 1.3 * mods.area, 0, 0, F.delay + 0.5, F.damage * scale);
-        this.fx.push({ k: 'roar', x: Math.round(e.x), y: Math.round(e.y) });
+        this.fx.push({ k: 'roar', x: Math.round(e.x), y: Math.round(e.y), boss: e.type });
         return [0, 0];
       }
       case 'barrage':
@@ -4109,6 +4200,8 @@ export class Game {
         this.banner(`${ENEMY_TYPES[e.type].name} begins Glacial Wrath! Hide behind a column!`, 'danger');
         const cast = this.addHazard(HazardKind.Glacial, e.x, e.y, 0, 0, 0, M.glacial.channel, M.glacial.damage);
         cast.owner = e;
+        // (Its sound builds through the cast and crashes 3.5 s in, as the blast goes off: keep the two in step.)
+        this.fx.push({ k: 'sfx', snd: 'glacialWrath', x: Math.round(e.x), y: Math.round(e.y) });
         e.channelUntil = this.time + M.glacial.channel;
         return [0, 0];
       }
@@ -4173,7 +4266,8 @@ export class Game {
 
   /** A telegraphed cone in front of the boss, which holds still until it lands. */
   private addCone(e: Enemy, ux: number, uy: number, cfg: { length: number; half: number; windup: number; damage: number }, scale: number, area: number): void {
-    this.addHazard(HazardKind.Cone, e.x, e.y, Math.atan2(uy, ux), cfg.length * area, Math.round(Math.min(Math.PI, cfg.half * area) * 100), cfg.windup, cfg.damage * scale);
+    const cone = this.addHazard(HazardKind.Cone, e.x, e.y, Math.atan2(uy, ux), cfg.length * area, Math.round(Math.min(Math.PI, cfg.half * area) * 100), cfg.windup, cfg.damage * scale);
+    cone.owner = e;
     e.channelUntil = this.time + cfg.windup;
   }
 
@@ -4210,6 +4304,7 @@ export class Game {
   /** Kharzak's charge hit a rock: the shell cracks, it's stunned, and takes extra damage for a while. */
   private crackShell(e: Enemy): void {
     const cfg = BOSS_MECHANICS.shell;
+    this.fx.push({ k: 'sfx', snd: 'rockCrash', x: Math.round(e.x), y: Math.round(e.y) });
     e.shell = false;
     e.mode = Mode.Normal;
     e.attackTimer = cfg.stun + 1;
@@ -4499,7 +4594,8 @@ export class Game {
       // Bigger enemies shove smaller ones harder. A charging enemy plows straight through.
       let sx = 0;
       let sy = 0;
-      if (e.mode !== Mode.Charge) {
+      // (A warlord winding up, the Earthbreaker's slam above all, stands its ground: the crowd doesn't shove it.)
+      if (e.mode !== Mode.Charge && !(e.mode === Mode.Windup && isWarlord(e.type))) {
         for (const o of this.grid.query(e.x, e.y, def.radius + MAX_ENEMY_RADIUS, this.near)) {
           if (o === e || o.partOf === e) continue;
           const otherRadius = ENEMY_TYPES[o.type].radius;
@@ -4557,8 +4653,30 @@ export class Game {
     if (def.flying) {
       e.x = clamp(e.x + dx, def.radius, this.map.width - def.radius);
       e.y = clamp(e.y + dy, def.radius, this.map.height - def.radius);
-    } else {
+      return;
+    }
+    // Bosses and warlords are too big for the gaps between headstones and small rocks: they walk through those. And
+    // if one still gets nowhere for a moment (wedged in a tight spot), it slips through walls until it's free (never
+    // the arena's walls or the terrain round it). Not while charging: Kharzak has to be able to hit his boulders.
+    const big = this.isBoss(e) && !e.unit;
+    const charging = e.mode === Mode.Charge;
+    if (!big || charging) {
       ({ x: e.x, y: e.y } = moveCircle(this.walls, e.x, e.y, dx, dy, def.radius));
+      return;
+    }
+    const phasing = this.time < e.phaseUntil;
+    const fromX = e.x;
+    const fromY = e.y;
+    ({ x: e.x, y: e.y } = moveCircle(this.walls, e.x, e.y, dx, dy, def.radius, phasing ? { thin: true, thick: true, small: BOSS_UNSTICK.small } : { small: BOSS_UNSTICK.small }));
+    const want = Math.hypot(dx, dy);
+    if (want < 0.3) return; // (Standing still on purpose.)
+    if (Math.hypot(e.x - fromX, e.y - fromY) >= want * 0.25) {
+      e.stuckSince = 0;
+    } else if (!e.stuckSince) {
+      e.stuckSince = this.time;
+    } else if (this.time - e.stuckSince > BOSS_UNSTICK.after) {
+      e.phaseUntil = this.time + BOSS_UNSTICK.phase;
+      e.stuckSince = 0;
     }
   }
 
@@ -4743,7 +4861,8 @@ export class Game {
     if (e.attackTimer <= 0 && d < S.trigger) {
       e.attackTimer = S.cooldown;
       e.mode = Mode.Windup;
-      e.modeTimer = S.delay;
+      // (Planted until a moment after the slam lands.)
+      e.modeTimer = S.delay + S.recover;
       this.addHazard(HazardKind.Circle, e.x, e.y, S.radius, 0, 0, S.delay, S.damage * this.damageScale(e));
       return [0, 0];
     }
@@ -4803,7 +4922,9 @@ export class Game {
             if (this.hurtPlayer(p, h.damage) && h.knock) this.knockPlayer(p, h.x, h.y, h.knock);
           }
         }
-        this.fx.push({ k: 'slash', x: Math.round(h.x), y: Math.round(h.y), r: Math.round(h.b), a: round2(h.a), arc: round2(half * 2), c: DANGER_FX, heavy: true });
+        // (The Reaper's scythe has its own swing.)
+        const scythe = h.owner?.type === EnemyType.Reaper;
+        this.fx.push({ k: 'slash', x: Math.round(h.x), y: Math.round(h.y), r: Math.round(h.b), a: round2(h.a), arc: round2(half * 2), c: DANGER_FX, heavy: true, ...(scythe && { snd: 'scythe' as const }) });
         return;
       }
       case HazardKind.Ring: {
@@ -4842,6 +4963,7 @@ export class Game {
         const boss = h.owner;
         if (boss && !boss.dead) {
           boss.burrowed = false;
+          this.fx.push({ k: 'sfx', snd: 'rockCrash', x: Math.round(h.x), y: Math.round(h.y) });
           ({ x: boss.x, y: boss.y } = pushOut(this.walls, h.x, h.y, ENEMY_TYPES[boss.type].radius));
           if (this.fightArena()) this.keepInArena(boss, ENEMY_TYPES[boss.type].radius);
           boss.attackTimer = 1.5;
@@ -4887,7 +5009,6 @@ export class Game {
           if (!this.lineBlocked(h.x, h.y, p.x, p.y)) this.hurtPlayer(p, this.stats(p).maxHp * h.damage, true);
         }
         this.fx.push({ k: 'ring', x: Math.round(h.x), y: Math.round(h.y), r: 900, c: 0x80deea, snd: 'bigSlam' });
-        this.fx.push({ k: 'sfx', snd: 'freeze', x: Math.round(h.x), y: Math.round(h.y) });
         return;
       }
     }
@@ -4945,6 +5066,7 @@ export class Game {
     p.guard = Math.max(0, p.guard - dt);
     p.relicCd = Math.max(0, p.relicCd - dt);
     p.frenzy = Math.max(0, p.frenzy - dt);
+    p.onHit = Math.max(0, p.onHit - dt);
     this.dealing = ultimateSource(CHARACTERS[p.character].ultimate.id);
     this.updateUltimates(p, dt);
     this.dealing = null;
@@ -5062,7 +5184,8 @@ export class Game {
       if (this.bossPhase === 'fight') {
         for (const b of this.bosses) {
           if (b.dead || !NAMED_BOSSES[b.type]?.voice?.gloat) continue;
-          this.fx.push({ k: 'voice', snd: NAMED_BOSSES[b.type]!.voice!.sound, x: Math.round(b.x), y: Math.round(b.y) });
+          const voice = NAMED_BOSSES[b.type]!.voice!;
+          this.fx.push({ k: 'voice', snd: voice.gloatSound ?? pickVoice(voice.sound), x: Math.round(b.x), y: Math.round(b.y) });
           b.voiceAt = Math.max(b.voiceAt, this.fightTime + 6); // Not again right after.
         }
       }
@@ -5133,7 +5256,10 @@ export class Game {
         continue;
       }
       const cooldown = (p.cooldowns[id] ?? 0) - dt;
-      p.cooldowns[id] = cooldown > 0 ? cooldown : this.fire(p, id, level, stats) * stats.cooldownMult;
+      // (Lute Notes keeps the time it overshot by, so its song keeps exact time; capped, so a long pause can't
+      // release a burst of notes.)
+      const carry = id === 'notes' ? Math.max(cooldown, -0.1) : 0;
+      p.cooldowns[id] = cooldown > 0 ? cooldown : this.fire(p, id, level, stats) * stats.cooldownMult + carry;
     }
     this.dealing = null;
   }
@@ -5147,6 +5273,28 @@ export class Game {
         this.shootFan(p, ProjectileKind.Bolt, { ...s, count: s.count + stats.projectiles, explosion }, stats, 'magic');
         p.sounds.push('bolt');
         return s.cooldown;
+      }
+      case 'notes': {
+        const s = notesStats(level);
+        // The next note of his song (the chorus while his Ballad plays), and how long until the one after it.
+        const chorus = p.ballad > 0;
+        const part = chorus ? BARD_SONG.chorus : BARD_SONG.verse;
+        const note = (chorus ? p.lute.chorus++ : p.lute.verse++) % part.notes.length;
+        const wait = (beatsToNext(part, note) * 60) / SONG_BPM;
+        p.lute.last = { chorus, note };
+        // On Hit: harder, as true damage (counted as On Hit's), and with Encore, faster.
+        const hit = p.onHit > 0;
+        const volley = { ...s, damage: ((s.dps * wait) / s.count) * (hit ? 1 + p.onHitBonus : 1), count: s.count + stats.projectiles, explosion: null };
+        const before = this.projectiles.length;
+        if (hit) this.dealing = 'onhit';
+        this.shootFan(p, hit ? ProjectileKind.HitNote : ProjectileKind.Note, volley, stats, hit ? 'true' : 'magic');
+        this.dealing = 'notes';
+        // Neighbouring lines weave opposite ways.
+        this.projectiles.slice(before).forEach((pr, i) => {
+          pr.wave = { base: Math.atan2(pr.vy, pr.vx), amp: s.wave * (i % 2 ? -1 : 1), freq: s.waveSpeed, t: 0 };
+        });
+        p.sounds.push('notes');
+        return hit ? wait / (1 + p.onHitHaste) : wait;
       }
       case 'knives': {
         const s = knivesStats(level);
@@ -5955,7 +6103,9 @@ export class Game {
     }
     if (by) by.kills++;
     if (isWarlord(e.type)) {
-      this.dropArtifact('warlord', e.x, e.y);
+      // A war chest where it fell: walk over it to open it.
+      this.addPickup(PickupKind.Chest, e.x, e.y);
+      this.log(`${ENEMY_TYPES[e.type].name} dropped a war chest!`, 'good', 0xffca28);
       if (!this.warlord()) this.banner(`${ENEMY_TYPES[e.type].name} has fallen!`, 'good');
     }
     else if (e.affix) this.dropArtifact('champion', e.x, e.y);
@@ -5982,6 +6132,15 @@ export class Game {
       const owner = this.players.get(pr.owner);
       if (pr.boomerang) this.steerBoomerang(pr, owner, dt);
       if (pr.homing) this.steerHex(pr, dt);
+      if (pr.wave) {
+        // (cos, so the path swings evenly either side of the aim rather than drifting to one side.)
+        const w = pr.wave;
+        w.t += dt;
+        const speed = Math.hypot(pr.vx, pr.vy);
+        const a = w.base + w.amp * Math.cos(w.freq * w.t);
+        pr.vx = Math.cos(a) * speed;
+        pr.vy = Math.sin(a) * speed;
+      }
       pr.x += pr.vx * dt;
       pr.y += pr.vy * dt;
       pr.life -= dt;
@@ -6341,6 +6500,16 @@ export class Game {
         p.sounds.push('leap');
         return s.cooldown;
       }
+      case 'onhit': {
+        // A hit: for a while his Lute Notes hit harder, as true damage (and, evolved, come faster).
+        const s = onhitStats(level);
+        p.onHit = s.duration * stats.duration;
+        p.onHitBonus = s.bonus;
+        p.onHitHaste = s.haste;
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 110, c: AURA.onHit });
+        p.sounds.push('onhit');
+        return s.cooldown;
+      }
       case 'warcry': {
         const base = warcryStats(level);
         const s = { ...base, radius: base.radius * stats.area, taunt: base.taunt * stats.duration, duration: base.duration * stats.duration };
@@ -6599,7 +6768,16 @@ export class Game {
         p.guard = Math.max(p.guard, p.wrath);
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: WRATH.range, c: HOLY });
         break;
+      case 'ballad':
+        p.ballad = BALLAD.duration * stats.duration;
+        p.ultTimer = 0;
+        // His song jumps to the chorus, from its first note, right away.
+        p.lute.chorus = 0;
+        p.cooldowns.notes = 0;
+        p.sounds.push('ballad');
+        break;
       case 'intervention':
+        p.sounds.push('divine');
         for (const ally of this.players.values()) {
           if (!this.sameSide(ally, p)) continue;
           const maxHp = this.stats(ally).maxHp;
@@ -6614,6 +6792,7 @@ export class Game {
         }
         break;
       case 'rage':
+        p.sounds.push('bloodrage');
         p.rage = RAGE.duration * stats.duration;
         this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: 120, c: AURA.rage });
         break;
@@ -6750,6 +6929,14 @@ export class Game {
         const r = INFERNO.radius * stats.area;
         this.blasts.push({ source: this.dealing, x, y, r, damage: (INFERNO.damage + INFERNO.perLevel * this.levelOf(p)) * stats.damageMult, owner: p.id, t: 0.5, color: 0xff6d00, type: 'magic' });
         this.fx.push({ k: 'cast', x: Math.round(x), y: Math.round(y), r, c: 0xff6d00, t: 0.5 });
+      }
+    }
+    if (p.ballad > 0) {
+      p.ballad = p.downed ? 0 : p.ballad - dt;
+      // A ripple of music every second shows how far the song carries.
+      while (p.ballad > 0 && p.ultTimer <= 0) {
+        p.ultTimer += 1;
+        this.fx.push({ k: 'ring', x: Math.round(p.x), y: Math.round(p.y), r: BALLAD.radius, c: AURA.ballad });
       }
     }
     if (p.wrath > 0) {
@@ -6947,16 +7134,52 @@ export class Game {
     }
   }
 
-  /** Every person in the team finds an artifact of this tier (each rolls their own). Duplicates become gold. */
+  /**
+   * War chests: whoever walks over one opens it. Now and then (DROPS.warlord) it holds an artifact for everyone; the
+   * rest of the time a Warforge: a free upgrade pick for the whole team (see rollOptions).
+   */
+  private updateChests(): void {
+    const lava = this.map.lava;
+    for (const c of this.pickups) {
+      if (c.kind !== PickupKind.Chest || c.dead) continue;
+      // Closing lava sweeps them along, like artifacts.
+      if (lava) {
+        const d = Math.hypot(c.x - lava.x, c.y - lava.y);
+        const max = Math.max(0, this.lavaR - 60);
+        if (d > max) {
+          c.x = lava.x + ((c.x - lava.x) / d) * max;
+          c.y = lava.y + ((c.y - lava.y) / d) * max;
+        }
+      }
+      const opener = this.alivePlayers().find((p) => dist2(p.x, p.y, c.x, c.y) < (PLAYER_RADIUS + CHEST_RADIUS) ** 2);
+      if (!opener) continue;
+      c.dead = true;
+      for (const p of this.players.values()) p.chestsSeen++;
+      this.fx.push({ k: 'ring', x: Math.round(c.x), y: Math.round(c.y), r: 110, c: 0xffca28, snd: 'pop' });
+      if (Math.random() < DROPS.warlord.chance) {
+        const tier = rollTier('warlord', this.lootIndex());
+        this.log(`${opener.name} opened the war chest: an artifact!`, 'good', TIERS[tier].color);
+        this.grantArtifacts(tier);
+      } else {
+        opener.sounds.push('relic');
+        this.choices.push('warforge');
+        this.banner(`${opener.name} opened the war chest: the Warforge! A free upgrade for everyone.`, 'good');
+      }
+    }
+  }
+
+  /**
+   * Every person in the team finds an orb of this tier: an artifact inside, but no one knows which until they open
+   * it on their profile's Artifacts tab (each rolls their own then).
+   */
   private grantArtifacts(tier: Tier): void {
     const people = this.humans();
     for (const p of people) {
-      const find = giveArtifact(p.profile, rollArtifact(tier, ownedArtifacts(p.profile)));
+      const find = giveOrb(p.profile, tier);
       p.loot.push(find);
       p.found.push(find);
       p.sounds.push('relic');
-      const name = artifactDef(find.id).name;
-      this.log(`${p.name} found ${name} (${TIERS[tier].name})`, 'good', TIERS[tier].color);
+      this.log(`${p.name} found ${/^[AEIOU]/.test(orbName(tier)) ? 'an' : 'a'} ${orbName(tier)}`, 'good', TIERS[tier].color);
     }
     if (people.length > 0) this.options.onProfiles?.();
   }
@@ -7121,6 +7344,10 @@ export class Game {
                   ? AURA.rage
                   : p.elixir > 0
                     ? AURA.elixir
+                    : this.inBallad(p)
+                    ? AURA.ballad
+                    : p.onHit > 0
+                    ? AURA.onHit
                     : p.guard > 0
                       ? AURA.guard
                       : 0,
@@ -7277,8 +7504,9 @@ export class Game {
       ability: { cd: round1(p.abilityCd), cooldown: round1(this.abilityCooldown(p) * stats.cooldownMult) },
       relic: this.relicState(p),
       growth: this.growth(p),
+      lute: p.lute.last,
       dealtBy: Object.fromEntries(Object.entries(p.damageBy).map(([id, d]) => [id, Math.round(d)])),
-      ultimate: { cd: round1(p.ultCd), cooldown: round1(hero.ultimate.cooldown * stats.ultCooldown), active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil, p.wrath, hero.ultimate.id === 'elixir' ? p.elixir : 0, p.dragonForm, this.bearOf(p)?.life ?? 0)) },
+      ultimate: { cd: round1(p.ultCd), cooldown: round1(hero.ultimate.cooldown * stats.ultCooldown), active: round1(Math.max(p.rage, p.inferno, p.arrowStorm, p.veil, p.wrath, hero.ultimate.id === 'elixir' ? p.elixir : 0, p.dragonForm, p.ballad, this.bearOf(p)?.life ?? 0)) },
       hits: this.takeHits(p),
       taken: p.taken.splice(0),
       sounds: [...new Set(p.sounds.splice(0))], // One of each per snapshot is plenty.
@@ -7296,7 +7524,7 @@ export class Game {
   /** The artifact's Q for the HUD, or null if it has none. */
   /** What this run has given an artifact that grows. */
   private growth(p: Player): MeState['growth'] {
-    return { hearts: p.heartsTaken, levels: this.levelOf(p) - 1, bombs: p.bombsSeen };
+    return { hearts: p.heartsTaken, levels: this.levelOf(p) - 1, bombs: p.bombsSeen, chests: p.chestsSeen };
   }
 
   private relicState(p: Player): MeState['relic'] {
@@ -7336,6 +7564,8 @@ export class Game {
         return leapStats(level).cooldown;
       case 'warcry':
         return warcryStats(level).cooldown;
+      case 'onhit':
+        return onhitStats(level).cooldown;
       case 'toxicpool':
         return toxicpoolStats(level).cooldown;
       case 'consecrate':

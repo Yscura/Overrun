@@ -7,7 +7,7 @@ import { TICK_RATE } from '../shared/constants';
 import { MODES, isModeId } from '../shared/modes';
 import { isDevName, type ClientMessage, type ServerMessage } from '../shared/protocol';
 import { Game } from './game';
-import { buyHero, buyPrestige, combineArtifacts, equipArtifact, getProfile, profileState, refundPrestige, spinWheel } from './profiles';
+import { buyHero, buyPrestige, combineArtifacts, equipArtifact, getProfile, openOrb, profileState, refundPrestige, spinWheel } from './profiles';
 import { login, logout, resume } from './accounts';
 import { loadProgress, saveProgress } from './progress';
 import { Rooms, type Room } from './rooms';
@@ -74,11 +74,21 @@ interface Session {
   lockedUntil: number;
 }
 
+/** The game script the built page loads (e.g. /assets/index-1a2b3c.js), so stale pages can tell they're stale. */
+function builtScript(): string | null {
+  try {
+    return /<script[^>]+src="([^"]+)"/.exec(fs.readFileSync(path.join(distDir, 'index.html'), 'utf8'))?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 wss.on('connection', (ws) => {
   const session: Session = { name: null, room: null, playerId: null, failures: 0, lockedUntil: 0 };
   const send = (msg: ServerMessage) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   };
+  send({ t: 'build', script: builtScript() });
   const allHeroes = () => unlockAll || isDevName(session.name);
   const sendProfile = () => {
     if (session.name) send({ t: 'profile', profile: profileState(session.name, getProfile(progress.profiles, session.name), allHeroes()) });
@@ -196,14 +206,15 @@ wss.on('connection', (ws) => {
         sendProfile();
         return;
       case 'combine':
-      case 'spin': {
+      case 'spin':
+      case 'openOrb': {
         // Between runs only (your artifact can't change mid-run).
         if (!session.name || session.room?.game.running) return;
         const profile = getProfile(progress.profiles, session.name);
-        const result = msg.t === 'combine' ? combineArtifacts(profile, msg.artifacts) : spinWheel(profile);
+        const result = msg.t === 'combine' ? combineArtifacts(profile, msg.artifacts) : msg.t === 'openOrb' ? openOrb(profile, msg.orb) : spinWheel(profile);
         if (result) {
           save();
-          send({ t: 'artifact', id: result, how: msg.t });
+          send({ t: 'artifact', id: result, how: msg.t === 'openOrb' ? 'orb' : msg.t });
           if (session.room && session.playerId !== null) session.room.game.profileChanged(session.playerId);
         }
         sendProfile();

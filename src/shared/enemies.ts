@@ -39,7 +39,7 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Runner', radius: 10, speed: 145, hp: 8, damage: 8, xp: 1, color: 0xffd54f, behavior: 'chase', spawnAfter: 25, weight: 4 },
   { name: 'Brute', radius: 24, speed: 60, hp: 70, damage: 17, xp: 5, color: 0xba68c8, behavior: 'chase', spawnAfter: 60, weight: 2, elite: true, armor: 0.3 },
   // Warlords: mini-bosses every few minutes (see WARLORD_TYPES). The Earthbreaker slams the ground around it.
-  { name: 'Earthbreaker', radius: 56, speed: 75, hp: 1200, damage: 40, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.25, ward: 0.25 },
+  { name: 'Earthbreaker', radius: 56, speed: 105, hp: 1200, damage: 40, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.25, ward: 0.25 },
   { name: 'Spitter', radius: 13, speed: 80, hp: 16, damage: 6, xp: 2, color: 0x9ccc65, behavior: 'ranged', spawnAfter: 50, weight: 1.2 },
   { name: 'Bombardier', radius: 17, speed: 55, hp: 30, damage: 8, xp: 3, color: 0x4db6ac, behavior: 'lobber', spawnAfter: 90, weight: 0.7, elite: true, ward: 0.3 },
   { name: 'Charger', radius: 18, speed: 75, hp: 45, damage: 12, xp: 3, color: 0x7986cb, behavior: 'charger', spawnAfter: 65, weight: 1.5, elite: true, armor: 0.25 },
@@ -74,8 +74,8 @@ export const ENEMY_TYPES: EnemyDef[] = [
   { name: 'Guardian', radius: 40, speed: 70, hp: 1, damage: 0, xp: 0, color: 0x8d6e63, behavior: 'unit', spawnAfter: 0, weight: 0, elite: true, armor: 0.2, pvp: true },
   { name: 'Hero', radius: 16, speed: 0, hp: 1, damage: 0, xp: 0, color: 0xffffff, behavior: 'unit', spawnAfter: 0, weight: 0, pvp: true },
   // More warlords: the Spearhurler throws fans of spears, the Juggernaut charges and throws you back.
-  { name: 'Spearhurler', radius: 52, speed: 70, hp: 1000, damage: 35, xp: 100, color: 0x4fc3f7, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.15, ward: 0.3 },
-  { name: 'Juggernaut', radius: 60, speed: 70, hp: 1400, damage: 40, xp: 100, color: 0x8d6e63, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.35, ward: 0.15 },
+  { name: 'Spearhurler', radius: 52, speed: 70, hp: 1000, damage: 35, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.15, ward: 0.3 },
+  { name: 'Juggernaut', radius: 60, speed: 70, hp: 1400, damage: 40, xp: 100, color: 0xff7043, behavior: 'boss', spawnAfter: 0, weight: 0, elite: true, armor: 0.35, ward: 0.15 },
 ];
 
 export const EnemyType = {
@@ -122,8 +122,11 @@ export function isWarlord(type: number): boolean {
  */
 export const WARLORDS = { first: 90, groupFrom: 240, groupEvery: 240, maxGroup: 4, groupHp: 0.7 };
 
-/** The Earthbreaker stops and slams the ground: a circle around it fills up, then everything in it is hit. */
-export const WARLORD_SLAM = { cooldown: 4.5, trigger: 320, radius: 230, delay: 1.6, damage: 40 };
+/**
+ * The Earthbreaker (quick on its feet) stops and slams the ground: a circle around it fills up for `delay` seconds,
+ * then everything in it is hit. It stays planted through the slam and `recover` seconds after.
+ */
+export const WARLORD_SLAM = { cooldown: 4.5, trigger: 320, radius: 230, delay: 1.6, recover: 0.5, damage: 40 };
 
 /** The Spearhurler winds up, then throws `count` big spears in a fan (`spread` radians across) at whoever's nearest. */
 export const WARLORD_VOLLEY = { cooldown: 3, windup: 0.6, range: 750, count: 5, spread: 0.9, speed: 280, radius: 18, damage: 28, life: 3.2, minRange: 240, maxRange: 420 };
@@ -225,7 +228,7 @@ export type BossAttack =
   | 'orbs';
 
 /** A boss's voice, heard every so often during the fight (see NamedBossDef.voice). */
-export type BossVoice = 'whisper' | 'hiss' | 'laugh' | 'demon' | 'dragon';
+export type BossVoice = 'whisper' | 'hiss' | 'laugh' | 'demon' | 'dragon' | 'kharzak' | 'kharzakTaunt' | 'grimmTaunt';
 
 /** What happens when a boss drops below each BOSS_MISSIONS.at share: a side mission, or Kharzak's shell. */
 export type BossPhase = MissionKind | 'shell' | 'none';
@@ -244,7 +247,11 @@ export interface NamedBossDef {
   /** What it does at 66% and 33% health. */
   phase: BossPhase;
   /** It speaks up every `every[0]` to `every[1]` seconds of the fight, and (`gloat`) whenever it downs a player. */
-  voice?: { sound: BossVoice; every: [number, number]; gloat?: boolean };
+  /**
+   * Speaks now and then through the fight: `sound`, or one of several at random. `gloat`: says something whenever a
+   * hero falls (`gloatSound`, or its usual `sound`).
+   */
+  voice?: { sound: BossVoice | BossVoice[]; every: [number, number]; gloat?: boolean; gloatSound?: BossVoice };
 }
 
 export const NAMED_BOSSES: Record<number, NamedBossDef> = {
@@ -266,7 +273,8 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
     cooldown: 3.3,
     minions: [EnemyType.Spirit, EnemyType.Wraith],
     phase: 'brood',
-    voice: { sound: 'whisper', every: [9, 16] },
+    // Whispers mostly, and now and then a promise that you will die.
+    voice: { sound: ['whisper', 'whisper', 'grimmTaunt'], every: [9, 16] },
   },
   // Hide behind a column from Glacial Wrath, and carry a Frost Bomb away from your friends. At half health she retreats to
   // her tower, through a labyrinth (see Tower in maps.ts).
@@ -319,6 +327,7 @@ export const NAMED_BOSSES: Record<number, NamedBossDef> = {
     cooldown: 3.2,
     minions: [EnemyType.Charger, EnemyType.Runner],
     phase: 'shell',
+    voice: { sound: 'kharzak', every: [12, 20], gloat: true, gloatSound: 'kharzakTaunt' },
   },
 };
 

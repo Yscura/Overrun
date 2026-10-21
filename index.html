@@ -20,6 +20,7 @@
       <button data-dev="finale" title="The Ashen Caldera: the caldera shakes apart right away (with the level-ups you'd have earned); press again while crossing to jump into Mordak's den. The Frozen Fortress: the Frost Queen retreats to her tower right away; press again to land at the labyrinth's way out">Skip to finale <kbd>K</kbd></button>
       <button data-dev="level" title="A free level-up pick">Level up <kbd>U</kbd></button>
       <button data-dev="forge" title="A free Forge pick (evolves max-level weapons)">Forge <kbd>F</kbd></button>
+      <button data-dev="warlord" title="A warlord comes for you: the Earthbreaker, Spearhurler and Juggernaut in turn">Warlord <kbd>L</kbd></button>
       <button data-dev="max" title="Fill every slot and max everything">Max build <kbd>B</kbd></button>
       <button data-dev="god" id="dev-god" title="Take damage but never go below 1 HP">God mode <kbd>G</kbd></button>
     </div>
@@ -200,21 +201,22 @@
           <div class="profile-panel artifacts-panel" data-panel="artifacts">
             <!-- Your inventory: click an artifact to equip it, or to combine it with others of its tier. -->
             <div id="artifact-browse">
+              <div id="orb-shelf" class="orb-shelf hidden"></div>
               <div class="inventory-head">
                 <h3>Inventory</h3>
-                <p class="prestige-hint">Click an artifact to <b>Equip</b> it (it goes into your runs, one at a time) or <b>Combine</b> it with others of its tier. Elites, warlords and final bosses drop them; the wheel in the Shop sells them.</p>
+                <p class="prestige-hint">Click an artifact to <b>Equip</b> it (it goes into your runs, one at a time) or <b>Trade In</b> five of one tier for one of the next. Elites, warlords' war chests and final bosses drop them as orbs (open them above); the wheel in the Shop sells them.</p>
               </div>
               <div id="artifact-inventory" class="artifact-inventory"></div>
             </div>
             <!-- Combining: five of a tier become one random artifact of the next tier. -->
             <div id="artifact-combine" class="hidden">
               <section class="station combine-station">
-                <h3 class="station-title">Combine</h3>
-                <button id="forge-orb" class="forge-orb" title="Combine">?</button>
+                <h3 class="station-title">Trade In</h3>
+                <button id="forge-orb" class="forge-orb" title="Trade in">?</button>
                 <div id="forge-slots" class="forge-slots"></div>
                 <div class="combine-buttons">
                   <button id="combine-cancel" class="secondary">Cancel</button>
-                  <button id="forge-go" class="primary station-button">Combine</button>
+                  <button id="forge-go" class="primary station-button">Trade In</button>
                 </div>
                 <p id="forge-hint" class="station-hint"></p>
               </section>

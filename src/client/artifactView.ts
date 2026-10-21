@@ -1,6 +1,6 @@
 // How artifacts look in the menus: their art in a medallion of their tier's color, and their effects.
 
-import { ARTIFACTS, ARTIFACT_IDS, TIERS, TIER_IDS, artifact, describeActive, describeArtifact, type ArtifactId, type Tier } from '../shared/artifacts';
+import { ARTIFACTS, ARTIFACT_IDS, TIERS, TIER_IDS, artifact, describeActive, describeArtifact, orbColor, type ArtifactId, type OrbKind, type Tier } from '../shared/artifacts';
 import { artifactSvg } from './artifactIcons';
 import { iconSvg } from './icons';
 
@@ -34,6 +34,24 @@ export function artifactIcon(id: ArtifactId | null, size = 32, known = true): HT
   const art = Math.round(size * 0.68);
   if (id && known) box.innerHTML = artifactSvg(id, art) ?? iconSvg(ARTIFACTS[id].icon, art); // Static SVG.
   else box.textContent = id ? '?' : '∅';
+  return box;
+}
+
+/**
+ * An unopened orb: a glowing glass sphere in its tier's color with a swirl of light inside. The Dragon Orb is dark
+ * red, with a dragon's slit eye of gold looking out.
+ */
+export function orbIcon(kind: OrbKind, size = 32): HTMLElement {
+  const box = el('span', `orb-icon orb-${kind}`);
+  const c = hex(orbColor(kind));
+  box.style.setProperty('--tier', c);
+  box.style.width = box.style.height = `${size}px`;
+  const inside =
+    kind === 'dragon'
+      ? '<ellipse cx="16" cy="16" rx="7" ry="5" fill="#ffca28"/><ellipse cx="16" cy="16" rx="1.6" ry="4.6" fill="#1a0505"/>'
+      : `<path d="M10 18 C10 12 16 9 20 12 C17 11 13 13 13 17 C13 20 16 22 19 21 C16 24 10 22 10 18 Z" fill="#ffffff" opacity=".55"/><circle cx="20" cy="18" r="1.4" fill="#ffffff" opacity=".8"/>`;
+  // Static markup.
+  box.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="${c}" opacity=".22"/><circle cx="16" cy="16" r="12" fill="${c}"/><path d="M4.6 19.5 A12 12 0 0 0 27.4 19.5 A13 9 0 0 1 4.6 19.5 Z" fill="#000000" opacity=".28"/>${inside}<ellipse cx="11.5" cy="10" rx="4" ry="2.4" transform="rotate(-30 11.5 10)" fill="#ffffff" opacity=".7"/><circle cx="16" cy="16" r="12" fill="none" stroke="#000000" stroke-opacity=".35" stroke-width="1"/></svg>`;
   return box;
 }
 

@@ -383,6 +383,8 @@ export class Bot {
                 ? near(170) >= 4 || !!(boss && boss.d < 200)
                 : hero.ability === 'tumble'
                   ? threatened
+                  : hero.ability === 'onhit'
+                    ? near(400) >= 5 || !!boss
                   : hero.ability === 'prayer'
                     ? hpShare < 0.6 || snap.players.some((q) => q.id !== me.id && !q.downed && q.hp / q.maxHp < 0.6 && Math.hypot(q.x - this.local.x, q.y - this.local.y) < 250) || near(200) >= 5
                     : near(200) >= 3;
@@ -408,6 +410,7 @@ export class Bot {
         wrath: near(350) >= 8 || !!(boss && boss.d < 400),
         intervention: snap.players.some((q) => q.downed) || (allyHurt && hpShare < 0.5),
         dragonform: near(400) >= 8 || !!(boss && boss.d < 500),
+        ballad: near(400) >= 8 || !!boss || allyHurt,
       };
       if (use[hero.ultimate.id]) return cast('r', aim.angle, aim.dist);
     }
@@ -836,9 +839,9 @@ export class Bot {
       if (best) return { point: best.p, weight: best.crate && dist(best.p) < 200 ? 0.2 : 1.5 + (hurt < 0.4 ? 1 : 0) };
     }
 
-    // Artifacts on the ground: worth a short walk (whoever touches one finds one for every person in the team).
+    // Artifacts and war chests on the ground: worth a short walk (they're for the whole team).
     for (let i = 0; i < snap.pickups.length; i += PICKUP_STRIDE) {
-      if (snap.pickups[i + 1] !== PickupKind.Artifact) continue;
+      if (snap.pickups[i + 1] !== PickupKind.Artifact && snap.pickups[i + 1] !== PickupKind.Chest) continue;
       const p = { x: snap.pickups[i + 2], y: snap.pickups[i + 3] };
       if (dist(p) < 700) return { point: p, weight: 1.3 };
     }

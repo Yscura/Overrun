@@ -24,7 +24,7 @@ import {
   type WeaponId,
 } from './upgrades';
 
-export type CharacterId = 'assassin' | 'mage' | 'bruiser' | 'tank' | 'pyro' | 'ranger' | 'druid' | 'chronobreaker' | 'alchemist' | 'paladin' | 'cleric' | 'dragonmancer';
+export type CharacterId = 'assassin' | 'mage' | 'bruiser' | 'tank' | 'pyro' | 'ranger' | 'druid' | 'chronobreaker' | 'alchemist' | 'paladin' | 'cleric' | 'dragonmancer' | 'bard';
 export type UltimateId =
   | 'shadowstrike'
   | 'chrono'
@@ -37,7 +37,8 @@ export type UltimateId =
   | 'elixir'
   | 'wrath'
   | 'intervention'
-  | 'dragonform';
+  | 'dragonform'
+  | 'ballad';
 
 /** The id an ultimate's damage is tracked under (next to weapon and ability ids, which it can't clash with). */
 export function ultimateSource(id: UltimateId): string {
@@ -106,6 +107,12 @@ export function dragonBody(body: number, aim: number): number {
   const rel = Math.atan2(Math.sin(aim - body), Math.cos(aim - body));
   return Math.abs(rel) <= DRAGON_FORM_TURN.headReach ? body : aim - Math.sign(rel) * DRAGON_FORM_TURN.headReach;
 }
+/**
+ * Ballad of Heroes (the Bard's ultimate): for `duration` seconds, he and every ally within `radius` of him get
+ * `damage` more damage, `attackSpeed` faster attacks, `speed` more speed and heal `regen` of their max HP a second.
+ */
+export const BALLAD = { duration: 15, radius: 420, damage: 0.2, attackSpeed: 0.4, speed: 0.15, regen: 0.02 };
+
 /** His fire breath: a cone (`half` its half-angle) burning every `tick` seconds for `duration`, following his aim. */
 export const FIREBREATH = { duration: 1.3, tick: 0.12, range: 420, half: 0.5, damage: 26, perLevel: 9 };
 
@@ -333,6 +340,28 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     trait: 'Healing keeps the team standing',
     unlockCost: 1500,
   },
+  bard: {
+    name: 'Tricky',
+    title: 'the Bard',
+    voice: 'male',
+    role: 'ranged',
+    maxHp: 110,
+    speed: 230,
+    armor: 0.05,
+    regen: 0.5,
+    damageMult: 1.05,
+    dodgeCooldown: 2.6,
+    startWeapon: 'notes',
+    ability: 'onhit',
+    ultimate: {
+      id: 'ballad',
+      name: 'Ballad of Heroes',
+      text: `For ${BALLAD.duration}s, play a rousing ballad: you and every ally within earshot get +${BALLAD.damage * 100}% damage, ${BALLAD.attackSpeed * 100}% faster attacks, ${BALLAD.speed * 100}% more speed, and heal ${BALLAD.regen * 100}% of max HP a second.`,
+      cooldown: 60,
+    },
+    trait: 'A trickster whose songs rally friends and befuddle foes',
+    unlockCost: 1000,
+  },
   dragonmancer: {
     name: 'Kaelor',
     title: 'the Dragonmancer',
@@ -423,7 +452,7 @@ export function playerStats(upgrades: Upgrades, character: CharacterId, prestige
   const effects: ArtifactEffects = artifact ? ARTIFACTS[artifact].effects : {};
   const a = (key: keyof ArtifactEffects) => effects[key] ?? 0;
   return {
-    damageMult: c.damageMult * (1 + 0.1 * lv('might')) * (1 + rank('power')) * (1 + a('damage')),
+    damageMult: c.damageMult * (1 + 0.1 * lv('might')) * (1 + rank('power')) * (1 + a('damage') + grown.damage),
     cooldownMult: (1 - 0.08 * lv('haste')) / (1 + rank('fury')) / (1 + a('attackSpeed')),
     speed: c.speed * (1 + 0.08 * lv('swift')) * (1 + rank('stride')) * (1 + a('speed')),
     maxHp: Math.max(1, Math.round((c.maxHp + 20 * lv('vitality') + a('maxHp')) * (1 + rank('fortitude')) * (1 + a('maxHpPct')) + grown.maxHp)),

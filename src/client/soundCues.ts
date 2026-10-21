@@ -3,8 +3,16 @@
 import { DRAGON_INTRO } from '../shared/constants';
 import { HAZARD_STRIDE, HazardKind, type Snapshot } from '../shared/protocol';
 import { CHARACTERS } from '../shared/characters';
+import { EnemyType } from '../shared/enemies';
 import { DAMAGE_TYPES } from '../shared/upgrades';
-import { voiceSound, type Sound } from './audio';
+import { setLuteNote, voiceSound, type Sound } from './audio';
+
+/** Bosses with an entrance cry of their own (also when they're enraged or go berserk), instead of the usual roar. */
+const BOSS_CRY: Partial<Record<number, 'kharzakSpawn' | 'rimeSpawn' | 'sylvaraSpawn'>> = {
+  [EnemyType.Kharzak]: 'kharzakSpawn',
+  [EnemyType.Rime]: 'rimeSpawn',
+  [EnemyType.Sylvara]: 'sylvaraSpawn',
+};
 
 /** You cry out when the damage you take in one go is at least this share of your max HP. */
 const CRY_AT = 0.05;
@@ -26,6 +34,8 @@ export class SoundCues {
 
     // Your own actions and feedback.
     if (snap.me) {
+      // The Bard's Lute Notes: pluck the note of his song the server just played.
+      setLuteNote(snap.me.lute);
       for (const id of snap.me.sounds) sound.play(id);
       const hits = snap.me.hits;
       if (hits.length > 0) {
@@ -59,7 +69,7 @@ export class SoundCues {
           if (fx.snd) sound.play(fx.snd, ...near(fx.x, fx.y));
           break;
         case 'slash':
-          sound.play(fx.snd ?? (fx.heavy ? 'heavySlash' : 'slash'), ...near(fx.x, fx.y));
+          if (fx.snd !== 'none') sound.play(fx.snd ?? (fx.heavy ? 'heavySlash' : 'slash'), ...near(fx.x, fx.y));
           break;
         case 'zap':
           sound.play('zap', ...near(fx.x, fx.y));
@@ -78,13 +88,15 @@ export class SoundCues {
             break;
           }
           sound.play('bossIntro');
-          sound.play('bossRoar');
+          // Kharzak, the Reaper, the Frost Queen and Sylvara have entrances of their own; the rest roar.
+          sound.play(fx.boss === EnemyType.Reaper ? 'reaperStart' : (BOSS_CRY[fx.boss ?? -1] ?? 'bossRoar'));
           break;
         case 'lob':
           sound.play('fireball', ...near(fx.x, fx.y));
           break;
         case 'roar':
-          sound.play('bossRoar');
+          // Some bosses cry out in their own voices (their entrance sound); the rest roar.
+          sound.play(BOSS_CRY[fx.boss ?? -1] ?? 'bossRoar');
           break;
         case 'shatter':
           sound.play('shatter');

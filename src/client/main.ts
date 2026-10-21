@@ -89,6 +89,7 @@ async function main() {
   menu.onUnlock = (character) => net.send({ t: 'unlock', character });
   menu.onEquip = (artifact) => net.send({ t: 'equip', artifact });
   menu.onCombine = (artifacts) => net.send({ t: 'combine', artifacts });
+  menu.onOpenOrb = (orb) => net.send({ t: 'openOrb', orb });
   menu.onSpin = () => net.send({ t: 'spin' });
 
   // --- Chat and event log ---

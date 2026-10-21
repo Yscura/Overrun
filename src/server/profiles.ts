@@ -1,7 +1,7 @@
 // A player's progress between runs (prestige, gold, bought heroes), and the things you can do with it.
 // Profiles are kept by lowercased name and saved in data/progress.json.
 
-import { ARTIFACT_IDS, FORGE, WHEEL, artifact, isArtifactId, nextTier, rollArtifact, rollWheel, type ArtifactId } from '../shared/artifacts';
+import { ARTIFACT_IDS, FORGE, ORB_KINDS, WHEEL, artifact, isArtifactId, isOrbKind, nextTier, rollArtifact, rollWheel, type ArtifactId, type OrbKind } from '../shared/artifacts';
 import { CHARACTERS, CHARACTER_IDS, heroAvailable, isCharacterId, type CharacterId } from '../shared/characters';
 import { ENEMY_TYPES, isBossType } from '../shared/enemies';
 import { CAMPAIGN } from '../shared/maps';
@@ -39,6 +39,8 @@ export interface Profile {
   /** Their artifact inventory: how many of each (by id). Older saves kept a list of ids. */
   artifacts?: Record<string, number>;
   artifact?: string | null;
+  /** Unopened orbs, by kind (see OrbKind). */
+  orbs?: Record<string, number>;
 }
 
 /** How many of each artifact they have (ids that no longer exist are skipped). */
@@ -70,11 +72,32 @@ export function equipArtifact(profile: Profile, id: unknown): boolean {
   return true;
 }
 
+/** An orb goes onto their shelf, to open later. */
+export function giveOrb(profile: Profile, kind: OrbKind): ArtifactFind {
+  profile.orbs ??= {};
+  profile.orbs[kind] = (profile.orbs[kind] ?? 0) + 1;
+  return { orb: kind };
+}
+
+/** Their unopened orbs. */
+function orbsOf(profile: Profile): Partial<Record<OrbKind, number>> {
+  return Object.fromEntries(ORB_KINDS.filter((k) => (profile.orbs?.[k] ?? 0) > 0).map((k) => [k, profile.orbs![k]]));
+}
+
+/** Opens one of their orbs: an artifact of its tier (the Dragon Orb: the Dragonsheart). Null if they have none. */
+export function openOrb(profile: Profile, kind: unknown): ArtifactId | null {
+  if (!isOrbKind(kind) || (profile.orbs?.[kind] ?? 0) <= 0) return null;
+  profile.orbs![kind] -= 1;
+  if (profile.orbs![kind] === 0) delete profile.orbs![kind];
+  const id = kind === 'dragon' ? 'dragonsheart' : rollArtifact(kind, ownedArtifacts(profile));
+  giveArtifact(profile, id);
+  return id;
+}
+
 /** An artifact goes into their inventory (on top of any they already have). */
-export function giveArtifact(profile: Profile, id: ArtifactId): ArtifactFind {
+export function giveArtifact(profile: Profile, id: ArtifactId): void {
   profile.artifacts ??= {};
   profile.artifacts[id] = (profile.artifacts[id] ?? 0) + 1;
-  return { id };
 }
 
 /**
@@ -162,13 +185,17 @@ export function getProfile(store: Record<string, Profile>, name: string): Profil
   profile.points = Math.max(0, Number(profile.points) || 0);
   // Artifacts used to be a list of the ones found; now they're an inventory with counts.
   if (Array.isArray(profile.artifacts)) profile.artifacts = Object.fromEntries((profile.artifacts as string[]).map((id) => [id, 1]));
-  // The testing account always has at least one of every artifact (combining still uses them up, until next time), and
+  // The testing accounts always have at least one of every artifact and five orbs of each kind (trading in and opening
+  // still use them up, until next time), and
   // every map open.
   if (isDevName(key)) {
     profile.maps = CAMPAIGN;
     profile.hardMaps = CAMPAIGN;
     profile.artifacts ??= {};
     for (const id of ARTIFACT_IDS) profile.artifacts[id] = Math.max(1, profile.artifacts[id] ?? 0);
+    // ...and at least 5 orbs of every kind to open (they top back up, like the artifacts).
+    profile.orbs ??= {};
+    for (const kind of ORB_KINDS) profile.orbs[kind] = Math.max(5, profile.orbs[kind] ?? 0);
   }
   return profile;
 }
@@ -223,6 +250,7 @@ export function profileState(name: string, profile: Profile, allHeroes: boolean)
     dragonmancer: !!profile.dragonmancer,
     endless: { ...(profile.endless ?? {}) },
     inventory: inventory(profile),
+    orbs: orbsOf(profile),
     equipped: equippedArtifact(profile),
   };
 }

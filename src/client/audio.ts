@@ -6,6 +6,7 @@ import type { Voice as HeroVoice } from '../shared/characters';
 import type { BossVoice } from '../shared/enemies';
 import type { SoundId, WorldSound } from '../shared/protocol';
 import { SAMPLES } from './samples';
+import { BARD_SONG, SONG_BPM } from '../shared/song';
 
 export type SoundName =
   | SoundId
@@ -92,16 +93,31 @@ interface NoiseOptions {
   delay?: number;
 }
 
+interface PluckOptions {
+  /** The string's pitch in Hz. */
+  freq: number;
+  /** How long it rings, in seconds (it dies away naturally within that). */
+  duration: number;
+  volume: number;
+  delay?: number;
+  /** 0..1: a soft fingertip (low) to a bright plectrum (high). */
+  brightness?: number;
+}
+
 /** The "instrument" a recipe plays on: start time, pitch variation and where to send the sound. */
 interface Voice {
   tone(o: ToneOptions): void;
   noise(o: NoiseOptions): void;
+  /** A plucked string (a lute's): see Sound.pluckBuffer. */
+  pluck(o: PluckOptions): void;
 }
 
 interface Recipe {
   play: (v: Voice) => void;
   max?: number;
   gap?: number;
+  /** Plays at exactly its pitch, without the usual small random variation (music has to stay in tune). */
+  tuned?: boolean;
 }
 
 /** A deep, rising-then-falling growl with a rumble underneath. */
@@ -118,6 +134,26 @@ const ROAR: Recipe = {
 
 /** Voices are recordings only: until they've loaded, nothing. */
 const SILENT: Recipe = { play: () => {} };
+
+/** The note of the Bard's song his Lute Notes just played (set from each snapshot: see setLuteNote). */
+let luteNote: { chorus: boolean; note: number } | null = null;
+
+/** Which note of his song the Bard's Lute Notes played last (the server decides; the client plucks it). */
+export function setLuteNote(note: { chorus: boolean; note: number } | null): void {
+  luteNote = note;
+}
+
+const hz = (midi: number) => 440 * 2 ** ((midi - 69) / 12);
+
+/** The strings for the Bard's latest note: its pitch, ringing about as long as it lasts in the song. */
+function songStrings(): { freq: number; duration: number; volume: number; brightness: number }[] {
+  if (!luteNote) return [];
+  const part = luteNote.chorus ? BARD_SONG.chorus : BARD_SONG.verse;
+  const [, beats, midi] = part.notes[luteNote.note % part.notes.length];
+  const duration = Math.round(Math.min(1.6, Math.max(0.35, (beats * 60) / SONG_BPM + 0.25)) * 10) / 10;
+  // An octave below the written melody, plucked soft: a warm, round lute rather than a bright, sharp one.
+  return [{ freq: hz(midi - 12), duration, volume: 0.07, brightness: 0.2 }];
+}
 
 /**
  * How each sound is made. `max` voices may overlap and they're at least `gap` seconds apart.
@@ -147,6 +183,55 @@ const RECIPES: Record<SoundName, Recipe> = {
   },
   // Glaives: a whirring throw.
   glaive: { play: (v) => v.noise({ filter: 'bandpass', from: 900, to: 2600, duration: 0.18, volume: 0.12, q: 2.5 }) },
+  // Lute Notes: a plucked string, on a random note of a major pentatonic scale (so a volley always sounds in tune).
+  notes: {
+    play: (v) => {
+      for (const string of songStrings()) v.pluck(string);
+    },
+    // (Each note rings on under the next ones, like a real lute.)
+    max: 6,
+    gap: 0.05,
+    tuned: true,
+  },
+  // On Hit: a bright, quick riff up the lute (C minor), then a strum.
+  onhit: {
+    play: (v) => {
+      [60, 63, 67, 72].forEach((m, i) => v.pluck({ freq: hz(m), duration: 0.5, volume: 0.12, delay: i * 0.06, brightness: 0.45 }));
+      [48, 55, 60, 63, 67].forEach((m, i) => v.pluck({ freq: hz(m), duration: 1.2, volume: 0.09, delay: 0.26 + i * 0.015, brightness: 0.35 }));
+    },
+    max: 1,
+    tuned: true,
+  },
+  // Ballad of Heroes: a strummed, rising major chord.
+  ballad: {
+    play: (v) => {
+      // Into the chorus: a big, bright strum of its key's chord (E flat major) down six strings.
+      [39, 46, 51, 55, 58, 63].forEach((m, i) => v.pluck({ freq: hz(m), duration: 1.8, volume: 0.14, delay: i * 0.03, brightness: 0.3 }));
+    },
+    max: 1,
+    tuned: true,
+  },
+  // Divine Intervention (until its recording loads): a bright, rising shimmer.
+  divine: {
+    play: (v) => {
+      [784, 988, 1175, 1568].forEach((f, i) => v.tone({ type: 'sine', from: f, to: f, duration: 0.8, volume: 0.05, delay: i * 0.1 }));
+    },
+    max: 1,
+  },
+  // Bloodrage (until its recording loads): a beastly roar.
+  bloodrage: ROAR,
+  // Kharzak's rocks and death, the Reaper's scythe, and the two bosses' entrances (until their recordings load).
+  rockCrash: { play: (v) => v.noise({ filter: 'lowpass', from: 600, to: 120, duration: 0.9, volume: 0.25 }), max: 2 },
+  kharzakDeath: ROAR,
+  scythe: { play: (v) => v.noise({ filter: 'bandpass', from: 2400, to: 700, duration: 0.25, volume: 0.15, q: 1.5 }), max: 2 },
+  kharzakSpawn: ROAR,
+  reaperStart: { play: (v) => v.tone({ type: 'sine', from: 220, to: 110, duration: 0.9, volume: 0.1 }), max: 1 },
+  grimmDeath: ROAR,
+  sylvaraSpawn: { play: (v) => v.noise({ filter: 'bandpass', from: 3000, to: 1200, duration: 1.2, volume: 0.12, q: 2 }), max: 1 },
+  sylvaraDeath: { play: (v) => v.noise({ filter: 'bandpass', from: 2500, to: 600, duration: 1.4, volume: 0.12, q: 2 }), max: 1 },
+  rimeSpawn: { play: (v) => v.noise({ filter: 'highpass', from: 4000, to: 1500, duration: 1.2, volume: 0.1 }), max: 1 },
+  rimeDeath: { play: (v) => v.noise({ filter: 'highpass', from: 3000, to: 800, duration: 1.4, volume: 0.12 }), max: 1 },
+  glacialWrath: { play: (v) => v.noise({ filter: 'highpass', from: 6000, to: 1500, duration: 3.6, volume: 0.1 }), max: 1 },
   // Arrow Storm: drawing a bow. The Frost Queen: her frost breath, and Glacial Wrath freezing everything it hits.
   aim: { play: (v) => v.noise({ filter: 'bandpass', from: 1200, to: 2400, duration: 0.3, volume: 0.08, q: 3 }), max: 1 },
   iceBreath: { play: (v) => v.noise({ filter: 'highpass', from: 3000, to: 1500, duration: 0.8, volume: 0.1 }), max: 1 },
@@ -551,6 +636,9 @@ const RECIPES: Record<SoundName, Recipe> = {
     max: 1,
   },
   rumble: { play: (v) => v.noise({ filter: 'lowpass', from: 200, to: 60, duration: 1.0, volume: 0.25 }), max: 1, gap: 0.6 },
+  kharzak: SILENT,
+  kharzakTaunt: SILENT,
+  grimmTaunt: SILENT,
   whisper: SILENT,
   hiss: SILENT,
   laugh: SILENT,
@@ -710,8 +798,8 @@ export class Sound {
     panner.pan.value = pan;
     out.connect(panner).connect(this.master);
 
-    // A little random pitch so repeated sounds don't sound identical.
-    const pitch = pitchScale * (0.94 + Math.random() * 0.12);
+    // A little random pitch so repeated sounds don't sound identical (not for music, which has to stay in tune).
+    const pitch = pitchScale * (recipe.tuned ? 1 : 0.94 + Math.random() * 0.12);
     let end = now;
     const voice: Voice = {
       tone: (o) => {
@@ -751,6 +839,25 @@ export class Sound {
         src.stop(stop + 0.02);
         end = Math.max(end, stop);
       },
+      pluck: (o) => {
+        const start = now + (o.delay ?? 0);
+        const src = ctx.createBufferSource();
+        src.buffer = this.pluckBuffer(ctx, o.freq * pitch, o.duration, o.brightness ?? 0.5);
+        // The lute's body: a warm wooden resonance, and the top rolled off (round, not sharp).
+        const body = ctx.createBiquadFilter();
+        body.type = 'peaking';
+        body.frequency.value = 200;
+        body.Q.value = 1.2;
+        body.gain.value = 7;
+        const top = ctx.createBiquadFilter();
+        top.type = 'lowpass';
+        top.frequency.value = 1900;
+        const level = ctx.createGain();
+        level.gain.value = o.volume;
+        src.connect(body).connect(top).connect(level).connect(out);
+        src.start(start);
+        end = Math.max(end, start + o.duration);
+      },
     };
     if (recorded) {
       const src = ctx.createBufferSource();
@@ -770,6 +877,42 @@ export class Sound {
   }
 
   /** Quick fade in, then a smooth exponential fade out by `stop`. */
+  /** Plucked strings, made once per pitch and kept (see pluckBuffer). */
+  private plucks = new Map<string, AudioBuffer>();
+
+  /**
+   * A plucked string (Karplus-Strong): a short burst of noise, smoothed by `brightness` (a fingertip is soft, a pick
+   * bright), fed round a delay one period long that averages and damps it each time. That loop rings at the string's
+   * pitch, losing its highs first, as a real string does. Tuned to fade to about 5% within `duration`.
+   */
+  private pluckBuffer(ctx: AudioContext, freq: number, duration: number, brightness: number): AudioBuffer {
+    const key = `${Math.round(freq * 4)}|${duration}|${brightness}`;
+    const cached = this.plucks.get(key);
+    if (cached) return cached;
+    const rate = ctx.sampleRate;
+    const length = Math.ceil(duration * rate);
+    const buffer = ctx.createBuffer(1, length, rate);
+    const y = buffer.getChannelData(0);
+    // The averaging adds half a sample of delay: take it off the loop, so the note is in tune.
+    const period = Math.max(2, Math.round(rate / freq - 0.5));
+    const loss = 0.05 ** (1 / (freq * duration));
+    let smooth = 0;
+    let mean = 0;
+    for (let i = 0; i < period; i++) {
+      smooth += (Math.random() * 2 - 1 - smooth) * (0.15 + 0.85 * brightness);
+      y[i] = smooth;
+      mean += smooth / period;
+    }
+    for (let i = 0; i < period; i++) y[i] -= mean; // No thump from a DC offset.
+    for (let i = period; i < length; i++) y[i] = loss * 0.5 * (y[i - period] + y[Math.max(0, i - period - 1)]);
+    let peak = 0;
+    for (let i = 0; i < length; i++) peak = Math.max(peak, Math.abs(y[i]));
+    const fade = Math.min(length, Math.floor(rate * 0.03));
+    for (let i = 0; i < length; i++) y[i] = (y[i] / (peak || 1)) * (i > length - fade ? (length - i) / fade : 1);
+    this.plucks.set(key, buffer);
+    return buffer;
+  }
+
   private envelope(ctx: AudioContext, start: number, stop: number, volume: number, attack = 0.005): GainNode {
     const env = ctx.createGain();
     env.gain.setValueAtTime(0.0001, start);

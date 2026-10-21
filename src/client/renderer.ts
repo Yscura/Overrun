@@ -299,6 +299,7 @@ export class GameRenderer {
     shuriken: Texture;
     glaive: Texture;
     axe: Texture;
+    note: Texture;
     hex: Texture;
     mine: Texture;
     enemyShot: Texture;
@@ -313,6 +314,7 @@ export class GameRenderer {
     coin: Texture;
     bomb: Texture;
     artifact: Texture;
+    chest: Texture;
     particle: Texture;
   };
   private aimArrow!: Sprite;
@@ -408,6 +410,19 @@ export class GameRenderer {
           .circle(0, 0, 4)
           .fill(0x5d4037),
       ),
+      // Lute Notes: an eighth note (head, stem and flag), tinted per note.
+      note: this.texture(
+        new Graphics()
+          .ellipse(-3, 6, 6, 4.5)
+          .fill(0xffffff)
+          .rect(1.5, -12, 2.5, 18)
+          .fill(0xffffff)
+          .moveTo(4, -12)
+          .quadraticCurveTo(12, -8, 10, 0)
+          .quadraticCurveTo(9, -6, 4, -6)
+          .closePath()
+          .fill(0xffffff),
+      ),
       axe: this.texture(new Graphics().rect(-12, -2, 22, 4).fill(0x8d6e4a).moveTo(4, -2).quadraticCurveTo(10, -14, 18, -10).lineTo(16, 2).quadraticCurveTo(10, 6, 4, 2).closePath().fill(0xffffff)),
       hex: this.texture(new Graphics().circle(0, 0, 10).fill({ color: 0xffffff, alpha: 0.25 }).poly(this.hexagon(6)).fill(0xffffff)),
       // Mines keep their own colors: dark casing with a red light.
@@ -476,24 +491,49 @@ export class GameRenderer {
           .circle(0, 0, COIN.radius * 0.55)
           .stroke({ width: 1.2, color: 0xffecb3 }),
       ),
-      // An artifact: a faceted crystal in a halo, white so it can be tinted its tier's color.
+      // A dropped artifact: an orb (what's inside is a surprise), a glass sphere in a halo, white so it can be tinted
+      // its tier's color.
       artifact: this.texture(
         new Graphics()
           .circle(0, 0, 30)
           .fill({ color: 0xffffff, alpha: 0.12 })
           .circle(0, 0, 22)
           .fill({ color: 0xffffff, alpha: 0.2 })
-          .poly([0, -17, 12, -3, 0, 15, -12, -3])
-          .fill(0xffffff)
+          .circle(0, 0, 15)
+          .fill(0xd8d8d8)
           .stroke({ width: 2, color: 0x303030 })
-          .poly([0, -17, 12, -3, 0, -3])
-          .fill(0xe0e0e0)
-          .poly([0, -3, 12, -3, 0, 15])
-          .fill(0x9e9e9e)
-          .poly([-12, -3, 0, -3, 0, 15])
-          .fill(0xc8c8c8)
-          .circle(-4, -8, 2.5)
+          .arc(0, 2, 13, 0.15, Math.PI - 0.15)
+          .fill({ color: 0x8a8a8a, alpha: 0.6 })
+          .moveTo(-6, 4)
+          .quadraticCurveTo(-6, -6, 5, -3)
+          .quadraticCurveTo(-1, -2, -1, 4)
+          .closePath()
+          .fill({ color: 0xffffff, alpha: 0.75 })
+          .ellipse(-5, -8, 5, 3)
           .fill(0xffffff),
+      ),
+      // A warlord's war chest: dark wood, iron bands and a gold lock, in a warm glow.
+      chest: this.texture(
+        new Graphics()
+          .circle(0, 0, 30)
+          .fill({ color: 0xffca28, alpha: 0.14 })
+          .roundRect(-18, -6, 36, 20, 3)
+          .fill(0x6d4c41)
+          .stroke({ width: 2, color: 0x2b1a12 })
+          .roundRect(-18, -16, 36, 12, 6)
+          .fill(0x8d6e63)
+          .stroke({ width: 2, color: 0x2b1a12 })
+          .rect(-12, -16, 4, 30)
+          .fill(0x9e9e9e)
+          .rect(8, -16, 4, 30)
+          .fill(0x9e9e9e)
+          .rect(-18, -6, 36, 3)
+          .fill(0x3e2723)
+          .roundRect(-4, -8, 8, 9, 2)
+          .fill(0xffca28)
+          .stroke({ width: 1.5, color: 0x8d5b00 })
+          .circle(0, -4, 1.4)
+          .fill(0x3e2723),
       ),
       bomb: this.texture(
         new Graphics()
@@ -1125,6 +1165,10 @@ export class GameRenderer {
           ? { texture: this.tex.glaive, tint: 0xffcc80, spin: true }
           : list[i + 1] === ProjectileKind.Axe
           ? { texture: this.tex.axe, tint: 0xcfd8dc, spin: true, scale: 1.9 }
+          : list[i + 1] === ProjectileKind.Note
+          ? { texture: this.tex.note, tint: [0xb388ff, 0x80deea, 0xf48fb1, 0xfff59d][list[i] % 4], scale: 1.1 }
+          : list[i + 1] === ProjectileKind.HitNote
+          ? { texture: this.tex.note, tint: 0xffd54f, scale: 1.4 }
           : list[i + 1] === ProjectileKind.Hex
             ? { texture: this.tex.hex, tint: 0xea80fc, spin: true }
             : { texture: this.tex.bolt, tint: 0xb3e5fc },
@@ -1772,7 +1816,7 @@ export class GameRenderer {
     const list = b.snap.pickups;
     const now = performance.now();
     const bob = 1 + Math.sin(now / 200) * 0.1;
-    const textures = [this.tex.crate, this.tex.heart, this.tex.coin, this.tex.bomb, this.tex.artifact];
+    const textures = [this.tex.crate, this.tex.heart, this.tex.coin, this.tex.bomb, this.tex.artifact, this.tex.chest];
     for (let i = 0; i < list.length; i += PICKUP_STRIDE) {
       const id = list[i];
       const kind = list[i + 1];
@@ -1800,6 +1844,9 @@ export class GameRenderer {
       } else if (kind === PickupKind.Bomb) {
         // The fuse fizzes: a nervous little pulse.
         view.sprite.scale.set(1 + Math.sin(now / 90 + id) * 0.05);
+      } else if (kind === PickupKind.Chest) {
+        // Sits heavy, with a slow, warm pulse so it's noticed.
+        view.sprite.scale.set(1.2 + Math.sin(now / 300 + id) * 0.05);
       } else if (kind === PickupKind.Artifact) {
         // Floats and glows in its tier's color.
         view.sprite.tint = TIERS[TIER_IDS[list[i + 4]] ?? 'common'].color;
@@ -1817,6 +1864,7 @@ export class GameRenderer {
         else if (view.type === PickupKind.Heart) this.burst(view.sprite.x, view.sprite.y, HEALTH_GREEN, 10);
         else if (view.type === PickupKind.Coin) this.burst(view.sprite.x, view.sprite.y, 0xffc107, 3);
         else if (view.type === PickupKind.Artifact) this.burst(view.sprite.x, view.sprite.y, view.sprite.tint as number, 24);
+        else if (view.type === PickupKind.Chest) this.burst(view.sprite.x, view.sprite.y, 0xffca28, 30);
       }
       this.release(view.sprite);
       this.pickupViews.delete(id);

@@ -2,7 +2,7 @@ import { PICKUP_BASE_RADIUS } from './constants';
 
 export type Role = 'ranged' | 'melee';
 /** Hero abilities (cast with E). They level up like weapons but only their own hero can get them. */
-export type AbilityId = 'meteor' | 'leap' | 'warcry' | 'veil' | 'flamenova' | 'tumble' | 'wildcall' | 'timebomb' | 'toxicpool' | 'consecrate' | 'prayer' | 'firewave';
+export type AbilityId = 'meteor' | 'leap' | 'warcry' | 'veil' | 'flamenova' | 'tumble' | 'wildcall' | 'timebomb' | 'toxicpool' | 'consecrate' | 'prayer' | 'firewave' | 'onhit';
 export type WeaponId =
   | 'bolt'
   | 'knives'
@@ -27,6 +27,7 @@ export type WeaponId =
   | 'glaive'
   | 'bulwark'
   | 'axe'
+  | 'notes'
   | AbilityId;
 export type PassiveId =
   | 'might'
@@ -643,6 +644,44 @@ export function axeStats(level: number) {
     returns: evolved,
   };
 }
+/**
+ * Lute Notes (the Bard's): notes that weave toward your aim, swinging `wave` radians either side of it (`waveSpeed`
+ * radians a second), each piercing `pierce` enemies. Evolved: two more lines of notes, and they pierce further.
+ * Each volley is the next note of the Bard's song (shared/song.ts), and the wait until the next volley is that
+ * note's length in the song at SONG_BPM (attack speed plays it faster). A volley hits for `dps` times how long it
+ * waits, split over its `count` notes: long notes hit harder, quick ones lighter, `dps` a second either way.
+ */
+export function notesStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  const count = 1 + Math.floor(n / 3) + (evolved ? 2 : 0);
+  return {
+    dps: Math.round(((11 + 4 * n) * (1 + Math.floor(n / 2) + (evolved ? 2 : 0))) / Math.max(0.4, 0.75 - 0.05 * n)),
+    count,
+    pierce: 1 + Math.floor(n / 3) + (evolved ? 2 : 0),
+    speed: 400,
+    range: 620,
+    spread: 0.3,
+    wave: 0.55,
+    waveSpeed: 9,
+  };
+}
+
+/**
+ * On Hit (the Bard's E): for `duration` seconds his Lute Notes play a hit: each hits `bonus` harder and deals true
+ * damage (no armor or ward stops it), and they glow gold. Evolved (Encore): the song also plays `haste` faster.
+ */
+export function onhitStats(level: number) {
+  const n = Math.min(level, MAX_LEVEL) - 1;
+  const evolved = level >= EVOLVED_LEVEL;
+  return {
+    bonus: 0.5 + 0.1 * n,
+    duration: 5 + 0.4 * n,
+    cooldown: Math.max(8, 12 - 0.5 * n),
+    haste: evolved ? 0.6 : 0,
+  };
+}
+
 const slowPct = `${Math.round(POISON_SLOW.amount * 100)}%`;
 
 /** Overall cost of levels: higher means fewer, further-apart level-ups (above all early on). */
@@ -928,6 +967,18 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
     },
     evolution: { name: 'Returning Axe', text: 'After it hits the ground, the axe spins back to you, cutting through everything again on the way.' },
   },
+  notes: {
+    name: 'Lute Notes',
+    kind: 'weapon',
+    scales: ['multishot'],
+    damage: 'magic',
+    exclusive: 'bard',
+    describe: (level) => {
+      const s = notesStats(level);
+      return `Plays a song note by note, in its own rhythm (faster attacks play it faster): ${plural(s.count, 'note')} at a time weave toward your cursor, piercing ${plural(s.pierce, 'enemy', 'enemies')}, for about ${s.dps} damage a second (long notes hit harder).`;
+    },
+    evolution: { name: 'Symphony', text: 'Two more lines of notes, and each pierces two more enemies.' },
+  },
   flask: {
     name: 'Flask Toss',
     kind: 'weapon',
@@ -1059,6 +1110,18 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
       return `[E] A wave of fire bursts up in a row toward your cursor: ${s.count} blasts of ${s.damage} damage. In Dragon Form: breathe fire instead. ${s.cooldown.toFixed(1)}s cooldown.`;
     },
     evolution: { name: 'Molten Path', text: 'Three more blasts, and each one leaves the ground burning.' },
+  },
+  onhit: {
+    name: 'On Hit',
+    kind: 'weapon',
+    damage: 'true',
+    owner: 'bard',
+    scales: ['duration'],
+    describe: (level) => {
+      const s = onhitStats(level);
+      return `[E] Play a hit: for ${s.duration.toFixed(1)}s your Lute Notes hit ${Math.round(s.bonus * 100)}% harder and deal true damage, which no armor or ward can stop. ${s.cooldown.toFixed(1)}s cooldown.`;
+    },
+    evolution: { name: 'Encore', text: 'While it plays, the song speeds up: your Lute Notes come 40% faster.' },
   },
   timebomb: {
     name: 'Time Bomb',
